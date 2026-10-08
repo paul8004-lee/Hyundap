@@ -92,7 +92,7 @@
 기업별로 흩어진 문서를 **공통 구조로 정리**하고, **하나의 화면에서 검색**합니다.
 
 <div align="center">
-<img src="images/architecture.webp" alt="다중 기업 문서 검색 플랫폼 구조도" width="100%" />
+<img src="images/architecture.png" alt="다중 기업 문서 검색 플랫폼 구조도" width="100%" />
 </div>
 
 ### 챗봇이 아니라 검색 플랫폼입니다
