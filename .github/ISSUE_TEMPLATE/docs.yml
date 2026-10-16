@@ -1,0 +1,19 @@
+name: "📝 문서 (Docs)"
+description: README, 위키 등 문서를 작성하거나 수정합니다.
+title: "[Docs] "
+labels: ["docs"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 작업 내용
+      description: 어떤 문서를 작성·수정하는지 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: 작업 목록
+      value: |
+        - [ ]

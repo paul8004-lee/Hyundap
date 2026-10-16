@@ -1,0 +1,28 @@
+name: "♻️ 리팩토링 (Refactor)"
+description: 동작은 그대로 두고 코드 구조를 개선합니다.
+title: "[Refactor] "
+labels: ["refactor"]
+body:
+  - type: textarea
+    id: target
+    attributes:
+      label: 대상
+      description: 리팩토링할 파일, 모듈, 기능을 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 리팩토링 이유
+      description: 현재 코드의 문제점을 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: 개선 방안
+      value: |
+        - [ ]
+        - [ ]

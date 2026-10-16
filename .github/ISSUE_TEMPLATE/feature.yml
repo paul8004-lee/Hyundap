@@ -1,0 +1,43 @@
+name: "✨ 기능 개발 (Feature)"
+description: 새로운 기능을 추가하거나 기존 기능을 개선합니다.
+title: "[Feat] "
+labels: ["feature"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 기능 설명
+      description: 어떤 기능을 왜 개발하는지 간단히 적어주세요.
+      placeholder: 예) 로그인 페이지에 소셜 로그인(카카오) 버튼 추가
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: 작업 목록
+      description: 해야 할 작업을 체크리스트로 나눠주세요.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 어떤 상태가 되면 이 이슈를 닫을 수 있나요?
+      placeholder: 예) 카카오 계정으로 로그인 후 메인 페이지로 이동된다.
+
+  - type: input
+    id: due
+    attributes:
+      label: 마감일
+      placeholder: "YYYY-MM-DD"
+
+  - type: textarea
+    id: etc
+    attributes:
+      label: 참고 사항
+      description: 디자인 링크, 관련 이슈, 참고 자료 등

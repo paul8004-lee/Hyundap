@@ -1,0 +1,19 @@
+name: "🔧 설정 / 기타 (Chore)"
+description: 빌드, 패키지, CI, 환경 설정 등 기능 외 작업입니다.
+title: "[Chore] "
+labels: ["chore"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 작업 내용
+      description: 어떤 설정이나 작업을 하는지 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: 작업 목록
+      value: |
+        - [ ]

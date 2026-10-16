@@ -1,0 +1,55 @@
+name: "🐛 버그 제보 (Bug)"
+description: 발견한 버그를 제보합니다.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 버그 설명
+      description: 어떤 문제가 발생했는지 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 재현 방법
+      description: 버그를 다시 일으키는 순서를 적어주세요.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+      description: 원래 어떻게 동작해야 하나요?
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: 스크린샷 / 로그
+      description: 에러 메시지나 화면 캡처를 붙여주세요.
+
+  - type: input
+    id: environment
+    attributes:
+      label: 실행 환경
+      placeholder: 예) Windows 11 / Chrome 130 / main 브랜치
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 긴급도
+      options:
+        - 높음 (서비스 이용 불가)
+        - 보통
+        - 낮음
+    validations:
+      required: true
