@@ -1,6 +1,11 @@
 {
   "repo": "paul8004-lee/Hyundap",
   "wbs_glob": "*WBS*.xlsx",
+  "drive": {
+    "folder_id": "1YhbkqVbEwGcxlczbdRbz4L5exCoFEIsA",
+    "folder_name": "1차 프로젝트_3팀",
+    "wbs_file": "다중기업문서검색플랫폼_WBS.xlsx"
+  },
   "members": {
     "이성민": "paul8004-lee",
     "전재경": "wjsworud1025",
@@ -19,7 +24,7 @@
   },
   "status": {
     "done": "done",
-    "in_progress": "진행중"
+    "in_progress": ["진행중", "in progress"]
   },
   "step_area": {
     "1.1.0.": "area:기획·설계",

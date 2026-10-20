@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -63,6 +64,27 @@ def gh_json(args):
 def gh_list(path):
     pages = gh_json(["api", "--paginate", "--slurp", path])
     return [item for page in pages for item in page]
+
+
+# ---------- WBS location ----------
+
+def find_drive_wbs(drive):
+    """Return the WBS path inside a Google Drive for desktop mount, if any.
+
+    Drive for desktop exposes a shortcut's target folder under
+    <letter>:/.shortcut-targets-by-id/<folder id>/<folder name>/ on any drive letter.
+    """
+    if not drive:
+        return None
+    for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
+        path = (Path(f"{letter}:/") / ".shortcut-targets-by-id" / drive["folder_id"]
+                / drive["folder_name"] / drive["wbs_file"])
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
+    return None
 
 
 # ---------- WBS parsing ----------
@@ -165,9 +187,12 @@ def build_issue(task, cfg, days, assignable):
             shown.append(name)
 
     status = task["status"]
-    if status == cfg["status"]["in_progress"]:
+    in_progress = cfg["status"]["in_progress"]
+    if isinstance(in_progress, str):
+        in_progress = [in_progress]
+    if status.lower() in {s.lower() for s in in_progress}:
         labels.add(lab["in_progress"])
-    closed = status == cfg["status"]["done"]
+    closed = status.lower() == cfg["status"]["done"].lower()
 
     day_no = next((n for n, d in days.items() if d == task["end"]), None)
     schedule = f"{fmt_day(task['start'])} ~ {fmt_day(task['end'])}"
@@ -218,13 +243,16 @@ def main():
     cfg = json.loads((TOOL_DIR / "config.json").read_text(encoding="utf-8"))
     repo = cfg["repo"]
     if args.file:
-        wbs_path = Path(args.file)
+        wbs_path, source = Path(args.file), "직접 지정"
+    elif (drive_path := find_drive_wbs(cfg.get("drive"))) is not None:
+        wbs_path, source = drive_path, "Google Drive"
     else:
         found = sorted(REPO_ROOT.glob(cfg["wbs_glob"]), key=lambda p: p.stat().st_mtime)
         if not found:
-            sys.exit(f"레포 폴더에서 '{cfg['wbs_glob']}' 파일을 찾지 못했습니다. --file 로 경로를 지정하세요.")
-        wbs_path = found[-1]
-    print(f"WBS 파일: {wbs_path.name}")
+            sys.exit("WBS 파일을 찾지 못했습니다. Google Drive 데스크톱 앱 연결을 확인하거나, "
+                     f"레포 폴더에 '{cfg['wbs_glob']}' 파일을 내려받거나, --file 로 경로를 지정하세요.")
+        wbs_path, source = found[-1], "레포 폴더"
+    print(f"WBS 파일 ({source}): {wbs_path}")
 
     tasks, days = read_wbs(wbs_path)
     ids = [t["id"] for t in tasks]
@@ -237,8 +265,21 @@ def main():
     cache = {}
 
     def assignable(login):
+        # Only an explicit 404 means "not assignable"; any other failure is transient,
+        # so retry and stop rather than silently dropping the assignee.
         if login not in cache:
-            cache[login] = gh(["api", "--silent", f"repos/{repo}/assignees/{login}"], check=False).returncode == 0
+            for attempt in range(3):
+                proc = gh(["api", "--silent", f"repos/{repo}/assignees/{login}"], check=False)
+                if proc.returncode == 0:
+                    cache[login] = True
+                    break
+                if "HTTP 404" in proc.stderr:
+                    cache[login] = False
+                    break
+                time.sleep(2 * (attempt + 1))
+            else:
+                sys.exit(f"담당자 확인 중 네트워크 오류가 반복되어 중단합니다 ({login}). 잠시 후 다시 실행하세요.\n"
+                         f"{proc.stderr.strip()}")
         return cache[login]
 
     desired = {t["id"]: build_issue(t, cfg, days, assignable) for t in tasks}
