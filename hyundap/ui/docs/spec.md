@@ -53,6 +53,9 @@
 ```text
 hyundap/
 ├─ app.py                   # 화면 조립, Gradio 이벤트, 출처 모달, 실행
+├─ tests/                   # UI 검사 16개 이전 완료 (PR #140)
+│  ├─ test_ui_controller.py
+│  └─ test_ui_services.py
 └─ ui/
    ├─ __init__.py
    ├─ login_page.py         # 로그인 화면
@@ -68,9 +71,6 @@ hyundap/
    ├─ common.css            # 공통·로그인 스타일
    ├─ assets/
    │  └─ password-visibility.svg
-   ├─ tests/                # 담당자 이전 전 인계용 원본 임시 유지
-   │  ├─ test_services.py
-   │  └─ test_controller.py
    ├─ README.md             # 실행·연결 안내
    └─ docs/spec.md          # 이 문서
 ```
@@ -318,10 +318,10 @@ python -m pip install -r requirements.txt
 python -m hyundap.app
 ```
 
-같은 환경에서 현재 인계용 UI 검사를 실행할 수 있다.
+같은 환경에서 UI 검사를 실행할 수 있다.
 
 ```powershell
-python -m unittest discover -s hyundap/ui/tests -v
+python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v
 ```
 
 예시 로그인은 일반 사용자 `employee`, 관리자 `manager` 또는 `admin`, 공통 비밀번호 `demo1234`다. `점검`을 검색하면 결과·상세·요약·질문·출처 흐름을 확인할 수 있다. 상세 실행 방법은 [UI README](../README.md)를 따른다.
@@ -337,9 +337,9 @@ python -m unittest discover -s hyundap/ui/tests -v
 | 상태 격리 | 브라우저별 상태 분리, 필터 변경 전 지연 답변 무시, 만료 후 결과 표시 제거 |
 | 화면·모달 | 스타일·아이콘 정상 로드, 모달 닫기·Esc·포커스 복귀 |
 
-현재 `test_services.py` 6개, `test_controller.py` 10개로 총 16개의 자동 검사가 있다. 새 폴더 구조로 이전한 뒤 모두 통과했고 로그인·검색 화면을 브라우저에서도 확인했다. 테스트는 예시 서비스와 가짜 연결 함수 기반이며 실제 DB·인증·LLM·문서 저장 통합 결과를 의미하지 않는다.
+현재 `hyundap/tests/test_ui_services.py` 6개, `test_ui_controller.py` 10개로 총 16개의 UI 자동 검사가 있다. 테스트는 예시 서비스와 가짜 연결 함수 기반이며 실제 DB·인증·LLM·문서 저장 통합 결과를 의미하지 않는다.
 
-검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구한다. 따라서 `actor`로 호출하는 실수가 다시 들어오면 실패한다. `hyundap/ui/tests/`는 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성하기 전까지 인계용 원본으로 임시 보존한다. 아직 이전된 UI 검사가 없으므로 기존 16개 검사를 삭제하지 않으며, 이번 UI 수정에서 담당자의 `hyundap/tests/`는 변경하지 않는다.
+검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구한다. 따라서 `actor`로 호출하는 실수가 다시 들어오면 실패한다. UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전했다(#127).
 
 ## 10. 실제 연결 전 받아야 할 정보
 
@@ -364,7 +364,7 @@ python -m unittest discover -s hyundap/ui/tests -v
 | 공통 문서 유형 | `hyundap.common.schemas.DOC_TYPES`를 가져와 Gradio 선택지 순서로 변환; `guide` 표시명은 `가이드` |
 | 회사 목록 | DB·auth 조회 함수 제공 대기; 예시 `COMPANIES` 유지 |
 | import 기준 | 저장소 루트의 `hyundap` 패키지 기준; `python -m hyundap.app`으로 실행 통일, 앱의 `sys.path` 우회 제거 |
-| 테스트 담당 | 기존 UI 검사 16개를 인계용으로 보존; 담당자가 `hyundap/tests/`로 이전한 뒤 정리 |
+| 테스트 담당 | PR #140에서 UI 검사 16개를 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전 완료; 기존 UI 테스트 원본 제거 |
 | PR 본문·화면 | 사용자 검토용 초안·캡처를 준비하며 PR 생성·수정은 사용자가 진행 |
 
 완료로 표시한 항목은 UI 코드와 문서의 수정 상태다. 공통 문서 유형은 연결했으며, 회사 목록 조회, 실제 백엔드 함수 등록과 DB·인증·검색·LLM 통합 검수는 계속 대기 상태다. 실제 담당 함수 연결과 통합 검수 전에는 백엔드 연결 완료로 표시하지 않는다.

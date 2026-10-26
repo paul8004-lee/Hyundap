@@ -1,4 +1,4 @@
-"""db/schema.py — DB 구조 조회·검증과 검토용 마이그레이션 SQL 생성.
+"""db/schema.py - DB 구조 조회·검증과 검토용 마이그레이션 SQL 생성.
 
 마이그레이션을 자동 적용하지 않는 읽기 전용 준비 도구다.
 입력은 현재 DB 구조이고 결과는 구조 JSON·오류 목록·검토용 SQL이다.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 from sqlalchemy import inspect, text
 
-from db.connection import create_db_engine
+from .connection import create_db_engine
 
 
 SUPPORTED_SCHEMA_VERSIONS = (3, 4)

@@ -152,7 +152,7 @@ python -m hyundap.app                                 # 앱 실행
 python -m unittest discover -s hyundap/tests -t .     # 전체 테스트
 ```
 
-> 테스트 파일 import 정리(#127·#128)가 끝나기 전에는 `cd hyundap` 후 `python -m unittest discover -s tests`로 테스트를 실행합니다.
+코드 주석과 설명(docstring)은 한글로 씁니다.
 
 ### import 규칙
 

@@ -1,5 +1,7 @@
 # AI 문서검색 통합 기능명세서
 
+> 실행은 저장소 맨 위 `Hyundap/` 기준입니다. 앱은 `python -m hyundap.app`, 테스트는 `python -m unittest discover -s hyundap/tests -t .`로 실행합니다. 다른 폴더는 `from hyundap.common.config import get_settings`처럼 전체 패키지 경로로, 같은 폴더는 상대 import로 가져옵니다. `.env`도 저장소 맨 위에 둡니다.
+
 > 공유 드라이브의 `문서검색_통합_기능명세서.xlsm.xlsx` 전체 시트를 옮긴 문서입니다. 내용이 다르면 엑셀 파일이 기준입니다.
 > 소스 위치에 적힌 경로는 `hyundap/` 폴더 기준입니다.
 
@@ -194,7 +196,7 @@
 | ENT-034 | 계정 권한 영역 진입·목록 새로고침 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 전재경 제공 계정/역할 목록으로 선택창 채우기 | services, ui_state | ui.admin_page.load_account_options | FUN-169 | ui/admin_page.py (구현 예정·박경환) |
 | ENT-035 | 계정 권한 저장·확인 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 확인 후 전재경 제공 권한 변경 함수에 전달·결과 표시 | account_id, new_role, services, ui_state | ui.admin_page.on_role_change_submit | FUN-170 | ui/admin_page.py (구현 예정·박경환) |
 | ENT-036 | 로그 영역 진입·새로고침 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 전재경 제공 로그/처리 결과를 조회·표시 | services, ui_state | ui.admin_page.load_log_view | FUN-171 | ui/admin_page.py (구현 예정·박경환) |
-| ENT-037 | python app.py | 실행(예정) | Hyundap | 로컬 실행자 | 공통 설정과 제공 기능으로 Gradio 앱 조립·실행 | common.config 제공 설정·담당 모듈 | app.main | FUN-177, FUN-176 | app.py (구현 예정·박경환) |
+| ENT-037 | python -m hyundap.app | 실행(예정) | Hyundap | 로컬 실행자 | 공통 설정과 제공 기능으로 Gradio 앱 조립·실행 | common.config 제공 설정·담당 모듈 | app.main | FUN-177, FUN-176 | app.py (구현 예정·박경환) |
 
 #### 모듈
 
@@ -488,7 +490,7 @@
 - **역할**: 공통 설정과 담당자 제공 기능을 받아 Gradio 앱을 조립하고 실행한다.
 - **입력 인자·기본값**: 없음(실행 설정은 common.config 제공)
 - **반환 형식·구조**: 실행 중인 Gradio 앱
-- **진입점·연결 방식**: 구현 예정: python app.py · ENT-037
+- **진입점·연결 방식**: 구현 예정: python -m hyundap.app · ENT-037
 - **직접 호출 대상**: 예정 연계: common/config.py 제공 설정 · 이성민, FUN-176, Gradio launch
 - **직접 발생 오류**: 오류 처리안: 앱 시작 실패 안내. .env 파싱·패키지 관리·DB 초기화·모델 로딩 구현은 담당자 기능 사용
 - **데코레이터**: 없음(설계안)
@@ -2728,7 +2730,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(chatbot)
 - **화면·진입점**: ask
-- **주요 입력**: question: str / evidence_text: str — format_evidence 결과 / chain: Runnable | None = None — 테스트용 가짜 체인 자리
+- **주요 입력**: question: str / evidence_text: str — format_evidence 결과
 - **처리 흐름**: 질문과 근거 문자열로 LLM을 호출해 인용이 달린 답변 원문을 받는다.
 - **출력·상태**: str — 예: '교육은 11월 3일에 시작합니다 [E1].'
 - **연결 상태**: 설계(미구현)
@@ -2772,7 +2774,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(chatbot)
 - **화면·진입점**: ask, summarize_document
-- **주요 입력**: user: UserContext / cited: list[VectorHit] — 답변에 실제 쓰인 근거 / checker: 함수 | None = None — 개발 중 가짜 자리
+- **주요 입력**: user: UserContext / cited: list[ChunkHit] — 답변에 실제 쓰인 근거
 - **처리 흐름**: 답변을 돌려주기 직전에, 인용한 문서를 이 사용자가 지금도 볼 수 있는지 auth에 다시 확인한다.
 - **출력·상태**: None (통과)
 - **조건·범위**: ask·요약 모두, 인용 문서·버전 기준
@@ -2802,7 +2804,7 @@
 - **적용 모드**: P2
 - **사용 주체**: 로그인 사용자
 - **화면·진입점**: 박경환 ui.chat_page.on_summary_request
-- **주요 입력**: document_id: str / user: UserContext / checker: 함수 | None = None — 개발 중 가짜 자리
+- **주요 입력**: document_id: str / user: UserContext
 - **처리 흐름**: 선택한 문서를 요약하고 포함 범위와 출처를 함께 돌려주는 요약 입구 함수.
 - **출력·상태**: SummaryResponse(summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks)
 - **연결 상태**: 설계(미구현)
@@ -2947,7 +2949,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 사용자 권한과 필터가 적용된 범위에서 질문과 가까운 근거 청크를 받아 온다.
-- **입력 인자·기본값**: question: str, filters: ChatFilters, user: UserContext / retriever: 함수 | None = None — 개발 중 가짜 검색을 넣는 자리
+- **입력 인자·기본값**: question: str, filters: ChatFilters, user: UserContext
 - **반환 형식·구조**: list[ChunkHit] — search_chunks 결과 (CLS-051)
 - **진입점·연결 방식**: ask
 - **직접 호출 대상**: search.search_chunks, map_dependency_error
@@ -2957,8 +2959,7 @@
 - **소스 위치**: chatbot/ask.py (구현 예정)
 - **담당자**: 소용우
 - **처리 순서**:
-  - retriever가 없으면 search.search_chunks를 사용 (filters의 company_ids·doc_types·document_ids를 나눠 전달)
-  - 1. 2. retriever(question, filters, user, top_k=top_k×2) 호출 (다음 단계에서 줄이므로 넉넉히)
+  - 1. 2. search.search_chunks(user, query, company_ids, doc_types, document_ids, top_k=TOP_K×2) 호출 — filters 값을 나눠 전달 (다음 단계에서 줄이므로 넉넉히)
   - 3. 검색·임베딩 오류는 map_dependency_error로 RETRIEVAL_FAILED 변환
   - 4. 받은 목록을 그대로 반환 (정렬·제한은 select_evidence)
 
@@ -2988,7 +2989,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 질문과 근거 문자열로 LLM을 호출해 인용이 달린 답변 원문을 받는다.
-- **입력 인자·기본값**: question: str / evidence_text: str — format_evidence 결과 / chain: Runnable | None = None — 테스트용 가짜 체인 자리
+- **입력 인자·기본값**: question: str / evidence_text: str — format_evidence 결과
 - **반환 형식·구조**: str — 예: '교육은 11월 3일에 시작합니다 [E1].'
 - **진입점·연결 방식**: ask
 - **직접 호출 대상**: build_answer_chain → OpenAI, map_dependency_error
@@ -3026,7 +3027,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 답변을 돌려주기 직전에, 인용한 문서를 이 사용자가 지금도 볼 수 있는지 auth에 다시 확인한다.
-- **입력 인자·기본값**: user: UserContext / cited: list[VectorHit] — 답변에 실제 쓰인 근거 / checker: 함수 | None = None — 개발 중 가짜 자리
+- **입력 인자·기본값**: user: UserContext / cited: list[ChunkHit] — 답변에 실제 쓰인 근거
 - **반환 형식·구조**: None (통과)
 - **진입점·연결 방식**: ask, summarize_document
 - **직접 호출 대상**: auth.permissions.verify_documents_access
@@ -3037,11 +3038,10 @@
 - **담당자**: 소용우
 - **처리 순서**:
   - 1. 인용 근거에서 (document_id, version_id)를 중복 없이 추림
-  - 2. 3. checker(user, refs) 호출
+  - 2. 3. auth.permissions.verify_documents_access(user, refs) 호출
   - 4. 권한 없음 → AccessError 그대로
   - 삭제·버전 변경 → ChatbotError(STATE_CHANGED)
   - 5. 통과면 None
-  - checker가 없으면 auth.permissions.verify_documents_access 사용
 
 ##### FUN-408 `get_chat_model`
 
@@ -3272,7 +3272,7 @@
 - **모듈**: chatbot.summary
 - **구분**: 모듈 함수
 - **역할**: 선택한 문서를 요약하고 포함 범위와 출처를 함께 돌려주는 요약 입구 함수.
-- **입력 인자·기본값**: document_id: str / user: UserContext / checker: 함수 | None = None — 개발 중 가짜 자리
+- **입력 인자·기본값**: document_id: str / user: UserContext
 - **반환 형식·구조**: SummaryResponse(summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks)
 - **진입점·연결 방식**: 박경환 ui.chat_page.on_summary_request
 - **직접 호출 대상**: auth.permissions.verify_documents_access, [박영준] get_document_chunks, recheck_before_return, build_summary_chain, assign_aliases, build_citation, render_answer, summarize_batch, merge_summaries, compute_coverage, limit_summary_chunks

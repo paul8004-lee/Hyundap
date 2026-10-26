@@ -1,12 +1,12 @@
 """tests/test_db_connection.py — DB 접속 설정과 오류 출력의 비밀정보 보호 검증.
 
-테스트 실행 명령은 hyundap 폴더에서 python -m unittest tests.test_db_connection -v이다."""
+테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_db_connection -v이다."""
 import io
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from db import connection
+from hyundap.db import connection
 
 
 class DatabaseConnectionTests(unittest.TestCase):

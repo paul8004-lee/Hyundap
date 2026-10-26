@@ -1,10 +1,11 @@
+"""tests/test_ui_controller.py — UI 화면 컨트롤러 검사 (hyundap/ui/tests에서 이동).
+
+실행: 저장소 맨 위에서 python -m unittest hyundap.tests.test_ui_controller -v"""
 import asyncio
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from hyundap.ui.controller import UIController
 from hyundap.ui.mock_services import MockServices
 from hyundap.ui.services import UIServiceError
