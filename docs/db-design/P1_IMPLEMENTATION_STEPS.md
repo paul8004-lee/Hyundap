@@ -6,7 +6,7 @@
 |---|---|---|
 | A. 문서 메타데이터·중복·후보 생성 | #154, #155, #156 | 로컬 코드·계약·테스트 반영. 공통 유형과 누락 기본값, 검증된 현재 후보 제외, 최종 중복 검사 유지. MySQL 원자성·동시성은 대기 |
 | B. 청크·보고서 저장 정합성 | #157, #158, #159 | 로컬 구현 반영. 청크 경계 테스트, 수집 보고서 허용 필드, 성공 보고서의 예상·실제 청크 수 비교와 버전→작업 잠금. 실제 MySQL 검증 대기 |
-| C. 현재 세션·회사·문서 상태 조회 | #160 | 기존 구현의 함수 계약·경계 입력 회귀. 인증 생성·검색·챗봇 연결 제외 |
+| C. 현재 세션·회사·문서 상태 조회 | #160 | 기존 구현 재사용. 합성 SQLite에서 실제 조회 SQL을 실행하는 회귀 8개 통과. 실제 MySQL 검증 대기. 인증 생성·검색·챗봇 연결 변경 없음 |
 | D. 게시·실패·재시도·복구 SQL | #161, #162 | A/B 이후 SQL 전이·롤백·포인터 충돌을 함께 검증. 외부 실행 순서는 변경하지 않음 |
 | E. 환경·스키마·최종 증거 | #152, #153, #163 | 격리 환경은 각 묶음의 MySQL 검증 선행. 실제 DB 실측은 독립 대기 가능. 마지막에 고정 버전 회귀와 문서 대조 |
 
@@ -20,6 +20,16 @@ python -m unittest hyundap.tests.test_document_storage hyundap.tests.test_db_con
 ```
 
 다음 구현은 묶음 B다. 새 기능의 MySQL 증거가 확보되기 전 관련 이슈를 닫지 않는다.
+
+후속 진행: 묶음 B는 `43dace6`로 push했고, 묶음 C는 조회 계약 테스트 8개를 추가했다.
+최신 검증은 아래 명령으로 68개 중 30개 통과·38개 MySQL skip·실패 0이다.
+세션 시간 함수는 SQLite fixture의 고정 시각 대역이며 실제 MySQL 만료 처리·잠금 검증과 구분한다.
+
+```powershell
+python -m unittest hyundap.tests.test_access_queries hyundap.tests.test_ingest_storage hyundap.tests.test_document_storage hyundap.tests.test_db_connection hyundap.tests.test_schema_migration hyundap.tests.test_db_runtime hyundap.tests.test_upload_workflow
+```
+
+다음 구현 묶음은 D(#161·#162)의 게시·복구 SQL 검증이다.
 
 기준: db01 / develop `98d428e`, 2026-10-26. DB 담당 범위만 포함한다. 각 단계는 기존 코드 재사용을 우선하며 완료 체크는 실제 검증 후 수행한다.
 
