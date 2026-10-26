@@ -1,11 +1,22 @@
 """common/schemas.py — 수집·임베딩·검색·챗봇 사이에 전달하는 공통 데이터 형식.
 
-담당: 이성민. Section, CommonDocument(CLS-042), Chunk(CLS-100)를 제공한다.
+담당: 이성민. Section, CommonDocument(CLS-042), Chunk(CLS-100), 문서 유형 목록(DOC_TYPES)을 제공한다.
 필드명은 모듈 간 계약이므로 자료형 변경 시 팀에 공유한다."""
 from dataclasses import dataclass, field
 
 # 모든 CommonDocument.header에 반드시 포함해야 하는 키다.
 HEADER_KEYS = ('document_id', 'version_id', 'company_id', 'company_name', 'doc_type', 'file_name')
+
+# 문서 유형 (코드, 화면 표시 이름). DB_contract.md 채택안이며 db.schema의 CHECK 제약과 같아야 한다.
+# 회사 목록은 DB companies 테이블·auth 권한 함수가 제공하므로 여기에 두지 않는다.
+DOC_TYPES = (
+    ('manual', '매뉴얼'),
+    ('policy', '규정'),
+    ('guide', '가이드'),
+    ('other', '기타'),
+)
+DOC_TYPE_CODES = frozenset(code for code, _ in DOC_TYPES)
+DEFAULT_DOC_TYPE = 'other'  # 미분류 문서, DB 기본값과 같다.
 
 
 @dataclass
