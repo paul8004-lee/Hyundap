@@ -3,7 +3,7 @@
 업로드된 문서 파일(PDF · DOCX · PPTX) 1개를 **검색할 수 있는 작은 조각(청크)** 여러 개로 바꿔 주는 폴더입니다.
 
 - **담당**: 김혜리
-- **상태**: 설계 단계 (구현 예정) — 아래 "사용 방법"은 구현 후의 모습입니다.
+- **상태**: 구현중
 - **상세 명세**: [`docs/spec.md`](docs/spec.md)
 
 ## 이 폴더가 하는 일
@@ -101,7 +101,8 @@ else:
 
 ## 사용 라이브러리
 
-`pypdf`, `langchain-community`(PyPDFLoader), `python-docx`, `python-pptx`, `langchain-core`, `langchain-text-splitters` — 버전은 루트 `requirements.txt` 참고 (변경은 이성민에게 요청).
+- `pypdf`, `langchain-community`, `PyPDFLoader`, `python-docx`, `python-pptx`, `langchain-core`, `langchain-text-splitters` 
+- 버전은 루트 `requirements.txt` 참고
 
 ## 참고
 
