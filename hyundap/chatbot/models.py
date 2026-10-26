@@ -94,7 +94,7 @@ class SummaryResponse:
 
 def to_feedback(error):
     """받는 것: 예외 / 돌려주는 것: 화면 안내용 {status, message, error_code}. 내부 예외 원문은 넣지 않는다.
-    auth AccessError는 STATE_CHANGED면 다시 질문 안내, 나머지(ACCESS_DENIED·SESSION_EXPIRED 등)는 권한 없음 안내."""
+    auth AccessError는 STATE_CHANGED면 다시 질문 안내, SESSION_EXPIRED면 재로그인 안내, 나머지는 권한 없음 안내."""
     if type(error).__name__ in ACCESS_ERROR_NAMES:
         return to_feedback_access(error)
     if isinstance(error, ChatbotError):
@@ -104,8 +104,10 @@ def to_feedback(error):
 
 def to_feedback_access(error):
     """받는 것: auth AccessError / 돌려주는 것: 화면 안내 dict
-    STATE_CHANGED면 다시 질문 안내, 나머지(ACCESS_DENIED·SESSION_EXPIRED 등)는 권한 없음 안내."""
-    code = 'STATE_CHANGED' if getattr(error, 'code', None) == 'STATE_CHANGED' else 'ACCESS_DENIED'
+    STATE_CHANGED면 다시 질문 안내(failed), SESSION_EXPIRED면 재로그인 안내(session_expired),
+    나머지(ACCESS_DENIED 등)는 권한 없음 안내(denied)."""
+    code = getattr(error, 'code', None)
+    code = code if code in ('STATE_CHANGED', 'SESSION_EXPIRED') else 'ACCESS_DENIED'
     return {'status': to_feedback_status(code), 'message': ERROR_MESSAGES[code], 'error_code': code}
 
 
@@ -140,7 +142,9 @@ def map_dependency_error_access(error):
 
 
 def map_dependency_error_search(error):
-    """받는 것: search SearchError / 돌려주는 것: 권한 코드면 ACCESS_DENIED, 나머지는 RETRIEVAL_FAILED"""
+    """받는 것: search SearchError / 돌려주는 것: 세션 만료면 SESSION_EXPIRED, 권한 코드면 ACCESS_DENIED, 나머지는 RETRIEVAL_FAILED"""
+    if getattr(error, 'code', None) == 'SESSION_EXPIRED':
+        return ChatbotError('SESSION_EXPIRED')
     if getattr(error, 'code', None) in SEARCH_ACCESS_CODES:
         return ChatbotError('ACCESS_DENIED')
     return ChatbotError('RETRIEVAL_FAILED', retryable=bool(getattr(error, 'retryable', False)))

@@ -8,6 +8,7 @@
         summarize_document_load — 문서 청크를 받아 ChunkHit 목록으로 바꾼다.
         summarize_document_to_hit — VectorHit 1건을 ChunkHit로 바꾼다.
         summarize_document_partials — 8개씩 부분 요약하고 실패한 묶음을 가려낸다.
+        summarize_document_empty_error — 부분 요약이 없을 때 원인(근거 확인 실패·내용 없음)에 맞는 오류를 만든다.
         summarize_document_response — 포함·제외 범위를 붙여 SummaryResponse를 만든다.
     FUN-421 summarize_batch — 청크 묶음별 중간 요약을 만든다.
     FUN-422 merge_summaries — 중간 요약을 하나의 문서 요약으로 합친다.
@@ -34,8 +35,8 @@ def summarize_document(document_id, user):
     used_hits, _ = limit_summary_chunks(hits)
     aliases = cit.assign_aliases(used_hits)
     partials, skipped = summarize_document_partials(aliases)
-    if not partials:
-        raise ChatbotError('NO_EVIDENCE', '요약할 내용이 없습니다.')
+    if not partials:  # 묶음이 전부 인용 검사에 걸렸으면 내용이 없는 게 아니라 근거 확인 실패다
+        raise summarize_document_empty_error(skipped)
     summary = merge_summaries(partials, aliases)
     used = cit.extract_cited_aliases(summary)
     cited_hits = [aliases[alias] for alias in used]
@@ -84,6 +85,14 @@ def summarize_document_partials(aliases):
             if error.code == 'INVALID_CITATION':
                 skipped.append(list(batch.values()))
     return partials, skipped
+
+
+def summarize_document_empty_error(skipped):
+    """받는 것: 인용 검사에 걸려 뺀 묶음 목록 / 돌려주는 것: 부분 요약이 하나도 없을 때 올릴 ChatbotError
+    뺀 묶음이 있으면 근거 확인 실패(INVALID_CITATION), 없으면 표지·그림뿐이라 요약할 내용 없음(NO_EVIDENCE)."""
+    if skipped:
+        return ChatbotError('INVALID_CITATION', '문서 근거를 확인할 수 있는 요약을 만들지 못했습니다. 다시 시도해 주세요.')
+    return ChatbotError('NO_EVIDENCE', '요약할 내용이 없습니다.')
 
 
 def summarize_document_response(document_id, hits, used_hits, skipped, summary, used, citations):

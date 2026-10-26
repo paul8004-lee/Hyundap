@@ -48,7 +48,7 @@ except Exception as error:
 
 - 모든 실행은 저장소 맨 위 폴더에서 합니다 (이슈 #133). 다른 폴더는 `from hyundap.<폴더>...`, chatbot 안은 `from .models ...`처럼 가져옵니다.
 - 저장소 맨 위 `.env`에 `OPENAI_API_KEY`가 있어야 합니다. 모델은 `hyundap.common.config.get_settings()`가 정합니다 (기본 gpt-5, `.env`의 `OPENAI_CHAT_MODEL`로 변경).
-- 코드에는 가짜 함수 자리가 없습니다. search가 구현되기 전에는 질문·요약 모두 RETRIEVAL_FAILED("문서 검색에 실패했습니다")로 끝납니다. 시험할 때는 시험 코드에서 가짜 모듈을 끼웁니다 ([`docs/spec.md` 12절](docs/spec.md)).
+- 코드에는 가짜 함수 자리가 없습니다. search·auth·embedding은 develop에 구현돼 있어 실제 함수를 부릅니다(#143). 다른 폴더 오류는 `map_dependency_error`가 chatbot 오류 코드로 바꿉니다. 시험할 때는 시험 코드에서 가짜 모듈을 끼웁니다 ([`docs/spec.md` 12절](docs/spec.md)).
 
 ## 통합 명세에 없는 추가 항목
 
@@ -65,4 +65,4 @@ except Exception as error:
 **뺀 것:**
 
 - 통합본이 "개발 중 가짜 자리"로 적어 둔 인자(`retriever`, `checker`, `chain`, `get_chunks`, `llm`)와 임시 객체 대체 코드. 통합본 갱신 때 삭제를 요청합니다.
-- 명세 밖 함수·인자: `vector_to_chunk_hit`(요약 근거 변환은 `summarize_document` 안으로), `_to_filters`(dict 필터 변환은 be58de7에서 `ask` 안으로 다시 들어오고, 지금은 보조 함수 `ask_normalize_filters`), 개수 인자(`top_k` 등 — constants 값을 씀), 오류 문구 `SESSION_EXPIRED`(로그인 만료도 "권한 없음"으로 안내).
+- 명세 밖 함수·인자: `vector_to_chunk_hit`(요약 근거 변환은 `summarize_document` 안으로), `_to_filters`(dict 필터 변환은 be58de7에서 `ask` 안으로 다시 들어오고, 지금은 보조 함수 `ask_normalize_filters`), 개수 인자(`top_k` 등 — constants 값을 씀). (오류 코드 `SESSION_EXPIRED`는 한때 뺐다가 #144 리뷰로 다시 넣어, 로그인 만료 시 UI가 로그인 화면으로 이동합니다.)
