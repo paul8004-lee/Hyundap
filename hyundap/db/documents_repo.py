@@ -90,49 +90,82 @@ def create_document_version(actor, metadata, *, connection=None):
     """
     data = validate_metadata(metadata)
     with transaction(connection) as database:
-        current = current_actor(actor, connection=database, lock=True)
-        if current['role'] not in ('platform_admin', 'company_admin'):
+        # 세 단계가 같은 연결을 사용하므로 일부 저장만 성공한 상태가 남지 않는다.
+        _check_candidate_creation(database, actor, data)
+        document_id = _prepare_document(database, data)
+        return _insert_version_and_job(database, document_id, data)
+
+
+def _check_candidate_creation(database, actor, data):
+    """현재 사용자와 검증된 업로드 dict로 권한·기존 구조·중복을 검사한다. 반환값은 없다.
+
+    호출자의 같은 트랜잭션에서 세션·사용자·회사 순서로 잠근다.
+    회사 잠금은 다른 요청의 중복 확인과 후보 생성이 동시에 진행되지 않게 한다.
+    """
+    current = current_actor(actor, connection=database, lock=True)
+    if current['role'] not in ('platform_admin', 'company_admin'):
+        raise AccessError('ACCESS_DENIED')
+    if current['role'] != 'platform_admin' and current['company_id'] != data['company_id']:
+        raise AccessError('ACCESS_DENIED')
+    active = database.execute(text('SELECT is_active FROM companies WHERE id=:id FOR UPDATE'),
+                              {'id': data['company_id']}).scalar_one_or_none()
+    if not active:
+        raise AccessError('ACCESS_DENIED')
+    legacy = database.execute(text('''
+        SELECT d.id FROM documents d WHERE d.company_id=:company
+          AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.document_id=d.id)
+        LIMIT 1
+    '''), {'company': data['company_id']}).first()
+    if legacy:
+        raise DbError('INVALID_STATE')
+    duplicate = find_duplicate_document(data['company_id'], data['sha256'], connection=database)
+    if duplicate:
+        raise DbError('DUPLICATE_FILE')
+
+
+def _prepare_document(database, data):
+    """검증된 업로드 dict로 기존 문서를 확인하거나 새 문서를 만들고 문서 ID를 반환한다.
+
+    기존 문서는 회사·상태·유형이 맞아야 한다. 문서 잠금은 버전 번호를 저장할 때까지
+    호출자의 트랜잭션에서 유지하므로 같은 문서에 버전 번호가 중복되지 않는다.
+    """
+    document_id = data.get('document_id')
+    if not document_id:
+        document_id = str(uuid4())
+    if 'document_id' in data:
+        document = database.execute(text('''
+            SELECT company_id,doc_type,deleted_at,publication_status FROM documents
+            WHERE id=:id FOR UPDATE
+        '''), {'id': document_id}).mappings().one_or_none()
+        if not document or document['company_id'] != data['company_id']:
             raise AccessError('ACCESS_DENIED')
-        if current['role'] != 'platform_admin' and current['company_id'] != data['company_id']:
-            raise AccessError('ACCESS_DENIED')
-        active = database.execute(text('SELECT is_active FROM companies WHERE id=:id FOR UPDATE'),
-                                  {'id': data['company_id']}).scalar_one_or_none()
-        if not active:
-            raise AccessError('ACCESS_DENIED')
-        legacy = database.execute(text('''
-            SELECT d.id FROM documents d WHERE d.company_id=:company
-              AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.document_id=d.id)
-            LIMIT 1
-        '''), {'company': data['company_id']}).first()
-        if legacy:
+        if document['deleted_at'] is not None or document['publication_status'] == 'blocked':
             raise DbError('INVALID_STATE')
-        if find_duplicate_document(data['company_id'], data['sha256'], connection=database):
-            raise DbError('DUPLICATE_FILE')
-        document_id = data.get('document_id') or str(uuid4())
-        if 'document_id' in data:
-            document = database.execute(text('''
-                SELECT company_id,doc_type,deleted_at,publication_status FROM documents
-                WHERE id=:id FOR UPDATE
-            '''), {'id': document_id}).mappings().one_or_none()
-            if not document or document['company_id'] != data['company_id']:
-                raise AccessError('ACCESS_DENIED')
-            if document['deleted_at'] is not None or document['publication_status'] == 'blocked':
-                raise DbError('INVALID_STATE')
-            if document['doc_type'] != data['doc_type']:
-                raise DbError('INVALID_INPUT')
-        else:
-            database.execute(text('INSERT INTO documents (id,company_id,doc_type) VALUES (:id,:company,:type)'),
-                             {'id': document_id, 'company': data['company_id'], 'type': data['doc_type']})
-        number = database.execute(text('''
-            SELECT COALESCE(MAX(version_no),0)+1 FROM document_versions WHERE document_id=:id
-        '''), {'id': document_id}).scalar_one()
-        version_id, job_id = str(uuid4()), str(uuid4())
-        values = dict(data, id=version_id, document_id=document_id, version_no=number)
-        database.execute(text('''
-            INSERT INTO document_versions
-             (id,document_id,company_id,version_no,file_name,storage_path,sha256,file_size,data_category)
-            VALUES (:id,:document_id,:company_id,:version_no,:file_name,:storage_path,:sha256,:file_size,:data_category)
-        '''), values)
-        database.execute(text('INSERT INTO index_jobs (id,version_id) VALUES (:id,:version)'),
-                         {'id': job_id, 'version': version_id})
-        return {'document_id': document_id, 'version_id': version_id, 'job_id': job_id}
+        if document['doc_type'] != data['doc_type']:
+            raise DbError('INVALID_INPUT')
+    else:
+        database.execute(text('INSERT INTO documents (id,company_id,doc_type) VALUES (:id,:company,:type)'),
+                         {'id': document_id, 'company': data['company_id'], 'type': data['doc_type']})
+    return document_id
+
+
+def _insert_version_and_job(database, document_id, data):
+    """문서 ID와 검증된 업로드 dict로 버전·작업을 저장하고 세 가지 ID를 dict로 반환한다.
+
+    앞 단계에서 잠근 같은 DB 연결을 사용한다. 작업 저장이 실패하면 버전과 새 문서도
+    호출자의 트랜잭션에서 함께 취소된다. 이 함수는 직접 커밋하지 않는다.
+    """
+    number = database.execute(text('''
+        SELECT COALESCE(MAX(version_no),0)+1 FROM document_versions WHERE document_id=:id
+    '''), {'id': document_id}).scalar_one()
+    version_id = str(uuid4())
+    job_id = str(uuid4())
+    values = dict(data, id=version_id, document_id=document_id, version_no=number)
+    database.execute(text('''
+        INSERT INTO document_versions
+         (id,document_id,company_id,version_no,file_name,storage_path,sha256,file_size,data_category)
+        VALUES (:id,:document_id,:company_id,:version_no,:file_name,:storage_path,:sha256,:file_size,:data_category)
+    '''), values)
+    database.execute(text('INSERT INTO index_jobs (id,version_id) VALUES (:id,:version)'),
+                     {'id': job_id, 'version': version_id})
+    return {'document_id': document_id, 'version_id': version_id, 'job_id': job_id}

@@ -48,7 +48,7 @@ recovery = recover_publication(document_id, version_id)
 
 김혜리의 `hyundap.ingest.pipeline.ingest_document(path, upload_info)`는 dict 또는 IngestResult dataclass를 반환한다. status, chunks, report, error_code가 계약 대상이다. chunks는 `common.schemas.Chunk` 객체 그대로 임베딩 담당에게 전달한다.
 
-박영준의 기본 어댑터는 아래 함수를 요구한다. 테스트에서는 같은 메서드를 가진 객체를 embedding 인자로 주입한다.
+박영준의 기본 어댑터는 아래 함수를 요구한다. 테스트에서는 같은 메서드를 가진 객체 또는 함수 dict를 embedding 인자로 주입한다. `get_embedding_backend`는 이를 함수 dict로 맞추며 내부에서는 `backend['activate_version'](document_id, version_id)`처럼 호출한다. `as_mapping`은 외부 dataclass의 바깥 필드만 일반 for문으로 옮기며, 내부 청크 목록과 Chunk 객체는 그대로 보존한다.
 
 | 외부 함수 | 요구 사항 |
 |---|---|

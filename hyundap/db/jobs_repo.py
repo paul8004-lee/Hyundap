@@ -126,27 +126,78 @@ def record_stage_result(job_id, report, *, connection=None):
     """
     clean = normalize_report(report)
     with transaction(connection) as database:
-        job = database.execute(text('SELECT version_id,stage,report FROM index_jobs WHERE id=:id FOR UPDATE'),
-                               {'id': require_id(job_id)}).mappings().one_or_none()
-        if not job or job['version_id'] is None:
-            raise DbError('INVALID_STATE')
-        identity = database.execute(text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
-                                    {'id': job['version_id']}).mappings().one()
-        expected = dict(identity, version_id=job['version_id'])
-        if any(clean.get(key, value) != value for key, value in expected.items()):
+        # 조회 → 입력과 작업의 일치 검사 → 보고서 갱신 → 저장을 같은 잠금 안에서 처리한다.
+        job, identity = _read_stage_target(database, job_id)
+        _check_stage_result(job, identity, clean)
+        reports = _merge_stage_reports(job['report'], clean)
+        _store_stage_result(database, job_id, clean, reports)
+
+
+def _read_stage_target(database, job_id):
+    """작업 ID로 저장 대상을 조회하고 (작업 행, 문서·버전·회사 ID dict)를 반환한다.
+
+    작업 행을 잠그므로 다른 요청이 검사 도중 단계를 변경하지 못한다.
+    전달받은 연결만 사용하며 커밋과 잠금 해제는 트랜잭션을 연 호출자가 담당한다.
+    """
+    job = database.execute(text('SELECT version_id,stage,report FROM index_jobs WHERE id=:id FOR UPDATE'),
+                           {'id': require_id(job_id)}).mappings().one_or_none()
+    if not job or job['version_id'] is None:
+        raise DbError('INVALID_STATE')
+    version = database.execute(text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
+                               {'id': job['version_id']}).mappings().one()
+    identity = dict(version, version_id=job['version_id'])
+    return job, identity
+
+
+def _check_stage_result(job, identity, clean):
+    """정규화한 보고서가 이 작업의 대상과 단계에 맞는지 검사한다. 반환값은 없다.
+
+    식별자 생략은 허용한다. 값을 전달했다면 DB와 같아야 하며, 이미 진행한 단계보다
+    앞선 단계의 결과는 늦게 도착한 기록이므로 거부한다. DB를 변경하지 않는다.
+    """
+    for key, expected_value in identity.items():
+        if key in clean and clean[key] != expected_value:
             raise DbError('INVALID_INPUT')
-        if job['stage'] not in STAGES or STAGES.index(clean['stage']) < STAGES.index(job['stage']):
-            raise DbError('CONFLICT')
-        reports = json.loads(job['report']) if isinstance(job['report'], str) else (job['report'] or {})
-        if not isinstance(reports, dict):
-            raise DbError('INVALID_STATE')
-        previous = reports.get(clean['stage'])
-        if previous and previous.get('status') == 'success' and previous != clean:
-            raise DbError('CONFLICT')
-        reports[clean['stage']] = clean
-        code = clean.get('error_code')
-        database.execute(text('''
-            UPDATE index_jobs SET stage=:stage,report=:report,error_code=:code,error_message=:message
-            WHERE id=:id
-        '''), {'stage': clean['stage'], 'report': json.dumps(reports, ensure_ascii=False),
-              'code': code, 'message': f'처리 실패: {code}' if code else None, 'id': job_id})
+    if job['stage'] not in STAGES:
+        raise DbError('CONFLICT')
+    incoming_stage = STAGES.index(clean['stage'])
+    saved_stage = STAGES.index(job['stage'])
+    if incoming_stage < saved_stage:
+        raise DbError('CONFLICT')
+
+
+def _merge_stage_reports(stored_report, clean):
+    """저장된 JSON 또는 dict에 새 단계 결과를 반영해 보고서 dict를 반환한다.
+
+    다른 단계 기록은 보존한다. 이미 성공한 단계는 같은 결과만 다시 받을 수 있다.
+    이 함수는 메모리의 보고서만 갱신하며 DB 저장은 하지 않는다.
+    """
+    if isinstance(stored_report, str):
+        reports = json.loads(stored_report)
+    elif stored_report:
+        reports = stored_report
+    else:
+        reports = {}
+    if not isinstance(reports, dict):
+        raise DbError('INVALID_STATE')
+    previous = reports.get(clean['stage'])
+    if previous and previous.get('status') == 'success' and previous != clean:
+        raise DbError('CONFLICT')
+    reports[clean['stage']] = clean
+    return reports
+
+
+def _store_stage_result(database, job_id, clean, reports):
+    """검사가 끝난 보고서 dict와 현재 단계·안전한 오류 문구를 DB에 저장한다. 반환값은 없다.
+
+    호출자가 넘긴 같은 트랜잭션에서만 갱신한다. 예외 원문은 오류 문구에 넣지 않는다.
+    """
+    code = clean.get('error_code')
+    message = None
+    if code:
+        message = f'처리 실패: {code}'
+    database.execute(text('''
+        UPDATE index_jobs SET stage=:stage,report=:report,error_code=:code,error_message=:message
+        WHERE id=:id
+    '''), {'stage': clean['stage'], 'report': json.dumps(reports, ensure_ascii=False),
+          'code': code, 'message': message, 'id': job_id})

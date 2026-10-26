@@ -56,7 +56,7 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 |---|---|
 | `normalize_report` | `_report_dict` 입력 변환 → `_report_identity` 기본 정보 → `_report_metrics` 수치 → `_report_failures` 실패 상세 → 성공/실패 모순 검사 |
 | `current_actor` | `_session_credentials` 입력 확인 → `_read_valid_session` 세션 조회 → `_read_active_user` 사용자 조회 → `_check_company_role` 회사·역할 검사 |
-| `run_attempt` | `read_attempt_source` 원본 확인 → 수집 호출·`save_ingest_chunks` → 임베딩 호출 → `verify_uploaded_chunks` → 게시 |
+| `run_attempt` | `read_attempt_source` 원본 확인 → `ingest_and_save_chunks` 수집 단계 → `embed_and_record_result` 임베딩 단계 → `verify_uploaded_chunks` → 게시 |
 | `upload_document` | 권한 확인 → `prepare_upload_source` 원본 정보 준비 → `create_upload_candidate` 후보 저장 → 원본 복사 → `run_attempt` |
 | `retry_upload` | `prepare_retry` 기존 후보 준비 → 경로 확인 → 기존 벡터 정리 → 필요 시 원본 보충 → `run_attempt` |
 | `validate_completeness` | DB 기준 목록 조회 → 실제 벡터 조회 → `compare_stored_chunks` 목록 대조·`chunk_matches_manifest` 개별 내용 검사 |
@@ -66,3 +66,18 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 `with transaction()`은 안쪽 DB 변경이 모두 성공해야 함께 확정되는 범위다. 파일 읽기·복사와 외부 벡터 호출은 이 범위가 끝난 뒤 실행한다. `WORKFLOW_LOCK`과 `PUBLICATION_LOCK`은 한 앱 프로세스에서 작업이 겹치지 않게 하는 기존 잠금이다. 보조 함수만 따로 호출해 메인 함수의 잠금·권한 확인을 건너뛰지 않는다.
 
 게시 시 `expected_active_id`는 처음 확인한 활성 버전이다. DB 값이 달라졌으면 다른 작업이 먼저 게시한 것이므로 중단한다. `_seal`은 완전성 검사 전후의 DB 기준 목록이 같은지 비교하는 값이다. 이 검사와 실패 복구 순서는 함수 분리 후에도 유지한다.
+
+### 보조 함수 안에서도 책임을 나누는 기준
+
+조회 함수는 필요한 행과 잠금을 가져오고, 검사 함수는 통과 여부를 판단하며, 조립 함수는 메모리의 dict를 만들고, 저장 함수는 SQL 변경을 수행한다. 조회에 꼭 필요한 권한 검사와 대상 존재 확인은 조회 단계에 함께 둔다. 단순한 한 줄마다 함수를 만들지는 않는다.
+
+| 흐름 담당 함수 | 책임별 보조 함수 |
+|---|---|
+| `record_stage_result` | `_read_stage_target` 조회 → `_check_stage_result` 입력·단계 검사 → `_merge_stage_reports` 보고서 조립 → `_store_stage_result` 저장 |
+| `run_attempt` | 수집·임베딩 단계 실행은 각각 `ingest_and_save_chunks`·`embed_and_record_result`가 담당하고, 실패 단계 선택·후보 정리는 상위 함수가 담당 |
+| `prepare_retry` | `read_retry_records` 권한·잠금 조회 → `check_retry_allowed` 상태 검사 → `build_retry_report` 이력 조립 → `reset_retry_records` 저장 |
+| `compare_stored_chunks` | `collect_chunk_comparison` 비교 자료 수집 → `inspect_chunk_contents`로 청크별 내용 검사 → 상위 함수에서 전체 완전성 판정 |
+| `prepare_publication` | `read_publishable_candidate` 권한·원장 확인 → 완료된 재호출 확인 → `check_publication_conflict` 경쟁 검사 → `store_pending_publication` 전환·복구 기록 저장 |
+| `prepare_recovery` | 현재 복구 단계 조회 → `check_previous_version` 이전 버전 적격성 확인 → 최신 포인터 보호 → `restore_database_pointer` 조건부 포인터 복구 → 복구 대기 기록 |
+
+예를 들어 `record_stage_result`의 네 단계는 같은 DB 연결을 사용한다. 마지막 저장이 실패하면 그 트랜잭션이 취소된다. 보조 함수가 직접 새 트랜잭션을 열거나 커밋하지 않으므로 책임 분리가 저장의 원자성을 바꾸지 않는다. 외부에서 연결을 전달했다면 최종 커밋·롤백은 그 연결을 연 호출자가 담당한다.

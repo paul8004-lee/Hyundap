@@ -38,8 +38,14 @@ def transaction(connection=None):
             with get_engine().begin() as database:
                 yield database
     except IntegrityError as error:
-        code = (getattr(error.orig, 'args', ()) or (None,))[0]
-        raise DbError('CONFLICT' if code == 1062 else 'DB_UNAVAILABLE') from None
+        arguments = getattr(error.orig, 'args', ())
+        error_number = None
+        if arguments:
+            error_number = arguments[0]
+        # MySQL 오류 번호 1062는 같은 고유 키를 중복 저장하려 했다는 뜻이다.
+        if error_number == 1062:
+            raise DbError('CONFLICT') from None
+        raise DbError('DB_UNAVAILABLE') from None
     except SQLAlchemyError:
         raise DbError('DB_UNAVAILABLE') from None
 

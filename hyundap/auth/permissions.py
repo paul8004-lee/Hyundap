@@ -51,12 +51,31 @@ def verify_documents_access(actor, document_version_pairs):
               ON v.id=d.active_version_id AND v.document_id=d.id AND v.company_id=d.company_id
             WHERE d.id IN :ids
         ''').bindparams(bindparam('ids', expanding=True))
-        rows = {row['id']: row for row in database.execute(query, {'ids': sorted({r[0] for r in refs})}).mappings()}
+        document_ids = set()
         for document_id, version_id in refs:
-            row = rows.get(document_id)
+            document_ids.add(document_id)
+        result_rows = database.execute(query, {'ids': sorted(document_ids)}).mappings()
+        documents_by_id = {}
+        for row in result_rows:
+            documents_by_id[row['id']] = row
+        for document_id, version_id in refs:
+            row = documents_by_id.get(document_id)
             if row and row['company_id'] not in allowed:
                 raise AccessError('ACCESS_DENIED')
-            if (not row or row['deleted_at'] is not None or row['publication_status'] != 'published'
-                    or row['active_version_id'] != version_id or row['version_status'] != 'ready'
-                    or row['data_category'] != 'operational'):
-                raise AccessError('STATE_CHANGED')
+            _check_document_state(row, version_id)
+
+
+def _check_document_state(document, version_id):
+    """조회한 문서 행이 요청한 운영 버전으로 공개 중인지 확인한다. 반환값은 없다."""
+    if not document:
+        raise AccessError('STATE_CHANGED')
+    if document['deleted_at'] is not None:
+        raise AccessError('STATE_CHANGED')
+    if document['publication_status'] != 'published':
+        raise AccessError('STATE_CHANGED')
+    if document['active_version_id'] != version_id:
+        raise AccessError('STATE_CHANGED')
+    if document['version_status'] != 'ready':
+        raise AccessError('STATE_CHANGED')
+    if document['data_category'] != 'operational':
+        raise AccessError('STATE_CHANGED')

@@ -36,9 +36,13 @@ def get_ingest_function(function=None):
 
 def file_digest(path):
     """실제 파일을 1MiB씩 읽어 SHA-256과 크기를 구한다. 비어 있거나 상한을 넘으면 거부한다."""
-    digest, size = hashlib.sha256(), 0
+    digest = hashlib.sha256()
+    size = 0
     with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
+        while True:
+            block = stream.read(1024 * 1024)
+            if not block:
+                break  # 더 읽을 내용이 없으면 반복을 끝낸다.
             size += len(block)
             if size > 104857600:
                 raise DbError('INVALID_INPUT')
@@ -64,15 +68,20 @@ def copy_original(source, destination, expected_hash, expected_size):
     """기존 파일을 덮지 않고 복사하면서 다시 해시를 검사한다. 복사 중 원본 변경도 검출한다."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name('.source-' + uuid4().hex + '.part')
-    digest, size = hashlib.sha256(), 0
+    digest = hashlib.sha256()
+    size = 0
     try:
         with source.open('rb') as incoming, temporary.open('xb') as outgoing:
-            for block in iter(lambda: incoming.read(1024 * 1024), b''):
+            while True:
+                block = incoming.read(1024 * 1024)
+                if not block:
+                    break
                 size += len(block)
                 if size > 104857600:
                     raise DbError('INVALID_INPUT')
                 digest.update(block)
                 outgoing.write(block)
+            # Python의 쓰기 버퍼를 비우고 운영체제에도 파일 내용 저장을 요청한다.
             outgoing.flush()
             os.fsync(outgoing.fileno())
         if digest.hexdigest() != expected_hash or size != expected_size:
@@ -80,6 +89,7 @@ def copy_original(source, destination, expected_hash, expected_size):
         # 같은 파일시스템의 hard link는 기존 목적지를 덮지 않고 완전한 파일만 공개한다.
         os.link(temporary, destination)
     finally:
+        # 성공하면 목적지 이름이 같은 파일을 가리키므로 임시 이름만 지운다.
         temporary.unlink(missing_ok=True)
 
 
@@ -106,7 +116,7 @@ def record_upload_failure(ids, stage, error, backend):
         versions_repo.mark_failed(ids['version_id'])
         cleanup_pending = False
         try:
-            backend.delete_vectors(ids['document_id'], ids['version_id'])
+            backend['delete_vectors'](ids['document_id'], ids['version_id'])
         except Exception:
             cleanup_pending = True
         with transaction() as database:
@@ -187,6 +197,34 @@ def verify_uploaded_chunks(ids, backend):
     })
 
 
+def ingest_and_save_chunks(source, info, ids, ingest_function):
+    """원본 Path와 수집 정보로 수집 단계를 실행하고 (청크 목록, 오류 코드)를 반환한다.
+
+    성공하면 청크·보고서를 저장하고 (chunks, None)을 반환한다. 수집기가 실패 결과를
+    반환하면 (None, 안전한 오류 코드)다. 실패 후보 정리는 run_attempt가 담당한다.
+    """
+    raw_result = version_service.call_external(ingest_function, str(source), info)
+    result = version_service.as_mapping(raw_result)
+    if result.get('status') != 'success':
+        return None, failure_code(result.get('error_code'))
+    chunks = save_ingest_chunks(ids, info['company_id'], result)
+    return chunks, None
+
+
+def embed_and_record_result(chunks, job_id, backend):
+    """청크 목록을 임베딩하고 단계 보고서를 저장한다. 성공은 None, 실패는 오류 코드다.
+
+    부분 성공 보고서도 먼저 저장해 실패 원인을 보존한다. 후보 정리·다음 단계로 이동할지
+    결정하는 책임은 run_attempt에 둔다. 외부 임베딩 호출 중 DB 잠금을 유지하지 않는다.
+    """
+    raw_report = version_service.call_external(backend['embed_and_store'], chunks)
+    report = version_service.as_mapping(raw_report)
+    jobs_repo.record_stage_result(job_id, dict(report, stage='embedding'))
+    if report.get('status') != 'success':
+        return failure_code(report.get('error_code'))
+    return None
+
+
 def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
     """원본 확인 → 수집 → 임베딩 → 검증 → 게시 순서로 실행하고 결과 dict를 반환한다.
 
@@ -199,18 +237,14 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
         jobs_repo.record_stage_result(ids['job_id'], {'stage': stage, 'status': 'success'})
 
         stage = 'ingest'
-        raw_result = version_service.call_external(ingest_function, str(source), info)
-        result = version_service.as_mapping(raw_result)
-        if result.get('status') != 'success':
-            return record_upload_failure(ids, stage, failure_code(result.get('error_code')), backend)
-        chunks = save_ingest_chunks(ids, info['company_id'], result)
+        chunks, error_code = ingest_and_save_chunks(source, info, ids, ingest_function)
+        if error_code is not None:
+            return record_upload_failure(ids, stage, error_code, backend)
 
         stage = 'embedding'
-        raw_report = version_service.call_external(backend.embed_and_store, chunks)
-        report = version_service.as_mapping(raw_report)
-        jobs_repo.record_stage_result(ids['job_id'], dict(report, stage=stage))
-        if report.get('status') != 'success':
-            return record_upload_failure(ids, stage, failure_code(report.get('error_code')), backend)
+        error_code = embed_and_record_result(chunks, ids['job_id'], backend)
+        if error_code is not None:
+            return record_upload_failure(ids, stage, error_code, backend)
 
         stage = 'verify'
         verify_uploaded_chunks(ids, backend)
@@ -332,16 +366,7 @@ def prepare_retry(actor, version_id):
     여기서는 경로 문자열만 다루며 실제 파일 확인은 DB 변경 확정 후에 한다.
     """
     with transaction() as database:
-        reference = database.execute(
-            text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
-            {'id': version_id},
-        ).mappings().one_or_none()
-        if not reference:
-            raise DbError('INVALID_STATE')
-        version_service.require_manager(actor, database, reference['company_id'])
-        document, version = version_service.read_candidate(
-            database, reference['document_id'], version_id, lock=True)
-        job, reports = version_service.read_job(database, version_id, lock=True)
+        document, version, job, reports = read_retry_records(database, actor, version_id)
         check_retry_allowed(document, version, reports)
         version_service.ensure_no_pending_publication(database, document['id'])
         root = Path(reports.get('_upload_root', ''))
@@ -349,21 +374,8 @@ def prepare_retry(actor, version_id):
         if '_upload_root' not in reports:
             raise DbError('INVALID_STATE')
 
-        history = reports.get('_attempts', [])
-        previous = {}
-        for key, value in reports.items():
-            if key != '_attempts':
-                previous[key] = value
-        reset = {'_upload_root': str(root), '_attempts': history + [previous]}
-        database.execute(
-            text("UPDATE document_versions SET version_status='processing' WHERE id=:id"),
-            {'id': version_id},
-        )
-        database.execute(text('''
-            UPDATE index_jobs SET stage='received', attempts=attempts+1, report=:report,
-                                  error_code=NULL, error_message=NULL
-            WHERE id=:id
-        '''), {'id': job['id'], 'report': json.dumps(reset, ensure_ascii=False)})
+        reset_report = build_retry_report(root, reports)
+        reset_retry_records(database, version_id, job['id'], reset_report)
         ids = {'document_id': document['id'], 'version_id': version_id, 'job_id': job['id']}
     return {
         'ids': ids,
@@ -373,6 +385,56 @@ def prepare_retry(actor, version_id):
         'sha256': version['sha256'],
         'file_size': version['file_size'],
     }
+
+
+def read_retry_records(database, actor, version_id):
+    """관리자 권한으로 재시도 대상의 (문서, 버전, 작업, 보고서) dict들을 읽는다.
+
+    전달받은 같은 DB 연결에서 계정·회사 → 문서·버전 → 작업 순서로 잠근다.
+    재시도 가능한 상태인지 판단하거나 DB 값을 변경하지는 않는다.
+    """
+    reference = database.execute(
+        text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
+        {'id': version_id},
+    ).mappings().one_or_none()
+    if not reference:
+        raise DbError('INVALID_STATE')
+    version_service.require_manager(actor, database, reference['company_id'])
+    document, version = version_service.read_candidate(
+        database, reference['document_id'], version_id, lock=True)
+    job, reports = version_service.read_job(database, version_id, lock=True)
+    return document, version, job, reports
+
+
+def build_retry_report(root, reports):
+    """저장 루트 Path와 기존 보고서 dict로 이전 시도를 보존한 새 보고서 dict를 만든다.
+
+    원래 보고서를 수정하거나 DB에 저장하지 않는다. 현재 시도는 _attempts 목록의
+    마지막에 추가하고, 새 단계별 결과를 쓸 자리는 비워 둔다.
+    """
+    history = reports.get('_attempts', [])
+    previous = {}
+    for key, value in reports.items():
+        if key != '_attempts':
+            previous[key] = value
+    return {'_upload_root': str(root), '_attempts': history + [previous]}
+
+
+def reset_retry_records(database, version_id, job_id, report):
+    """같은 DB 연결에서 버전·작업을 재시도 시작 상태로 저장한다. 반환값은 없다.
+
+    prepare_retry가 권한과 상태를 확인하고 만든 보고서 dict를 받는다.
+    직접 커밋하지 않으므로 두 UPDATE 중 하나라도 실패하면 함께 취소된다.
+    """
+    database.execute(
+        text("UPDATE document_versions SET version_status='processing' WHERE id=:id"),
+        {'id': version_id},
+    )
+    database.execute(text('''
+        UPDATE index_jobs SET stage='received', attempts=attempts+1, report=:report,
+                              error_code=NULL, error_message=NULL
+        WHERE id=:id
+    '''), {'id': job_id, 'report': json.dumps(report, ensure_ascii=False)})
 
 
 def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):
@@ -398,7 +460,7 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
         except (DbError, OSError) as error:
             return record_upload_failure(ids, 'received', error, backend)
         try:
-            backend.delete_vectors(ids['document_id'], version_id)
+            backend['delete_vectors'](ids['document_id'], version_id)
         except Exception as error:
             return record_upload_failure(ids, 'received', error, backend)
         if source_path is not None:

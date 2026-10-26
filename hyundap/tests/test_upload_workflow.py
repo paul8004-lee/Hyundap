@@ -22,7 +22,7 @@ from sqlalchemy.engine import make_url
 
 from hyundap.auth.errors import AccessError
 from hyundap.common.schemas import Chunk
-from hyundap.db import chunks_repo, documents_repo, runtime, schema
+from hyundap.db import chunks_repo, documents_repo, runtime, schema, version_service
 from hyundap.db.errors import DbError
 from .test_schema_migration import BASELINE, execute_script
 from .test_db_runtime import session_fixture
@@ -86,6 +86,35 @@ class FakeEmbedding:
         for chunk_id in ids:
             del self.rows[chunk_id]
         return len(ids)
+
+
+class EmbeddingConnectionTests(unittest.TestCase):
+    """DB 없이 함수 dict와 기존 테스트 객체의 연결 계약을 확인한다."""
+
+    def test_object_methods_work_through_function_dictionary(self):
+        """객체 메서드가 dict에서도 같은 저장소를 사용하며 재전달할 수 있는지 확인한다."""
+        embedding = FakeEmbedding()
+        backend = version_service.get_embedding_backend(embedding)
+        self.assertIsInstance(backend, dict)
+        self.assertEqual(backend['get_version_chunk_ids']('d1', 'v1'), [])
+        self.assertEqual(backend['activate_version']('d1', 'v1'), 0)
+        self.assertEqual(embedding.active, {'d1': 'v1'})
+        self.assertIs(version_service.get_embedding_backend(backend), backend)
+
+    def test_missing_or_non_callable_function_is_rejected(self):
+        """함수가 하나라도 없거나 호출할 수 없으면 외부 작업 전에 거부한다."""
+        backend = version_service.get_embedding_backend(FakeEmbedding())
+        for name in backend:
+            for value in ('missing', None):
+                with self.subTest(name=name, value=value):
+                    incomplete = dict(backend)
+                    if value == 'missing':
+                        del incomplete[name]
+                    else:
+                        incomplete[name] = value
+                    with self.assertRaises(DbError) as caught:
+                        version_service.get_embedding_backend(incomplete)
+                    self.assertEqual(caught.exception.code, 'INTEGRATION_UNAVAILABLE')
 
 
 @unittest.skipUnless(os.getenv('DB_WORKFLOW_TEST_URL'), '격리 MySQL URL 필요')

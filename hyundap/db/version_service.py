@@ -8,7 +8,6 @@ import hashlib
 import json
 from dataclasses import fields, is_dataclass
 from threading import RLock
-from types import SimpleNamespace
 
 from sqlalchemy import text
 
@@ -24,23 +23,49 @@ PENDING_PHASES = ('pending_activation', 'restore_pending')
 
 
 def get_embedding_backend(embedding=None):
-    """주입한 벡터 기능 또는 팀 embedding 모듈을 사용한다. 뼈대 모듈은 안전하게 거부한다."""
+    """벡터 처리 함수 5개를 이름으로 찾을 수 있는 dict로 반환한다.
+
+    입력이 없으면 팀 모듈을 연결한다. 테스트용 객체나 함수 dict도 받을 수 있다.
+    getattr는 객체에서 이름에 해당하는 함수를 읽으며, 함수가 없으면 None을 준다.
+    준비되지 않은 함수는 아래 반복문에서 미준비 오류로 거부한다.
+    """
     names = ('embed_and_store', 'get_version_chunk_ids', 'get_document_chunks',
              'activate_version', 'delete_vectors')
     if embedding is None:
         from hyundap.embedding import embedder, vector_store
-        functions = {name: getattr(embedder if name == 'embed_and_store' else vector_store, name, None)
-                     for name in names}
-        embedding = SimpleNamespace(**functions)
-    if not all(callable(getattr(embedding, name, None)) for name in names):
-        raise DbError('INTEGRATION_UNAVAILABLE')
-    return embedding
+        backend = {
+            'embed_and_store': getattr(embedder, 'embed_and_store', None),
+            'get_version_chunk_ids': getattr(vector_store, 'get_version_chunk_ids', None),
+            'get_document_chunks': getattr(vector_store, 'get_document_chunks', None),
+            'activate_version': getattr(vector_store, 'activate_version', None),
+            'delete_vectors': getattr(vector_store, 'delete_vectors', None),
+        }
+    elif isinstance(embedding, dict):
+        backend = embedding
+    else:
+        # 기존 테스트 객체도 계속 사용할 수 있도록 메서드를 함수 dict로 옮긴다.
+        backend = {}
+        for name in names:
+            backend[name] = getattr(embedding, name, None)
+    for name in names:
+        function = backend.get(name)
+        if not callable(function):
+            raise DbError('INTEGRATION_UNAVAILABLE')
+    return backend
 
 
 def as_mapping(value):
-    """외부 모듈의 dict/dataclass 결과를 읽는다. 알 수 없는 자료형은 정상 결과로 취급하지 않는다."""
+    """외부 결과를 dict로 읽는다. dataclass는 바깥 필드만 옮기고 내부 객체는 보존한다.
+
+    fields는 dataclass의 필드 목록이며 getattr로 각 필드의 현재 값을 읽는다.
+    청크 목록과 Chunk 객체는 그대로 전달한다. 알 수 없는 자료형은 거부한다.
+    """
     if is_dataclass(value) and not isinstance(value, type):
-        value = {field.name: getattr(value, field.name) for field in fields(value)}
+        result = {}
+        for field in fields(value):
+            field_name = field.name
+            result[field_name] = getattr(value, field_name)
+        value = result
     if not isinstance(value, dict):
         raise DbError('INVALID_INPUT')
     return value
@@ -93,8 +118,8 @@ def validate_completeness(document_id, version_id, *, embedding=None):
         manifest, seal = manifest_snapshot(database, version)
 
     # DB 조회가 끝난 다음 외부 저장소를 읽어 SQL 잠금을 오래 잡지 않는다.
-    ids = call_external(backend.get_version_chunk_ids, document_id, version_id)
-    hits = call_external(backend.get_document_chunks, document_id, version_id, active_only=False)
+    ids = call_external(backend['get_version_chunk_ids'], document_id, version_id)
+    hits = call_external(backend['get_document_chunks'], document_id, version_id, active_only=False)
     identity = {'document_id': document_id, 'version_id': version_id,
                 'company_id': document['company_id']}
     return compare_stored_chunks(identity, version, manifest, seal, ids, hits)
@@ -134,6 +159,28 @@ def compare_stored_chunks(identity, version, manifest, seal, ids, hits):
     IDs의 집합뿐 아니라 중복·순번·본문도 검사한다. seal은 게시 직전 원장이
     바뀌지 않았는지 다시 확인할 때 사용하므로 결과에 그대로 포함한다.
     """
+    comparison = collect_chunk_comparison(identity, manifest, ids, hits)
+    count = version['expected_chunk_count']
+    counts_match = (count == len(manifest) == len(ids) == len(comparison['actual_ids'])
+                    == len(hits) == len(comparison['seen_ids']))
+    indexes_match = comparison['indexes'] == list(range(count))
+    contents_match = (comparison['seen_ids'] == comparison['actual_ids']
+                      and not comparison['missing_ids'] and not comparison['unexpected_ids']
+                      and not comparison['invalid_ids'])
+    version_is_ready = version['version_status'] in ('processing', 'ready') and count > 0
+    ok = version_is_ready and counts_match and indexes_match and contents_match
+    return {'ok': bool(ok), 'expected_count': count, 'actual_count': len(ids),
+            'missing_ids': comparison['missing_ids'], 'unexpected_ids': comparison['unexpected_ids'],
+            'invalid_ids': comparison['invalid_ids'], '_seal': seal}
+
+
+def collect_chunk_comparison(identity, manifest, ids, hits):
+    """원장·실제 청크를 대조해 개수 판정에 필요한 자료를 dict로 반환한다.
+
+    indexes는 DB 순번 목록, actual_ids는 ID 조회 결과, seen_ids는 본문 조회에서 읽은 ID다.
+    missing_ids/unexpected_ids/invalid_ids는 누락·초과·잘못된 내용의 ID 목록이다.
+    버전 상태나 최종 성공 여부는 여기서 결정하지 않는다.
+    """
     if not isinstance(ids, list) or not isinstance(hits, list):
         raise DbError('INVALID_INPUT')
     for identifier in ids:
@@ -146,6 +193,20 @@ def compare_stored_chunks(identity, version, manifest, seal, ids, hits):
         expected[row['id']] = row
         indexes.append(row['chunk_index'])
     actual = set(ids)
+    seen, invalid = inspect_chunk_contents(identity, expected, hits)
+    return {
+        'indexes': indexes, 'actual_ids': actual, 'seen_ids': seen,
+        'missing_ids': sorted(expected.keys() - actual),
+        'unexpected_ids': sorted(actual - expected.keys()), 'invalid_ids': invalid,
+    }
+
+
+def inspect_chunk_contents(identity, expected, hits):
+    """실제 청크의 내용·소속·중복을 검사하고 (확인한 ID 집합, 잘못된 ID 목록)을 반환한다.
+
+    identity는 문서·버전·회사 ID dict, expected는 청크 ID별 DB 원장이다.
+    저장 개수와 순번 판정은 수행하지 않고 각 청크의 내용 검사만 담당한다.
+    """
     invalid = []
     seen = set()
     for item in hits:
@@ -158,17 +219,7 @@ def compare_stored_chunks(identity, version, manifest, seal, ids, hits):
                 invalid.append('<invalid>')
         if isinstance(identifier, str):
             seen.add(identifier)
-
-    missing = sorted(expected.keys() - actual)
-    unexpected = sorted(actual - expected.keys())
-    count = version['expected_chunk_count']
-    counts_match = count == len(manifest) == len(ids) == len(actual) == len(hits) == len(seen)
-    indexes_match = indexes == list(range(count))
-    contents_match = seen == actual and not missing and not unexpected and not invalid
-    version_is_ready = version['version_status'] in ('processing', 'ready') and count > 0
-    ok = version_is_ready and counts_match and indexes_match and contents_match
-    return {'ok': bool(ok), 'expected_count': count, 'actual_count': len(ids),
-            'missing_ids': missing, 'unexpected_ids': unexpected, 'invalid_ids': invalid, '_seal': seal}
+    return seen, invalid
 
 
 def read_job(database, version_id, *, lock=False):
@@ -232,7 +283,13 @@ def publish_version(actor, document_id, candidate_id, expected_active_id, *, emb
         if not result['ok']:
             raise DbError('INCOMPLETE_INDEX')
         needs_activation = prepare_publication(
-            actor, document_id, candidate_id, company_id, expected_active_id, result['_seal'])
+            actor=actor,
+            document_id=document_id,
+            candidate_id=candidate_id,
+            company_id=company_id,
+            expected_active_id=expected_active_id,
+            seal=result['_seal'],
+        )
         if not needs_activation:
             return  # 같은 후보가 이미 게시 완료된 경우다.
 
@@ -295,7 +352,13 @@ def prepare_publication(actor, document_id, candidate_id, company_id, expected_a
     """
     with transaction() as database:
         document, version = read_publishable_candidate(
-            database, actor, document_id, candidate_id, company_id, seal)
+            database=database,
+            actor=actor,
+            document_id=document_id,
+            candidate_id=candidate_id,
+            company_id=company_id,
+            seal=seal,
+        )
         job, reports = read_job(database, candidate_id, lock=True)
         previous = reports.get('_publication', {})
         already_active = document['active_version_id'] == candidate_id
@@ -303,35 +366,55 @@ def prepare_publication(actor, document_id, candidate_id, company_id, expected_a
         if already_active and already_finished and document['publication_status'] == 'published':
             return False
 
-        ensure_no_pending_publication(database, document_id)
-        if document['active_version_id'] != expected_active_id:
-            raise DbError('CONFLICT')
-        if expected_active_id is not None:
-            active_number = database.execute(text('SELECT version_no FROM document_versions WHERE id=:id'),
-                                             {'id': expected_active_id}).scalar_one_or_none()
-            if active_number is None or version['version_no'] <= active_number:
-                raise DbError('CONFLICT')
-
-        publication = {'phase': 'pending_activation', 'candidate_id': candidate_id,
-                       'previous_active_id': expected_active_id,
-                       'previous_publication_status': document['publication_status']}
-        database.execute(text("UPDATE document_versions SET version_status='ready' WHERE id=:id"), {'id': candidate_id})
-        # <=>는 NULL도 비교한다. 이전 활성 버전이 예상과 같은 문서만 갱신한다.
-        changed = database.execute(text('''
-            UPDATE documents SET active_version_id=:candidate,publication_status='published'
-            WHERE id=:id AND active_version_id <=> :previous AND deleted_at IS NULL
-              AND publication_status IN ('draft','published')
-        '''), {'candidate': candidate_id, 'id': document_id, 'previous': expected_active_id})
-        if changed.rowcount != 1:
-            raise DbError('CONFLICT')
-        write_publication(database, job, reports, publication)
+        check_publication_conflict(database, document, version, expected_active_id)
+        store_pending_publication(
+            database=database, document=document, candidate_id=candidate_id,
+            expected_active_id=expected_active_id, job=job, reports=reports,
+        )
     return True
+
+
+def check_publication_conflict(database, document, version, expected_active_id):
+    """잠근 문서·후보 버전이 다른 게시와 경쟁하지 않는지 검사한다. 반환값은 없다.
+
+    미복구 작업, 달라진 활성 ID, 현재 버전보다 오래된 후보는 거부한다.
+    호출자의 트랜잭션과 문서 잠금을 사용하며 데이터를 변경하지 않는다.
+    """
+    ensure_no_pending_publication(database, document['id'])
+    if document['active_version_id'] != expected_active_id:
+        raise DbError('CONFLICT')
+    if expected_active_id is not None:
+        active_number = database.execute(text('SELECT version_no FROM document_versions WHERE id=:id'),
+                                         {'id': expected_active_id}).scalar_one_or_none()
+        if active_number is None or version['version_no'] <= active_number:
+            raise DbError('CONFLICT')
+
+
+def store_pending_publication(*, database, document, candidate_id, expected_active_id, job, reports):
+    """검사된 후보를 DB 활성 버전으로 바꾸고 벡터 활성화 대기 기록을 함께 저장한다.
+
+    document/job/reports는 같은 트랜잭션에서 잠가 읽은 자료다. 반환값은 없으며
+    실패하면 호출자의 트랜잭션이 버전 상태·문서 포인터·작업 기록을 함께 취소한다.
+    """
+    publication = {'phase': 'pending_activation', 'candidate_id': candidate_id,
+                   'previous_active_id': expected_active_id,
+                   'previous_publication_status': document['publication_status']}
+    database.execute(text("UPDATE document_versions SET version_status='ready' WHERE id=:id"), {'id': candidate_id})
+    # <=>는 NULL도 비교한다. 이전 활성 버전이 예상과 같은 문서만 갱신한다.
+    changed = database.execute(text('''
+        UPDATE documents SET active_version_id=:candidate,publication_status='published'
+        WHERE id=:id AND active_version_id <=> :previous AND deleted_at IS NULL
+          AND publication_status IN ('draft','published')
+    '''), {'candidate': candidate_id, 'id': document['id'], 'previous': expected_active_id})
+    if changed.rowcount != 1:
+        raise DbError('CONFLICT')
+    write_publication(database, job, reports, publication)
 
 
 def activate_candidate(backend, document_id, candidate_id, expected_count):
     """DB 커밋 후 후보 벡터를 활성화한다. 실패하면 복구를 시도하고 안전한 오류를 낸다."""
     try:
-        activated = backend.activate_version(document_id, candidate_id)
+        activated = backend['activate_version'](document_id, candidate_id)
         if type(activated) is not int or activated != expected_count:
             raise DbError('INCOMPLETE_INDEX')
     except Exception:
@@ -424,24 +507,39 @@ def prepare_recovery(document_id, version_id):
             write_publication(database, job, reports, publication, error_code='CONFLICT')
             return {'phase': 'superseded'}
 
-        target = document['active_version_id']
-        if target == version_id:
-            if eligible:
-                target = previous_id
-                status = publication['previous_publication_status']
-            else:
-                target = None
-                status = 'blocked'
-            database.execute(text('''
-                UPDATE documents SET active_version_id=:previous,publication_status=:status WHERE id=:id
-            '''), {'previous': target, 'status': status, 'id': document_id})
-            publication['restore_target_id'] = target
+        target = restore_database_pointer(
+            database=database, document=document, version_id=version_id,
+            publication=publication, eligible=eligible,
+        )
 
         restore_previous = eligible and previous_id is not None and target == previous_id
         publication['phase'] = 'restore_pending'
         write_publication(database, job, reports, publication, error_code='RECOVERY_REQUIRED')
     return {'phase': 'restore_pending', 'previous_id': previous_id,
             'previous_count': previous_count, 'restore_previous': restore_previous}
+
+
+def restore_database_pointer(*, database, document, version_id, publication, eligible):
+    """현재 포인터가 실패 후보일 때만 되돌리고 복구 후 활성 버전 ID를 반환한다.
+
+    eligible은 이전 버전 공개 가능 여부다. 공개할 수 없으면 None으로 비우고
+    문서를 blocked로 둔다. publication dict에는 None도 복구 대상으로 기록한다.
+    작업 기록 저장은 호출자가 맡으며, 같은 트랜잭션에서 함께 확정된다.
+    """
+    target = document['active_version_id']
+    if target != version_id:
+        return target
+    if eligible:
+        target = publication.get('previous_active_id')
+        status = publication['previous_publication_status']
+    else:
+        target = None
+        status = 'blocked'
+    database.execute(text('''
+        UPDATE documents SET active_version_id=:previous,publication_status=:status WHERE id=:id
+    '''), {'previous': target, 'status': status, 'id': document['id']})
+    publication['restore_target_id'] = target
+    return target
 
 
 def restore_vectors(backend, document_id, version_id, recovery):
@@ -456,10 +554,10 @@ def restore_vectors(backend, document_id, version_id, recovery):
             result = validate_completeness(document_id, previous_id, embedding=backend)
             if not result['ok']:
                 raise DbError('INCOMPLETE_INDEX')
-            activated = backend.activate_version(document_id, previous_id)
+            activated = backend['activate_version'](document_id, previous_id)
             if type(activated) is not int or activated != recovery['previous_count']:
                 raise DbError('INCOMPLETE_INDEX')
-        backend.delete_vectors(document_id, version_id)
+        backend['delete_vectors'](document_id, version_id)
     except Exception:
         return False
     return True
