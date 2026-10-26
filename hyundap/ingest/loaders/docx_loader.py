@@ -4,6 +4,64 @@
 기준 명세: AI_문서검색_통합_기능명세서
 
 구현 예정 함수:
-    FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다.
+    FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다."""
 
-현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""
+
+from docx import Document as DocxDocument
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+
+from .base import build_location_label, table_to_text
+from hyundap.common.schemas import CommonDocument, Section
+from ..models import CORRUPTED_FILE, IngestError
+
+
+def add_docx_section(doc, title, lines):
+    """제목과 모아 둔 글로 구간 1개를 만들어 문서에 더한다."""
+    if title is None and len(lines) == 0:
+        return
+    section_no = len(doc.sections) + 1
+    texts = []
+    if title is not None and title != "":
+        texts.append(title)
+    texts.extend(lines)
+    doc.sections.append(
+        Section(
+            section_no=section_no,
+            location_label=build_location_label("section", section_no, title),
+            text="\n\n".join(texts),
+        )
+    )
+
+
+def load_docx(file_path, upload_info):
+    """DOCX 본문을 순서대로 읽어 제목 스타일마다 새 섹션으로 나눈다."""
+    try:
+        docx_file = DocxDocument(file_path)
+    except Exception:
+        raise IngestError(CORRUPTED_FILE)
+
+    doc = CommonDocument(header=dict(upload_info))
+    title = None
+    lines = []
+
+    for block in docx_file.iter_inner_content():
+        if isinstance(block, Paragraph):
+            text = block.text.strip()
+            if block.style.name.startswith("Heading"):
+                add_docx_section(doc, title, lines)
+                title = text
+                lines = []
+            elif text != "":
+                lines.append(text)
+        elif isinstance(block, Table):
+            rows = []
+            for row in block.rows:
+                cells = []
+                for cell in row.cells:
+                    cells.append(cell.text)
+                rows.append(cells)
+            lines.extend(table_to_text(rows))
+
+    add_docx_section(doc, title, lines)
+    return doc
