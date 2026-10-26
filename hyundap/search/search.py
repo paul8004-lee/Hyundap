@@ -85,9 +85,15 @@ def validate_query(query) -> str:
 
 
 def validate_range(value, name: str, low, high):
-    """FUN-241: 숫자가 허용 범위 안인지 확인한다. min_score는 INVALID_MIN_SCORE, 나머지는 INVALID_LIMIT."""
-    code = "INVALID_MIN_SCORE" if name == "min_score" else "INVALID_LIMIT"
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """FUN-241: 숫자가 허용 범위 안인지 확인한다.
+
+    limit·chunks_per_document·top_k는 개수라 정수만(2.5 → INVALID_LIMIT), min_score는 소수도 허용한다.
+    bool(True/False)은 파이썬에서 1/0으로 취급되므로 숫자로 보지 않는다."""
+    if name == "min_score":
+        code, allowed_types = "INVALID_MIN_SCORE", (int, float)
+    else:
+        code, allowed_types = "INVALID_LIMIT", (int,)
+    if isinstance(value, bool) or not isinstance(value, allowed_types):
         raise build_error(code)
     if not (low <= value <= high):  # NaN도 여기서 걸린다
         raise build_error(code)
@@ -318,8 +324,9 @@ def search_chunks(
 ) -> list[ChunkHit]:
     """FUN-244: 챗봇용 청크 검색. 권한·조건·공개 조건을 적용해 질문과 가까운 청크를 점수순으로 반환한다.
 
-    document_ids: 특정 문서로 좁혀 질문할 때. top_k: 기본 10, 상한은 설정값(기본 80).
-    min_score: 없으면 설정값(기본 0.3). 문서로 묶지 않고 ChunkHit 목록을 그대로 준다."""
+    document_ids: 특정 문서로 좁혀 질문할 때. None이면 제한 없음, 빈 목록이면 고른 문서가 없으므로 빈 결과.
+    top_k: 기본 10, 상한은 설정값(기본 80). min_score: 없으면 설정값(기본 0.3).
+    문서로 묶지 않고 ChunkHit 목록을 그대로 준다."""
     q = validate_query(query)
     settings = get_search_settings()
     if top_k is None:
@@ -328,6 +335,11 @@ def search_chunks(
     if min_score is None:
         min_score = settings["min_score"]
     validate_range(min_score, "min_score", 0.0, 1.0)
-    scope = resolve_company_scope(user, company_ids)
+    scope = resolve_company_scope(user, company_ids)  # 권한·세션 확인은 빈 결과보다 먼저 한다
     types = normalize_doc_types(doc_types)
-    return run_chunk_search(q, scope, types, document_ids or None, top_k, min_score)
+    if document_ids is not None:
+        # 공백·중복을 정리한 뒤 남는 문서가 없으면 빈 결과. 빈 조건을 넘기면 전체 검색으로 넓어지기 때문이다
+        document_ids = list(dict.fromkeys(str(d).strip() for d in document_ids if d is not None and str(d).strip()))
+        if not document_ids:
+            return []
+    return run_chunk_search(q, scope, types, document_ids, top_k, min_score)

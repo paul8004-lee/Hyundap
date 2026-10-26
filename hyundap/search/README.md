@@ -36,6 +36,8 @@ hits = search_chunks(user=user, query='신입 교육은 언제?', company_ids=No
 
 - `user`는 서버가 만든 로그인 사용자 문맥(auth 형식 dict)입니다. search는 내용을 보지 않고 auth에 그대로 넘깁니다.
 - 회사·유형을 "전체"로 하려면 `None`을 넘깁니다. 문서 유형은 `manual`·`policy`·`guide`·`other`만 받습니다.
+- `search_chunks`의 `document_ids`는 `None`이면 제한 없음, `[]`이면 고른 문서가 없으므로 **빈 결과**입니다(전체 검색으로 넓히지 않음).
+- `limit`·`top_k`는 정수만 받습니다(`2.5`는 `INVALID_LIMIT`). `min_score`는 소수도 됩니다.
 - 안쪽 함수(`is_visible` 등)는 바뀔 수 있으니 직접 부르지 말고 위 함수만 써 주세요.
 
 ## 검색 한 번의 흐름
@@ -82,7 +84,7 @@ search() / search_chunks()
 |---|---|---|---|
 | `EMPTY_QUERY` | 400 | input_error | 검색어가 비었음 |
 | `QUERY_TOO_LONG` | 400 | input_error | 검색어 2000자 초과 |
-| `INVALID_LIMIT` | 400 | input_error | limit·top_k 범위 밖 |
+| `INVALID_LIMIT` | 400 | input_error | limit·top_k 범위 밖이거나 정수가 아님(예: 2.5) |
 | `INVALID_MIN_SCORE` | 400 | input_error | min_score가 0~1 밖 |
 | `INVALID_DOC_TYPE` | 400 | input_error | 허용되지 않은 문서 유형 |
 | `NO_COMPANY_SCOPE` | 403 | denied | 검색할 수 있는 회사가 없음 |
@@ -116,6 +118,28 @@ DB 조회 함수 안의 예상하지 못한 오류(코드 버그)는 숨기지 �
 | common (이성민) | `get_settings().search_min_score`·`search_top_k_max`, `DOC_TYPE_CODES` |
 
 다른 폴더 함수는 `_embed_query`, `_query_vectors`, `_load_document_rows`, `_load_allowed_company_ids`, `_build_where_filter` 창구 함수 안에서 호출할 때 import합니다. 이름이 바뀌면 이 창구만 고치면 되고, 시험에서는 이 창구만 가짜로 바꿔 끼우면 됩니다.
+
+## 시험할 때 주의 (모듈 이름 가림)
+
+`hyundap/search/__init__.py`가 `search` **함수**를 내보내기 때문에, `hyundap.search.search`라는 이름이 **모듈이 아니라 함수**를 가리킵니다(명세 MOD-050대로 유지).
+
+- 일반 사용은 문제없습니다: `from hyundap.search import search`, `from hyundap.search.search import search_chunks` 모두 정상입니다.
+- 시험에서 `patch('hyundap.search.search._embed_query')`처럼 **문자열 경로로 바꿔 끼우면 실패**합니다. 모듈을 직접 잡아서 바꾸세요.
+
+```python
+import importlib
+from unittest.mock import patch
+
+search_module = importlib.import_module('hyundap.search.search')
+with patch.object(search_module, '_embed_query', return_value=[1.0]):
+    ...
+```
+
+search 시험은 `hyundap/tests/test_search.py`에 있습니다. OpenAI·DB·auth 없이 돌아갑니다.
+
+```bash
+python -m unittest hyundap.tests.test_search -v
+```
 
 ## 실행·설정
 

@@ -159,5 +159,3 @@ def to_feedback(error: Exception) -> dict | None:
         "message": error.message,
         "error_code": error.code,
     }
-
-
