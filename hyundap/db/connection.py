@@ -26,7 +26,7 @@ def create_db_engine() -> Engine:
                          pool_recycle=1800,hide_parameters=True,isolation_level='READ COMMITTED',
                          connect_args={'connect_timeout':10,'read_timeout':30,'write_timeout':30,
                                        'charset':'utf8mb4',
-                                       'init_command':"SET SESSION sql_mode=CONCAT_WS(',',@@sql_mode,'STRICT_TRANS_TABLES')"})
+                                       'init_command':"SET SESSION sql_mode=CONCAT_WS(',',@@sql_mode,'STRICT_TRANS_TABLES'), time_zone='+00:00'"})
 
 
 def main() -> int:
@@ -36,11 +36,16 @@ def main() -> int:
         engine=create_db_engine()
         with engine.connect() as connection:
             version=connection.execute(text('SELECT version FROM schema_migrations')).scalar_one()
-            if version!=3:
+            from db.schema import SUPPORTED_SCHEMA_VERSIONS, snapshot, validate_v4
+            if version not in SUPPORTED_SCHEMA_VERSIONS:
                 print('DB_CHECK_FAILED: schema version mismatch')
                 return 1
+            if version==4 and validate_v4(snapshot(connection)):
+                print('DB_CHECK_FAILED: incomplete schema v4; run python -m db.schema --check')
+                return 1
             count=connection.execute(text('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()')).scalar_one()
-        print(f'DB_CONNECTION_OK: schema_version={version}, tables={count}')
+        print(f'DB_CONNECTION_OK: schema_version={version}, tables={count}, '
+              f'version_storage_ready={version==4}')
         return 0
     except Exception as error:
         print('DB_CHECK_FAILED:',type(error).__name__,'Check DATABASE_URL, account permissions and network access.')
