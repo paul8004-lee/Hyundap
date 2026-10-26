@@ -35,7 +35,7 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 
 ## 실행과 검증
 
-`python -m pip install -r requirements-db.txt` 후 저장소 맨 위에서 실행한다. 오프라인 테스트는 `python -m unittest hyundap.tests.test_db_runtime.OfflineRuntimeTests -v`다. 실제 저장 테스트는 빈 로컬 MySQL의 DB_RUNTIME_TEST_URL(host=127.0.0.1, database=hyundap_runtime_test)을 설정하고 `python -m unittest hyundap.tests.test_db_runtime -v`로 실행한다. 기존 테이블이 있으면 중단한다.
+`python -m pip install -r requirements.txt` 후 저장소 맨 위에서 실행한다. 오프라인 테스트는 `python -m unittest hyundap.tests.test_db_runtime.OfflineRuntimeTests -v`다. 실제 저장 테스트는 빈 로컬 MySQL의 DB_RUNTIME_TEST_URL(host=127.0.0.1, database=hyundap_runtime_test)을 설정하고 `python -m unittest hyundap.tests.test_db_runtime -v`로 실행한다. 기존 테이블이 있으면 중단한다.
 
 테스트는 대표 v3를 v4로 이행한 합성 fixture다. 실제 공유 DB의 추가 필수 컬럼·enum·기존 자료와의 호환성은 #119 실측 뒤 확인해야 한다. 실제 DB의 DDL/DML, 커밋·푸시·PR 작성은 이번 작업에서 하지 않는다.
 

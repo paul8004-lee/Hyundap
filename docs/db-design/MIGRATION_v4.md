@@ -4,7 +4,7 @@
 
 ## 1. 준비 — DB 읽기 권한으로 실행
 
-레포 최상위 `.env` 또는 프로세스 환경의 DATABASE_URL을 사용한다. 비밀번호는 이슈·명령행·출력에 붙이지 않는다. Python 3.11과 requirements-db.txt 의존성을 사용한다. 명령은 저장소 맨 위에서 실행한다.
+레포 최상위 `.env` 또는 프로세스 환경의 DATABASE_URL을 사용한다. 비밀번호는 이슈·명령행·출력에 붙이지 않는다. Python 3.11과 requirements.txt 의존성을 사용한다. 명령은 저장소 맨 위에서 실행한다.
 
 ```powershell
 python -m hyundap.db.connection

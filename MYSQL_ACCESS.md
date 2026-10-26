@@ -2,7 +2,7 @@
 
 GitHub 레포 접근 권한과 MySQL 접속 권한은 별개입니다. 이 레포는 공개되어 있으므로 실제 계정·비밀번호·접속 URL이 채워진 `.env`는 커밋하지 않습니다. 팀원별 계정은 관리자가 별도로 발급하며, 아래 코드는 계정을 만들거나 DB를 초기화하지 않습니다.
 
-1. Python 3.11 이상에서 `python -m pip install -r requirements-db.txt`를 실행합니다.
+1. Python 3.11 이상에서 `python -m pip install -r requirements.txt`를 실행합니다.
 2. 레포 맨 위 폴더에 `.env` 파일을 만들고 본인에게 발급된 계정으로 `DATABASE_URL`을 채웁니다(형식은 아래 참고). 기존 `.env`가 있다면 덮어쓰지 말고 해당 항목만 추가합니다.
 3. 저장소 맨 위 폴더에서 `python -m hyundap.db.connection`을 실행합니다. `.env`는 같은 폴더에 둡니다. 기존 v3의 성공 예시는 `DB_CONNECTION_OK: schema_version=3, tables=9, version_storage_ready=False`입니다. v4는 필요한 구조 확인 후 `version_storage_ready=True`로 표시합니다. 이 값은 앱 전체 구현 완료나 파일·벡터 이행 완료를 뜻하지 않습니다.
 4. 코드에서는 `hyundap.db.connection.create_db_engine()`을 사용합니다. 스키마 변경·초기화는 담당 관리자만 수행합니다.
