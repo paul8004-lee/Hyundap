@@ -1,14 +1,16 @@
 """회사별 중복 조회·문서/후보 버전 생성·검색용 원시 행 일괄 조회."""
 
+import mimetypes
 from uuid import uuid4
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, inspect, text
 
 from hyundap.auth.errors import AccessError
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
 from .runtime import require_hash, require_id, transaction
 from .sessions_repo import current_actor
+from . import legacy
 
 
 DOCUMENT_INFO_SQL = '''
@@ -110,13 +112,14 @@ def create_document_version(actor, metadata, *, connection=None):
     data = validate_metadata(metadata)
     with transaction(connection) as database:
         # 세 단계가 같은 연결을 사용하므로 일부 저장만 성공한 상태가 남지 않는다.
-        _check_candidate_creation(database, actor, data)
+        current = _check_candidate_creation(database, actor, data)
+        data['uploaded_by'] = current['user_id']
         document_id = _prepare_document(database, data)
         return _insert_version_and_job(database, document_id, data)
 
 
 def _check_candidate_creation(database, actor, data):
-    """현재 사용자와 검증된 업로드 dict로 권한·기존 구조·중복을 검사한다. 반환값은 없다.
+    """권한·기존 구조·중복을 검사하고 DB에서 재검증한 현재 사용자 dict를 반환한다.
 
     호출자의 같은 트랜잭션에서 세션·사용자·회사 순서로 잠근다.
     회사 잠금은 다른 요청의 중복 확인과 후보 생성이 동시에 진행되지 않게 한다.
@@ -140,6 +143,7 @@ def _check_candidate_creation(database, actor, data):
     duplicate = find_duplicate_document(data['company_id'], data['sha256'], connection=database)
     if duplicate:
         raise DbError('DUPLICATE_FILE')
+    return current
 
 
 def _prepare_document(database, data):
@@ -163,8 +167,13 @@ def _prepare_document(database, data):
         if document['doc_type'] != data['doc_type']:
             raise DbError('INVALID_INPUT')
     else:
-        database.execute(text('INSERT INTO documents (id,company_id,doc_type) VALUES (:id,:company,:type)'),
-                         {'id': document_id, 'company': data['company_id'], 'type': data['doc_type']})
+        legacy.insert(database, 'documents',
+                      {'id': document_id, 'company_id': data['company_id'], 'doc_type': data['doc_type']},
+                      {'filename': data['file_name'], 'storage_key': data['storage_path'],
+                       'media_type': mimetypes.guess_type(data['file_name'])[0] or 'application/octet-stream',
+                       'size_bytes': data['file_size'], 'sha256': data['sha256'],
+                       'uploaded_by': data['uploaded_by'], 'created_at': legacy.epoch_now,
+                       'updated_at': legacy.epoch_now})
     return document_id
 
 
@@ -185,6 +194,15 @@ def _insert_version_and_job(database, document_id, data):
          (id,document_id,company_id,version_no,file_name,storage_path,sha256,file_size,data_category)
         VALUES (:id,:document_id,:company_id,:version_no,:file_name,:storage_path,:sha256,:file_size,:data_category)
     '''), values)
-    database.execute(text('INSERT INTO index_jobs (id,version_id) VALUES (:id,:version)'),
-                     {'id': job_id, 'version': version_id})
+    legacy_columns = {column['name'] for column in inspect(database).get_columns('documents')}
+    revision = {'generation': 0, 'content_revision': 0}
+    if {'generation', 'content_revision'} <= legacy_columns:
+        database.execute(text('UPDATE documents SET generation=generation+1 WHERE id=:id'), {'id': document_id})
+        revision = database.execute(text('SELECT generation,content_revision FROM documents WHERE id=:id'),
+                                    {'id': document_id}).mappings().one()
+    legacy.insert(database, 'index_jobs', {'id': job_id, 'version_id': version_id},
+                  {'document_id': document_id, 'company_id': data['company_id'],
+                   'generation': revision['generation'], 'content_revision': revision['content_revision'],
+                   'attempt_no': 1, 'requested_by': data['uploaded_by'],
+                   'created_at': legacy.epoch_now, 'updated_at': legacy.epoch_now})
     return {'document_id': document_id, 'version_id': version_id, 'job_id': job_id}

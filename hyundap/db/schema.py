@@ -7,6 +7,7 @@
 import argparse
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 
 from sqlalchemy import inspect, text
@@ -113,7 +114,8 @@ def snapshot(connection):
     메타데이터 조회 오류는 호출자에게 전달하며 DDL·DML은 실행하지 않는다."""
     columns = connection.execute(text('''
         SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE,
-               CHARACTER_SET_NAME, COLLATION_NAME, GENERATION_EXPRESSION
+               CHARACTER_SET_NAME, COLLATION_NAME, GENERATION_EXPRESSION,
+               COLUMN_DEFAULT, EXTRA
         FROM information_schema.columns WHERE table_schema = DATABASE()
         ORDER BY TABLE_NAME, ORDINAL_POSITION
     ''')).mappings()
@@ -263,6 +265,8 @@ def validate_v4(layout):
                 errors.append(f'{table}.{name}: incompatible type')
             if 'NOT NULL' in definition and column['IS_NULLABLE'] != 'NO':
                 errors.append(f'{table}.{name}: NOT NULL required')
+            if name == 'token_hash' and column['COLLATION_NAME'] != 'ascii_bin':
+                errors.append('sessions.token_hash: ascii_bin collation required')
     for table in ('document_versions', 'document_chunks'):
         if layout['keys'].get(table, {}).get('primary') != ['id']:
             errors.append(f'{table}: id primary key required')
@@ -284,6 +288,46 @@ def validate_v4(layout):
             if name not in actual:
                 errors.append(f'{table}: missing check {name}')
     return errors
+
+
+def prepare_legacy_sql(connection, time_unit):
+    """비어 있는 실제 v3 업무 테이블의 타입 정규화와 v4 검토용 SQL을 만든다.
+
+    유효한 시간 정책이 없으면 준비를 거부한다. 자료가 있는 구조는 별도 데이터 이행이
+    필요하므로 거부하며, 실제 DDL/DML 및 버전 변경은 수행하지 않는다.
+    """
+    if time_unit not in ('seconds', 'milliseconds'):
+        raise ValueError('Confirm legacy time unit: seconds or milliseconds before preparation')
+    layout = snapshot(connection)
+    changes = {
+        ('documents', 'deleted_at'): ('bigint', 'DATETIME(6) NULL'),
+        ('sessions', 'revoked_at'): ('bigint', 'DATETIME(6) NULL'),
+        ('sessions', 'token_hash'): ('varchar(64)', 'CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL'),
+        ('index_jobs', 'error_code'): ('longtext', 'VARCHAR(64) NULL'),
+        ('index_jobs', 'error_message'): ('longtext', 'VARCHAR(1000) NULL'),
+    }
+    for table in ('documents', 'sessions', 'index_jobs'):
+        if connection.execute(text(f'SELECT COUNT(*) FROM `{table}`')).scalar_one():
+            raise ValueError(f'Legacy preparation requires empty table: {table}; preserve data separately')
+    normalized = deepcopy(layout)
+    statements = [
+        '-- REVIEW ONLY. Stop all old/new application writers and take a backup before execution.',
+        '-- Recheck that documents, sessions and index_jobs are empty immediately before DDL.',
+        f'-- Confirmed runtime setting: DB_LEGACY_TIME_UNIT={time_unit}',
+        '-- No data conversion/backfill is performed. Existing sessions are not authenticated by default.',
+    ]
+    for (table, name), (original_type, definition) in changes.items():
+        column = normalized['tables'].get(table, {}).get(name)
+        if column is None or column['COLUMN_TYPE'].lower() != original_type:
+            raise ValueError(f'Unexpected legacy column: {table}.{name}; inspect before preparation')
+        statements.append(f'ALTER TABLE `{table}` MODIFY COLUMN `{name}` {definition};')
+        column['COLUMN_TYPE'] = definition.split()[0].lower()
+        if name == 'token_hash':
+            column['CHARACTER_SET_NAME'] = 'ascii'
+            column['COLLATION_NAME'] = 'ascii_bin'
+    # 먼저 전체 추가 DDL 생성 가능성을 확인한 후에만 SQL을 반환한다.
+    statements.append(prepare_sql(normalized))
+    return '\n\n'.join(statements)
 
 
 def audit_counts(connection):
@@ -313,6 +357,9 @@ def main():
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument('--inspect', action='store_true', help='비밀값 없는 구조 JSON 출력')
     action.add_argument('--prepare', type=Path, help='검토용 SQL 생성; DB 실행 없음')
+    action.add_argument('--prepare-legacy', type=Path, help='빈 레거시 v3 타입 정규화 SQL 준비; 실행 없음')
+    parser.add_argument('--legacy-time-unit', choices=('seconds', 'milliseconds'), default='seconds',
+                        help='BIGINT 시간 정책; 기본 UTC Unix 초, 기존 밀리초 호환은 명시 지정')
     action.add_argument('--check', action='store_true', help='v4 구조·정합성 점검; 버전 변경 없음')
     args = parser.parse_args()
     engine = None
@@ -322,8 +369,9 @@ def main():
             layout = snapshot(connection)
             if args.inspect:
                 print(json.dumps(layout, ensure_ascii=False, indent=2, default=str))
-            elif args.prepare:
-                sql = prepare_sql(layout)
+            elif args.prepare or args.prepare_legacy:
+                sql = (prepare_legacy_sql(connection, args.legacy_time_unit) if args.prepare_legacy
+                       else prepare_sql(layout))
                 # 회사 FK와 정규화 이메일 유일성에 걸리는 기존 데이터가 있으면 준비도 중단한다.
                 orphan_count = connection.execute(text('''
                     SELECT COUNT(*) FROM documents d LEFT JOIN companies c ON c.id=d.company_id
@@ -338,7 +386,7 @@ def main():
                 ''')).scalar_one()
                 if orphan_count or email_count:
                     raise ValueError('Legacy company/email data needs repair before preparation')
-                with args.prepare.open('x', encoding='utf-8') as output:
+                with (args.prepare or args.prepare_legacy).open('x', encoding='utf-8') as output:
                     output.write(sql)
                 print('MIGRATION_SQL_PREPARED: no database writes executed')
             else:

@@ -1,6 +1,6 @@
 # v3 → v4 준비·적용·검증 절차
 
-대상 #119. 마이그레이션 준비 도구는 SELECT·SHOW 등 읽기 전용 조회만 실행한다. 공유 DB의 DDL·DML 적용은 하지 않았다. 실제 공유 DB 접속 설정은 이번 작업 환경에 없으므로, 실제 구조 비교 항목은 미완료다.
+대상 #119. 마이그레이션 준비 도구는 SELECT·SHOW 등 읽기 전용 조회만 실행한다. 공유 DB의 DDL·DML 적용은 하지 않았다. 2026-10-26 실제 Railway v3 DDL을 읽기 전용으로 확인했고, 동일 DDL과 합성 자료를 사용한 로컬 회귀 테스트를 추가했다.
 
 ## 1. 준비 — DB 읽기 권한으로 실행
 
@@ -61,3 +61,51 @@ python -m unittest hyundap.tests.test_db_connection hyundap.tests.test_schema_mi
 DB URL이 없으면 통합 테스트는 명시적으로 skip된다. 테스트는 대표 v3 구조를 직접 만들고 데이터 보존·서로 다른 collation 반영·회사/FK·중복·CHECK·부분 manifest 탐지·버전 4 연결 검사를 확인한다. 이는 실제 공유 DB의 스키마/데이터 이행 성공 증거가 아니다.
 
 공식 근거: [MySQL FK의 타입·문자셋·collation 조건](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html), [DDL 암시적 커밋](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html).
+
+## Railway v3 호환 패치 — UTC Unix 초 정책
+
+2026-10-26 사용자가 표준 방향 적용을 승인해 프로젝트 BIGINT 시간 기본값을 UTC Unix 초로 채택했다.
+이는 기존 Railway 자료가 초 단위라는 실측 확인을 의미하지 않는다. 기존 자료를 변환하거나
+기존 인증 앱과 연결하기 전에는 해당 코드의 단위를 확인한다. 자료의 자릿수만으로 추정하지 않는다.
+
+```powershell
+# 기본 정책은 seconds다. 실제 적용 전 별도 검토가 필요하다.
+python -m hyundap.db.schema --prepare-legacy .git/004_railway_review.sql --legacy-time-unit seconds
+```
+
+이 명령도 DB를 변경하지 않는다. documents·sessions·index_jobs가 모두 비어 있을 때만
+기존 타입 5개 정규화와 v4 추가 DDL을 검토용 파일로 생성한다. 비어 있지 않으면 중단하며
+기존 날짜·세션·오류 문자열을 변환하거나 버리지 않는다. 일반 --prepare의 타입 보호 조건도 유지한다.
+적용 직전에는 모든 기존/신규 앱·작업자의 쓰기를 중지하고 빈 테이블 여부를 다시 확인해야 한다.
+이번 패치는 실제 DB 적용 승인을 의미하지 않는다.
+
+실행 앱은 미설정 시 `DB_LEGACY_TIME_UNIT=seconds`를 사용한다. 로컬 .env에도 seconds를 명시한다.
+밀리초를 사용하는 기존 시스템과의 호환이 확인된 경우에만 milliseconds로 지정한다.
+빈 값·알 수 없는 값이면 기존 BIGINT 시간 컬럼에 대한 저장과 세션 접근은 INVALID_STATE로 차단된다.
+신규 DATETIME(6)은 UTC로 저장하고 화면에서는 KST로 표시한다. 기존 저장값을 자동 변환하지 않는다.
+
+문서 저장은 기존 filename·storage_key·media_type·size_bytes·sha256·uploaded_by·시간 컬럼을
+공급하며 uploaded_by는 재검증한 DB 세션의 사용자 ID에서 가져온다. 기존 storage_key 길이도 검사한다.
+기존 작업에는 문서·회사·리비전·시도 횟수·시간을 공급하고, 문서 잠금 안에서 generation을 증가시킨다.
+P1 완료/실패를 기존 작업 종료 상태에도 반영해 활성 작업 UNIQUE가 다음 버전을 막지 않게 한다.
+종전 큐 작업자는 중지해야 한다. 두 작업 시스템의 동시 실행은 지원하지 않는다.
+
+세션은 신규 expires_at 외에 기존 idle_expires_at·absolute_expires_at도 모두 검사한다.
+기존 세션의 auth_version은 0으로 남겨 자동 인증하지 않는다. 비밀번호 복사·재해싱이나 세션 발급은 하지 않는다.
+인증 담당자가 새 auth_version·expires_at 계약을 반영해야 실제 로그인 연동이 가능하다.
+
+`hyundap/tests/fixtures/railway_v3_schema.sql`은 사용자 행 없이 캡처한 DDL이다.
+DB_LEGACY_TEST_URL은 127.0.0.1의 빈 hyundap_legacy_test만 허용한다.
+
+```powershell
+python -m unittest hyundap.tests.test_legacy_db -v
+```
+
+원래 INSERT의 실패, 보완 INSERT 성공, 두 번째 버전 생성, 기존 작업 종료,
+초/밀리초 세션 만료, 잘못된 단위 차단과 롤백, 자료가 있는 DB의 SQL 준비 거부를 검증한다.
+기존 35개 구조 진단에 token_hash 콜레이션 누락 검사도 추가되어 같은 원본 DDL은 이제 36개로 진단된다.
+
+2026-10-26 검증 결과: 별도 MySQL 8.4.13 인스턴스에서 기존 DB·업로드 테스트와
+새 레거시 호환 테스트 및 기본 초 단위 검증을 함께 실행해 **80개 통과, 실패 0, 오류 0, 건너뜀 0**을 확인했다.
+실제 v3 DDL에서 두 번의 원본 저장·수집·청크 원장·벡터 검증·게시도 통과했다.
+수집/벡터는 테스트 대역을 사용했으며 실제 Railway DB 쓰기나 외부 API 호출은 수행하지 않았다.
