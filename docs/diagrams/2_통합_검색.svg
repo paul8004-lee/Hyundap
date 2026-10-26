@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1376 1860" width="1376" height="1860" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif">
+<title>흐름 2. 통합 검색</title>
+<defs>
+<marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#57606a"/></marker>
+<marker id="arrow_c" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#9a6700"/></marker>
+</defs>
+<rect x="0" y="0" width="1376" height="1860" fill="#FAF9F5"/>
+<text x="40" y="74" font-family="MaruBuri, 'Noto Serif KR', Georgia, serif" font-size="32" font-weight="600" fill="#141413">흐름 2. 통합 검색</text>
+<text x="40" y="106" font-size="15" fill="#6B6359">검색 화면에서 검색어와 필터를 넣으면 권한 안의 문서를 점수순으로 보여주기까지</text>
+<rect x="40" y="140" width="312" height="1638" rx="10" fill="#F3EFE6" stroke="#D9CDBE"/>
+<text x="196.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">ui 화면</text>
+<text x="196.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">박경환</text>
+<line x1="56" y1="202" x2="336" y2="202" stroke="#D9CDBE"/>
+<rect x="368" y="140" width="312" height="1638" rx="10" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="524.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">search 검색</text>
+<text x="524.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">이준영</text>
+<line x1="384" y1="202" x2="664" y2="202" stroke="#D9CDBE"/>
+<rect x="696" y="140" width="312" height="1638" rx="10" fill="#F3EFE6" stroke="#D9CDBE"/>
+<text x="852.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">embedding 임베딩</text>
+<text x="852.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">박영준</text>
+<line x1="712" y1="202" x2="992" y2="202" stroke="#D9CDBE"/>
+<rect x="1024" y="140" width="312" height="1638" rx="10" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="1180.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">auth · db</text>
+<text x="1180.0" y="190" font-size="14" fill="#9a6700" text-anchor="middle">전재경 · 명세 대기</text>
+<line x1="1040" y1="202" x2="1320" y2="202" stroke="#D9CDBE"/>
+<path d="M 196.0 290.0 V 307.0 H 524.0 V 314.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 409.0 V 433.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 528.0 V 545.0 H 1180.0 V 552.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 1180.0 626.0 V 643.0 H 524.0 V 650.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 524.0 766.0 V 790.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 864.0 V 881.0 H 852.0 V 888.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 852.0 983.0 V 1007.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 852.0 1081.0 V 1105.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 852.0 1200.0 V 1217.0 H 524.0 V 1224.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 1319.0 V 1336.0 H 1180.0 V 1343.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 1180.0 1418.0 V 1435.0 H 524.0 V 1442.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 524.0 1537.0 V 1561.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 1656.0 V 1673.0 H 196.0 V 1680.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="58.0" y="226.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="256.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">1. 검색어·필터 입력</text>
+<text x="70.0" y="276.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">on_search_submit</text>
+<rect x="386.0" y="324.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="354.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">2. 입력 검증</text>
+<text x="398.0" y="374.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">validate_query · validate_range</text>
+<text x="398.0" y="395.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">검색어 1~2000자, limit 1~20</text>
+<rect x="386.0" y="443.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="473.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">3. 설정값 읽기</text>
+<text x="398.0" y="493.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">get_search_settings</text>
+<text x="398.0" y="514.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">config.get_settings() 사용</text>
+<rect x="1042.0" y="562.0" width="276.0" height="64.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="1054.0" y="592.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">4. 허용 회사 목록</text>
+<text x="1054.0" y="612.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">get_allowed_company_ids(user)</text>
+<rect x="386.0" y="660.0" width="276.0" height="106.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="690.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">5. 회사 범위 결정</text>
+<text x="398.0" y="710.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">resolve_company_scope</text>
+<text x="398.0" y="731.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">허용 회사 ∩ 사용자 선택</text>
+<text x="398.0" y="752.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#cf222e" text-anchor="start">↳ 범위가 비면 거절</text>
+<rect x="386.0" y="800.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="830.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">6. 문서 유형 정리</text>
+<text x="398.0" y="850.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">normalize_doc_types</text>
+<rect x="714.0" y="898.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="726.0" y="928.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">7. 조회 조건 만들기</text>
+<text x="726.0" y="948.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">build_where_filter</text>
+<text x="726.0" y="969.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">공개된 청크만, 회사 조건 필수</text>
+<rect x="714.0" y="1017.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="726.0" y="1047.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">8. 검색어 임베딩</text>
+<text x="726.0" y="1067.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">embed_query</text>
+<rect x="714.0" y="1115.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="726.0" y="1145.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">9. 벡터 조회</text>
+<text x="726.0" y="1165.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">query_vectors</text>
+<text x="726.0" y="1186.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">유사도 = 1 − 거리, 높은 순</text>
+<rect x="386.0" y="1234.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="1264.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">10. 최소 점수 적용</text>
+<text x="398.0" y="1284.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">filter_by_min_score</text>
+<text x="398.0" y="1305.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">기본 0.3 미만 제외</text>
+<rect x="1042.0" y="1353.0" width="276.0" height="65.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="1054.0" y="1383.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">11. 문서 정보 조회</text>
+<text x="1054.0" y="1404.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">db 조회 함수 (이름 미정)</text>
+<rect x="386.0" y="1452.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="1482.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">12. 공개 조건 확인</text>
+<text x="398.0" y="1502.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">is_visible · to_chunk_hit</text>
+<text x="398.0" y="1523.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">게시·활성 버전·회사 범위</text>
+<rect x="386.0" y="1571.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="1601.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">13. 문서별 묶기·정렬</text>
+<text x="398.0" y="1621.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">group_hits_by_document</text>
+<text x="398.0" y="1642.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">점수순, 같으면 파일명순</text>
+<rect x="58.0" y="1690.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="1720.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">14. 결과 목록·상세 표시</text>
+<text x="70.0" y="1740.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">SearchResponse → 스플릿 뷰</text>
+<rect x="40" y="1802" width="28" height="18" rx="4" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="78" y="1816" font-size="14" fill="#6B6359">처리 단계</text>
+<rect x="178.4" y="1802" width="28" height="18" rx="4" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="216.4" y="1816" font-size="14" fill="#6B6359">전재경 명세 대기 (함수 이름·내용 미정)</text>
+<rect x="529.6" y="1802" width="28" height="18" rx="4" fill="#F3EFE6" stroke="#57606a"/>
+<text x="567.6" y="1816" font-size="14" fill="#6B6359">외부 서비스</text>
+<text x="682.0" y="1817" font-size="14" fill="#cf222e">↳</text>
+<text x="720.0" y="1816" font-size="14" fill="#6B6359">실패·예외 처리</text>
+</svg>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1028" width="720" height="1028" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif">
+<title>흐름 5. 로그인 · 관리자 기능</title>
+<defs>
+<marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#57606a"/></marker>
+<marker id="arrow_c" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#9a6700"/></marker>
+</defs>
+<rect x="0" y="0" width="720" height="1028" fill="#FAF9F5"/>
+<text x="40" y="74" font-family="MaruBuri, 'Noto Serif KR', Georgia, serif" font-size="32" font-weight="600" fill="#141413">흐름 5. 로그인 · 관리자 기능</text>
+<text x="40" y="106" font-size="15" fill="#6B6359">화면은 박경환 명세에 있고, 처리 함수는 전재경 명세가 나와야 정해집니다</text>
+<rect x="40" y="140" width="312" height="806" rx="10" fill="#F3EFE6" stroke="#D9CDBE"/>
+<text x="196.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">ui 화면</text>
+<text x="196.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">박경환</text>
+<line x1="56" y1="202" x2="336" y2="202" stroke="#D9CDBE"/>
+<rect x="368" y="140" width="312" height="806" rx="10" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="524.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">auth · db</text>
+<text x="524.0" y="190" font-size="14" fill="#9a6700" text-anchor="middle">전재경 · 명세 대기</text>
+<line x1="384" y1="202" x2="664" y2="202" stroke="#D9CDBE"/>
+<path d="M 196.0 290.0 V 307.0 H 524.0 V 314.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 524.0 409.0 V 426.0 H 196.0 V 433.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 196.0 527.0 V 544.0 H 524.0 V 551.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 524.0 626.0 V 643.0 H 196.0 V 650.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 196.0 724.0 V 741.0 H 524.0 V 748.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 524.0 823.0 V 840.0 H 196.0 V 847.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<rect x="58.0" y="226.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="256.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">1. 아이디·비밀번호 입력</text>
+<text x="70.0" y="276.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">on_login_submit</text>
+<rect x="386.0" y="324.0" width="276.0" height="85.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="398.0" y="354.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">2. 로그인 확인</text>
+<text x="398.0" y="374.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">login(아이디, 비밀번호)</text>
+<text x="398.0" y="395.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">반환 형식 미정</text>
+<rect x="58.0" y="443.0" width="276.0" height="84.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="473.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">3. 관리자 권한 화면</text>
+<text x="70.0" y="493.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">load_account_options</text>
+<text x="70.0" y="513.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">on_role_change_submit</text>
+<rect x="386.0" y="561.0" width="276.0" height="65.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="398.0" y="591.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">4. 계정·역할 조회·변경</text>
+<text x="398.0" y="612.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">함수 이름 미정</text>
+<rect x="58.0" y="660.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="690.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">5. 로그·처리 결과 화면</text>
+<text x="70.0" y="710.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">load_log_view</text>
+<rect x="386.0" y="758.0" width="276.0" height="65.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="398.0" y="788.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">6. 로그·처리 결과 조회</text>
+<text x="398.0" y="809.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">jobs_repo (함수 이름 미정)</text>
+<rect x="58.0" y="857.0" width="276.0" height="65.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="887.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">7. 결과·빈 목록·실패 안내</text>
+<text x="70.0" y="908.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">show_loading · 안내 문구</text>
+<rect x="40" y="970" width="28" height="18" rx="4" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="78" y="984" font-size="14" fill="#6B6359">처리 단계</text>
+<rect x="178.4" y="970" width="28" height="18" rx="4" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="216.4" y="984" font-size="14" fill="#6B6359">전재경 명세 대기 (함수 이름·내용 미정)</text>
+<rect x="529.6" y="970" width="28" height="18" rx="4" fill="#F3EFE6" stroke="#57606a"/>
+<text x="567.6" y="984" font-size="14" fill="#6B6359">외부 서비스</text>
+<text x="682.0" y="985" font-size="14" fill="#cf222e">↳</text>
+<text x="720.0" y="984" font-size="14" fill="#6B6359">실패·예외 처리</text>
+</svg>
