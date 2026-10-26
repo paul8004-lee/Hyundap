@@ -142,6 +142,26 @@ MVP를 먼저 완성하고, 도전 기능은 MVP가 끝난 뒤 여유가 있을 
 | 문서·데이터 | 샘플 문서 수집, 공통 구조 변환, 검색 품질 검증 질문 세트 | 미정 |
 | 기획·정리 | 일정 점검, 통합 테스트, README와 발표 자료 | 미정 |
 
+### 실행 방법
+
+모든 명령은 **저장소 맨 위 폴더**에서 실행합니다 (`cd hyundap` 하지 않음). `.env`도 맨 위 폴더에 둡니다.
+
+```bash
+pip install -r requirements.txt                       # 패키지 설치 (Python 3.11)
+python -m hyundap.app                                 # 앱 실행
+python -m unittest discover -s hyundap/tests -t .     # 전체 테스트
+```
+
+> 테스트 파일 import 정리(#127·#128)가 끝나기 전에는 `cd hyundap` 후 `python -m unittest discover -s tests`로 테스트를 실행합니다.
+
+### import 규칙
+
+| 상황 | 쓰는 법 |
+|---|---|
+| 다른 폴더 기능 | `from hyundap.common.config import get_settings` |
+| 같은 폴더 안 파일 | `from .models import IngestError` |
+| 쓰지 않기 | `from common...`처럼 `hyundap.` 없는 형태, `sys.path` 조작 |
+
 <br>
 
 <img src="images/h_stack.png" alt="TECH STACK" width="100%" />
