@@ -39,6 +39,13 @@ ERROR_MESSAGES = {
     'CONFIG_MISSING': 'AI 설정을 확인해 주세요.',
 }
 ERROR_CODES = tuple(ERROR_MESSAGES)
+# to_feedback이 화면에 넘기는 상태. 여기 없는 코드는 'failed'
+FEEDBACK_STATUS = {
+    'EMPTY_QUESTION': 'input_error',
+    'QUESTION_TOO_LONG': 'input_error',
+    'NO_EVIDENCE': 'empty',
+    'ACCESS_DENIED': 'denied',
+}
 
 # 다른 폴더 오류를 이름으로 구분한다. 이름(AccessError·DbError)은 DB 계약으로 확정됐지만 클래스가 아직 없어 import하지 않는다
 ACCESS_ERROR_NAMES = ('AccessError',)
