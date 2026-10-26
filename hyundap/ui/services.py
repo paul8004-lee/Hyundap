@@ -16,20 +16,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol
 
+from hyundap.common.schemas import DOC_TYPES as COMMON_DOC_TYPES
 
-# 회사 목록은 화면 개발용이다. common 담당자가 목록과 import 경로를 제공하면 교체한다.
-# DOC_TYPES는 DB PR #125의 CHECK 제약과 동일한 임시 목록이며 common 제공 후 가져온다.
+
+# 회사 목록은 화면 개발용이다. 실제 목록은 DB companies와 auth의 권한 조회에 연결한다.
 COMPANIES = [
     ("현대경제연구원", "hri"),
     ("그린테크에너지", "gte"),
     ("블루파트너스자산운용", "bpa"),
 ]
-DOC_TYPES = [
-    ("매뉴얼", "manual"),
-    ("규정", "policy"),
-    ("안내", "guide"),
-    ("기타", "other"),
-]
+# common은 (코드, 표시명), Gradio 선택지는 (표시명, 코드)를 사용한다.
+DOC_TYPES = [(label, code) for code, label in COMMON_DOC_TYPES]
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 

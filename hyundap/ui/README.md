@@ -83,9 +83,11 @@ python hyundap/app.py --mode backend
 `hyundap/ui/services.py`는 동기 함수를 작업 스레드에서 호출하고 async 함수를 기다립니다. 인증·권한 판정은 실제 백엔드가 수행해야 합니다. 메뉴 숨김만으로 권한을 보장하지 않습니다.
 검색의 `total_hits`는 문서 전체 개수가 아닌 청크 수이므로 현재 받은 문서 목록 길이를 표시합니다. 작업 성공과 검색 가능 여부도 구분합니다.
 
-검색 어댑터는 `search(user=검증 사용자, query=, company_ids=, doc_types=, limit=10)`으로 호출합니다. 문서 유형 선택값은 DB CHECK 제약에 맞춘 `manual`(매뉴얼), `policy`(규정), `guide`(안내), `other`(기타)입니다. 예시 문서의 유형도 이 네 값으로 정리했으며, 실제 백엔드의 알 수 없는 유형을 임의로 `other`로 바꾸지는 않습니다.
+검색 어댑터는 `search(user=검증 사용자, query=, company_ids=, doc_types=, limit=10)`으로 호출합니다. 문서 유형 선택값은 DB CHECK 제약에 맞춘 `manual`(매뉴얼), `policy`(규정), `guide`(가이드), `other`(기타)입니다. 예시 문서의 유형도 이 네 값으로 정리했으며, 실제 백엔드의 알 수 없는 유형을 임의로 `other`로 바꾸지는 않습니다.
 
-회사 목록 `hri`·`gte`·`bpa`는 여전히 화면 개발용 예시입니다. `common`의 회사·문서 유형 목록은 아직 제공되지 않았습니다. 목록의 실제 export 경로·형식과 팀 import 기준이 확정되면 `services.py`의 임시 목록을 공통 목록 import로 교체합니다.
+문서 유형은 [공통 문서 유형 PR #126](https://github.com/paul8004-lee/Hyundap/pull/126)의 목록을 사용합니다. `services.py`에서 `from hyundap.common.schemas import DOC_TYPES as COMMON_DOC_TYPES`로 가져와 `[(label, code) for code, label in COMMON_DOC_TYPES]`로 변환합니다. 공통 목록의 `(코드, 표시명)`을 Gradio가 받는 `(표시명, 코드)` 순서로 맞추며, `guide`의 표시명은 공통 목록에 따라 `가이드`로 표시합니다.
+
+회사 목록 `hri`·`gte`·`bpa`는 여전히 화면 개발용 예시입니다. 공통 설계상 실제 회사 목록은 `common`의 정적 목록이 아니라 DB `companies` 테이블과 auth 권한 함수가 제공합니다. 조회 함수가 제공되기 전까지 예시 `COMPANIES`를 유지합니다. 팀 전체 import 기준과 백엔드 통합 실행 경로는 계속 확정 대기 상태입니다.
 
 ## 검증 기록
 
@@ -100,13 +102,14 @@ python hyundap/app.py --mode backend
 
 ## 리뷰 후속 반영
 
-[DB·인증 계약 PR #125](https://github.com/paul8004-lee/Hyundap/pull/125)와 UI 리뷰를 기준으로 반영한 범위입니다.
+[DB·인증 계약 PR #125](https://github.com/paul8004-lee/Hyundap/pull/125), [공통 문서 유형 PR #126](https://github.com/paul8004-lee/Hyundap/pull/126)과 UI 리뷰를 기준으로 반영한 범위입니다.
 
 - [x] 문서 유형을 DB 허용 코드 네 개로 맞추고 예시 문서 유형을 정리했습니다.
 - [x] 검색 호출 인자를 `user=`로 맞추고 연결 검사를 갱신했습니다.
 - [x] UI 전용 의존성 파일·앱의 uv script 블록을 제거하고 루트 설치 명령으로 통일했습니다.
-- [ ] `common`의 회사·문서 유형 목록 공개 후 실제 export에서 가져옵니다.
+- [x] 문서 유형은 `hyundap.common.schemas.DOC_TYPES`에서 가져와 Gradio 선택지 순서로 변환합니다.
+- [ ] DB·auth 회사 목록 조회 함수가 제공되면 예시 `COMPANIES`를 교체합니다.
 - [ ] 팀 import 기준 확정 후 UI와 백엔드의 모듈 경로를 통합 검수합니다.
 - [ ] 리뷰 담당자의 `hyundap/tests/` 이전 완료 후 UI 테스트 원본을 정리합니다.
 
-로컬 `common/config.py`·`common/schemas.py`는 현재 뼈대이며, PR #125의 해당 파일에도 UI가 가져올 목록 export가 없습니다. 이 후속 반영은 실제 DB·인증·검색·LLM 연결 완료를 뜻하지 않습니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.
+공통 문서 유형 연결은 실제 DB·인증·검색·LLM 연결 완료를 뜻하지 않습니다. 회사 목록 조회, 팀 import 기준 확정과 실제 담당 함수 연결은 계속 대기 상태입니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.
