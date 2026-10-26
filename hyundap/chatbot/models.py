@@ -11,9 +11,12 @@
 자료형:
     CLS-120 ChatbotError
     CLS-121 ChatFilters
-    CLS-123 Citation          (common/schemas.py 반영 전 임시 위치, 미정 D04)
-    CLS-124 ChatResponse      (common/schemas.py 반영 전 임시 위치, 미정 D04)
-    CLS-125 SummaryResponse   (common/schemas.py 반영 전 임시 위치, 미정 D10)
+    CLS-123 Citation
+    CLS-124 ChatResponse
+    CLS-125 SummaryResponse
+
+결과·필터 클래스 4개는 chatbot만 만들고 쓰므로 common이 아니라 이 파일에 둔다 (D04, 이성민 결정 10/26).
+다른 폴더에서는 `from hyundap.chatbot.models import ChatFilters`처럼 가져온다.
 """
 from dataclasses import dataclass, field
 

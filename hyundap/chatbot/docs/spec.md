@@ -30,7 +30,7 @@
 | MOD-122 | `prompts.py` | 프롬프트·LLM 체인 | FUN-408~410 |
 | MOD-123 | `citations.py` | 이름표·인용 검사·출처 | FUN-411~419 |
 | MOD-124 | `summary.py` | 선택 문서 요약 (P2) | FUN-420~424 |
-| MOD-125 | `models.py` | 오류·데이터 형식 | FUN-425~427, CLS-120~125 |
+| MOD-125 | `models.py` | 오류·결과 데이터 형식. ChatFilters·Citation·ChatResponse·SummaryResponse의 정의 위치 (D04 결정, common.schemas 아님) | FUN-425~427, CLS-120·121·123·124·125 |
 | MOD-126 | `constants.py` | 기본값·오류 문구 | 상수 |
 
 ## 3. 처리 흐름
@@ -167,16 +167,20 @@ ui.chat_page.on_summary_request (박경환)
 | Settings | 이성민 `common/config.py` (구현됨) | openai_api_key, openai_chat_model 외 | FUN-408 |
 | user (UserContext, CLS-122) | 전재경 auth | user_id, company_id, role, … | 열어 보지 않고 search·auth에 그대로 넘김 |
 
-### 주는 것 (`models.py`)
+### 주는 것 (`hyundap/chatbot/models.py`)
 
-| 클래스 | 필드 |
-|---|---|
-| ChatFilters (CLS-121) | company_ids, doc_types, document_ids (모두 None 가능 = 허용 범위 전체) |
-| Citation (CLS-123) | number, chunk_id, document_id, version_id, version_no, company_id, company_name, file_name, doc_type, location_label, excerpt, score |
-| ChatResponse (CLS-124) | status(`ANSWERED`·`NO_EVIDENCE`), answer, citations, citations_by_company, document_ids, message, error_code |
-| SummaryResponse (CLS-125) | document_id, version_id, summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks |
+| 클래스 | 소스 위치 | 필드 |
+|---|---|---|
+| ChatFilters (CLS-121) | `chatbot/models.py` | company_ids, doc_types, document_ids (모두 None 가능 = 허용 범위 전체) |
+| Citation (CLS-123) | `chatbot/models.py` | number, chunk_id, document_id, version_id, version_no, company_id, company_name, file_name, doc_type, location_label, excerpt, score |
+| ChatResponse (CLS-124) | `chatbot/models.py` | status(`ANSWERED`·`NO_EVIDENCE`), answer, citations, citations_by_company, document_ids, message, error_code |
+| SummaryResponse (CLS-125) | `chatbot/models.py` | document_id, version_id, summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks |
 
-`document_ids`는 ui가 문서를 바꿀 때 이전 답변이 섞이지 않게 확인하는 데 쓴다(통합본 L29). 이성민의 `common/schemas.py`(10/26 반영)에는 아직 이 클래스들이 없어 `chatbot/models.py`에 둔다(D04).
+가져오는 법 (이슈 #133): chatbot 안에서는 `from .models import ChatFilters, Citation, ChatResponse, SummaryResponse`, 다른 폴더에서는 `from hyundap.chatbot.models import ChatFilters`.
+
+UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·`answer`·`citations`·`message`·`error_code`를, 요약 결과에서 `document_id`·`version_id`·`summary`·`is_full`·`included_range`·`excluded_range`·`total_chunks`·`used_chunks`를 읽으며 위 필드와 이름이 같다. 필드 이름을 바꿀 때는 박경환과 먼저 맞춘다.
+
+`document_ids`는 ui가 문서를 바꿀 때 이전 답변이 섞이지 않게 확인하는 데 쓴다(통합본 L29). 결과·필터 클래스 4개는 chatbot만 만들고 ingest·embedding·search는 쓰지 않으므로 `chatbot/models.py`에 둔다 (D04, 이성민 결정 10/26. 통합본 MOD-125의 "공용 스키마는 common.schemas" 문구는 이 결정으로 바뀜). search의 `SearchCitation`(CLS-052)과 합치기로 하면 그때 common으로 옮긴다.
 
 ## 6. 다른 폴더와의 연결
 
@@ -231,8 +235,7 @@ ui.chat_page.on_summary_request (박경환)
 | `ACCESS_ERROR_NAMES`, `SEARCH_ACCESS_CODES` | 상수 | constants.py | 이름(AccessError·DbError)은 DB 계약으로 확정됐지만 클래스가 아직 없어 이름·코드로 구분 | 클래스 생기면 import로 정리 |
 | `SENTENCE_END`, `REQUIRED_FIELDS`, `ALIAS_PATTERN` | 상수 | citations.py | 문장 나누기·필수 출처 필드·이름표 정규식 | 내부용 |
 | `LLM_TIMEOUT_SECONDS` | 상수 | constants.py | LLM 호출 30초 제한 | 선택 |
-| Citation `version_no`, ChatResponse `citations_by_company`·`document_ids` | 클래스 필드 | models.py | WF-15 버전 표시, FR-06 회사별 출처(D08), ui 화면 섞임 방지(L29) | 요청 (D04·D08) |
-| 결과 클래스 4개 위치 | 위치 | models.py | 통합본은 `common/schemas.py`라고 적었지만 이성민 파일이고 아직 없음 | D04 |
+| Citation `version_no`, ChatResponse `citations_by_company`·`document_ids` | 클래스 필드 | models.py | WF-15 버전 표시, FR-06 회사별 출처(D08), ui 화면 섞임 방지(L29) | 요청 (D08) |
 | `map_dependency_error`의 stage 값 `'recheck'` | 인자 값 | models.py | 재검증 중 auth·DB 오류를 계약대로 바꾸고, 예상 못 한 오류는 감추지 않으려고 | 요청 |
 
 **함수는 통합본 FUN-401~427 외에 하나도 없다.** 명세 밖 함수·인자는 모두 뺐다(아래).
@@ -272,7 +275,7 @@ ui.chat_page.on_summary_request (박경환)
 |---|---|---|---|
 | D19 | 요약 경로 근거 형식(VectorHit) | `summarize_document` 안에서 ChunkHit로 변환 (별도 함수 없음) | 박영준 공유 |
 | D10 | 요약 함수 이름·길이 | `summarize_document`, 청크 64개 | 박경환 |
-| D04 | Citation·ChatResponse 위치 | `chatbot/models.py` | 이성민 (common/schemas.py) |
+| D04 | 결과·필터 클래스 위치 | **확정 (10/26)** — 네 개 모두 `chatbot/models.py` | 이성민 결정, 통합본 반영은 이성민 |
 | D07 | 근거 개수 | 문서당 4·전체 8 | 이준영·이성민 (정확도 테스트 후) |
 | D08 | 여러 회사 질문 | 필터 범위 전체에서 8개, 회사별 답변·출처 | 팀 |
 | D11 | 오류 문구 | `ERROR_MESSAGES` 초안 | 박경환 |
@@ -295,7 +298,7 @@ ui.chat_page.on_summary_request (박경환)
 
 | 날짜 | 할 일 |
 |---|---|
-| 10/27 (Day 4) | 이 명세와 1차 코드 공유, 미정 사항(D04·D07·D10·D11·D19) 확인 |
+| 10/27 (Day 4) | 이 명세와 1차 코드 공유, 미정 사항(D07·D10·D11·D19) 확인 |
 | 10/28 (Day 5) | develop PR · merge |
 | 10/29 (Day 6) | 실제 search·auth·embedding 연결, 실제 gpt-5로 인용 형식 확인, 통합 테스트 |
 | 10/30 (Day 7) | 권한 테스트(다른 회사 문서 노출), 근거 개수 조정 |

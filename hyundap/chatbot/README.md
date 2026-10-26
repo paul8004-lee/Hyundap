@@ -33,7 +33,7 @@ except Exception as error:
 | `prompts.py` | 답변·요약 프롬프트, OpenAI 연결 |
 | `citations.py` | 근거 이름표(E1, E2…), 인용 검사, 출처 만들기 |
 | `summary.py` | 선택 문서 요약 |
-| `models.py` | 오류 클래스, 결과 데이터 형식, 오류 변환 |
+| `models.py` | 오류 클래스, 오류 변환, 필터·결과 클래스 4개(`ChatFilters`, `Citation`, `ChatResponse`, `SummaryResponse`). 이 네 개는 chatbot만 쓰므로 common이 아니라 여기에 둡니다 (팀 결정). 다른 폴더에서는 `from hyundap.chatbot.models import ChatFilters` |
 | `constants.py` | 기본값(근거 8개, 발췌 300자 등)과 오류 안내 문구 |
 
 ## 지켜지는 규칙
@@ -58,7 +58,6 @@ except Exception as error:
 |---|---|
 | 오류 문구·유보 표현 등 상수 (constants.py) | 오류 코드별 화면 문구, LLM이 "확인할 수 없음"을 바꿔 말해도 알아보려고 |
 | Citation의 `version_no`, ChatResponse의 `citations_by_company`·`document_ids` | 출처에 버전 표시, 회사별 출처 묶음, 화면에서 다른 문서 답변이 섞이지 않게 |
-| 결과 클래스를 `chatbot/models.py`에 둠 | 통합본은 `common/schemas.py`라고 적었지만 아직 그 파일에 없어서 임시로 |
 | `map_dependency_error`의 단계 값 `'recheck'` | 재검증 중 auth·DB 오류를 DB 계약대로 바꾸려고 |
 
 함수는 통합본 FUN-401~427만 있습니다.
