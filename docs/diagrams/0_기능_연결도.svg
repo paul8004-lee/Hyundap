@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1900 1166" width="1900" height="1166" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif">
+<title>기능 연결 도식도</title>
+<defs>
+<marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#57606a"/></marker>
+<marker id="arrow_c" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#9a6700"/></marker>
+</defs>
+<rect x="0" y="0" width="1900" height="1166" fill="#FAF9F5"/>
+<text x="40" y="74" font-family="MaruBuri, 'Noto Serif KR', Georgia, serif" font-size="32" font-weight="600" fill="#141413">기능 연결 도식도</text>
+<text x="40" y="106" font-size="15" fill="#6B6359">통합 기능명세서 기준 · 화살표는 함수 호출 방향 · 점선은 전재경(auth·db) 명세 대기</text>
+<path d="M 178.0 205.0 V 265.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 564.0 205.0 V 265.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 950.0 205.0 V 265.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1336.0 205.0 V 265.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 178.0 360.0 V 481.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<text x="186.0" y="430.5" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">login(id, pw)</text>
+<path d="M 564.0 380.0 V 481.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="572.0" y="440.5" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">업로드 파일</text>
+<path d="M 950.0 360.0 V 481.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="958.0" y="430.5" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">search(user, query, …)</text>
+<path d="M 1336.0 360.0 V 481.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1344.0" y="430.5" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ask(question, filters, user)</text>
+<path d="M 1198.0 525.0 H 1098.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1143.0" y="517.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="middle">search_chunks</text>
+<path d="M 1474.0 525.0 H 1574.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1529.0" y="517.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="middle">답변·요약</text>
+<path d="M 564.0 616.0 V 746.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="572.0" y="691.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">embed_and_store</text>
+<path d="M 950.0 656.0 V 746.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="958.0" y="711.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">embed_query · query_vectors</text>
+<path d="M 1336.0 616.0 V 746.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1344.0" y="691.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">get_document_chunks</text>
+<path d="M 564.0 881.0 V 961.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="572.0" y="931.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">임베딩 생성</text>
+<path d="M 1336.0 881.0 V 961.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<text x="1344.0" y="931.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">upsert · query · update</text>
+<rect x="40.0" y="140.0" width="1434.0" height="65.0" rx="8" fill="#F3EFE6" stroke="#57606a" stroke-width="1"/>
+<text x="52.0" y="170.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">사용자</text>
+<text x="52.0" y="191.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">직원 · 회사 관리자 · 플랫폼 관리자 (employee · company_admin · platform_admin)</text>
+<rect x="40.0" y="275.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="52.0" y="305.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">로그인 화면</text>
+<text x="52.0" y="325.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ui/login_page.py</text>
+<text x="52.0" y="346.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">박경환</text>
+<rect x="426.0" y="275.0" width="276.0" height="105.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="438.0" y="305.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">관리자 화면</text>
+<text x="438.0" y="325.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ui/admin_page.py</text>
+<text x="438.0" y="346.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">박경환 · 업로드·권한·로그</text>
+<text x="438.0" y="366.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● db: 권한 변경·로그 조회</text>
+<rect x="812.0" y="275.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="824.0" y="305.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">검색 화면</text>
+<text x="824.0" y="325.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ui/search_page.py</text>
+<text x="824.0" y="346.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">박경환 · 스플릿 뷰</text>
+<rect x="1198.0" y="275.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="1210.0" y="305.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">챗봇 화면</text>
+<text x="1210.0" y="325.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ui/chat_page.py</text>
+<text x="1210.0" y="346.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">박경환 · 질문·요약</text>
+<rect x="1584.0" y="275.0" width="276.0" height="126.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="1596.0" y="305.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">공용 설정</text>
+<text x="1596.0" y="325.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">common/config.py</text>
+<text x="1596.0" y="346.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">이성민</text>
+<text x="1596.0" y="366.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#1a7f37" text-anchor="start">● get_settings()</text>
+<text x="1596.0" y="387.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">모든 모듈이 읽음</text>
+<rect x="40.0" y="491.0" width="276.0" height="85.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="52.0" y="521.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">로그인 처리</text>
+<text x="52.0" y="541.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">auth/login.py</text>
+<text x="52.0" y="562.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">전재경 · 명세 대기</text>
+<rect x="426.0" y="491.0" width="276.0" height="125.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="438.0" y="521.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">수집·청킹</text>
+<text x="438.0" y="541.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ingest/pipeline.py</text>
+<text x="438.0" y="562.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">김혜리</text>
+<text x="438.0" y="582.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#B85C3E" text-anchor="start">ingest_document</text>
+<text x="438.0" y="602.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● db: 해시 중복 조회</text>
+<rect x="812.0" y="491.0" width="276.0" height="165.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="824.0" y="521.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">통합 검색</text>
+<text x="824.0" y="541.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">search/search.py</text>
+<text x="824.0" y="562.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">이준영</text>
+<text x="824.0" y="582.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#B85C3E" text-anchor="start">search · search_chunks</text>
+<text x="824.0" y="602.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● auth: get_allowed_company_ids</text>
+<text x="824.0" y="622.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● db: 문서 정보 조회</text>
+<text x="824.0" y="642.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#1a7f37" text-anchor="start">● config: get_settings</text>
+<rect x="1198.0" y="491.0" width="276.0" height="125.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="1210.0" y="521.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">근거 기반 답변·요약</text>
+<text x="1210.0" y="541.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">chatbot/ask.py · summary.py</text>
+<text x="1210.0" y="562.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">소용우</text>
+<text x="1210.0" y="582.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#B85C3E" text-anchor="start">ask · 요약(이름 미정)</text>
+<text x="1210.0" y="602.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● auth: verify_documents_access</text>
+<rect x="1584.0" y="491.0" width="276.0" height="85.0" rx="8" fill="#F3EFE6" stroke="#57606a" stroke-width="1"/>
+<text x="1596.0" y="521.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">OpenAI 채팅 모델</text>
+<text x="1596.0" y="541.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">ChatOpenAI (langchain)</text>
+<text x="1596.0" y="562.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">외부 · 모델명 미정</text>
+<rect x="426.0" y="756.0" width="1048.0" height="125.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="438.0" y="786.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">임베딩 · 벡터 저장소</text>
+<text x="438.0" y="806.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">embedding/embedder.py · vector_store.py</text>
+<text x="438.0" y="827.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">박영준</text>
+<text x="438.0" y="847.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#B85C3E" text-anchor="start">embed_and_store · embed_query · build_where_filter · query_vectors · get_document_chunks</text>
+<text x="438.0" y="867.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● db가 호출: activate_version · delete_vectors · get_version_chunk_ids</text>
+<rect x="1584.0" y="756.0" width="276.0" height="105.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="1596.0" y="786.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">권한 · 저장</text>
+<text x="1596.0" y="806.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">auth/ · db/</text>
+<text x="1596.0" y="827.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">전재경 · 명세 대기</text>
+<text x="1596.0" y="847.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#9a6700" text-anchor="start">● 표시가 이 모듈 호출</text>
+<rect x="426.0" y="971.0" width="276.0" height="85.0" rx="8" fill="#F3EFE6" stroke="#57606a" stroke-width="1"/>
+<text x="438.0" y="1001.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">OpenAI 임베딩 API</text>
+<text x="438.0" y="1021.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">text-embedding-3-small</text>
+<text x="438.0" y="1042.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">외부 · 1536차원</text>
+<rect x="1198.0" y="971.0" width="276.0" height="85.0" rx="8" fill="#F3EFE6" stroke="#57606a" stroke-width="1"/>
+<text x="1210.0" y="1001.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">ChromaDB</text>
+<text x="1210.0" y="1021.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">data/chroma_db · cosine</text>
+<text x="1210.0" y="1042.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#6B6359" text-anchor="start">chunks__&lt;모델 이름&gt;</text>
+<rect x="40" y="1108" width="28" height="18" rx="4" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="78" y="1122" font-size="14" fill="#6B6359">팀 모듈</text>
+<rect x="164.4" y="1108" width="28" height="18" rx="4" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="202.4" y="1122" font-size="14" fill="#6B6359">전재경 명세 대기</text>
+<rect x="353.20000000000005" y="1108" width="28" height="18" rx="4" fill="#F3EFE6" stroke="#57606a"/>
+<text x="391.20000000000005" y="1122" font-size="14" fill="#6B6359">외부 서비스·사용자</text>
+<circle cx="565.0" cy="1117" r="6" fill="#9a6700"/>
+<text x="594.0" y="1122" font-size="14" fill="#6B6359">auth·db 호출</text>
+<circle cx="734.2" cy="1117" r="6" fill="#1a7f37"/>
+<text x="763.2" y="1122" font-size="14" fill="#6B6359">config 호출</text>
+<circle cx="895.0" cy="1117" r="6" fill="#B85C3E"/>
+<text x="924.0" y="1122" font-size="14" fill="#6B6359">외부에 제공하는 함수</text>
+</svg>
