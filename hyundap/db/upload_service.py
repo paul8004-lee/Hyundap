@@ -181,6 +181,13 @@ def save_ingest_chunks(ids, company_id, result):
         })
     chunks_repo.save_manifest(ids['version_id'], manifest)
     report = version_service.as_mapping(result.get('report') or {})
+    report = dict(report)
+    if 'warnings' in report:
+        warnings = report['warnings']
+        if not isinstance(warnings, list) or any(not isinstance(value, str) for value in warnings):
+            raise DbError('INVALID_INPUT')
+        report['warning_count'] = len(warnings)
+        report.pop('warnings')
     jobs_repo.record_stage_result(
         ids['job_id'], dict(report, stage='ingest', status='success'))
     return chunks
@@ -203,7 +210,15 @@ def ingest_and_save_chunks(source, info, ids, ingest_function):
     성공하면 청크·보고서를 저장하고 (chunks, None)을 반환한다. 수집기가 실패 결과를
     반환하면 (None, 안전한 오류 코드)다. 실패 후보 정리는 run_attempt가 담당한다.
     """
-    raw_result = version_service.call_external(ingest_function, str(source), info)
+    def find_by_hash(company_id, sha256):
+        """서버의 현재 후보 문맥에만 묶인 조회다. 임의 회사·해시 제외를 허용하지 않는다."""
+        if company_id != info['company_id']:
+            raise DbError('INVALID_INPUT')
+        return documents_repo.find_duplicate_document(
+            company_id, sha256, exclude_version_id=ids['version_id'])
+
+    raw_result = version_service.call_external(
+        ingest_function, str(source), info, find_by_hash=find_by_hash)
     result = version_service.as_mapping(raw_result)
     if result.get('status') != 'success':
         return None, failure_code(result.get('error_code'))
