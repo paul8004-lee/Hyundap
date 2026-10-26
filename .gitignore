@@ -247,3 +247,7 @@ dist-ssr/
 *.pptx
 *.html
 *.docx
+*.xlsx
+
+# Runtime data (originals, vector DB)
+data/

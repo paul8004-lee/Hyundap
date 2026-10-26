@@ -1,0 +1,8 @@
+{
+  // 3분마다 서버 변경을 확인해 왼쪽 아래 동기화 아이콘에 받을 커밋 수(↓)를 표시합니다.
+  // fetch만 하므로 내 작업 코드는 바뀌지 않습니다. 아이콘을 누르면 pull 됩니다.
+  "git.autofetch": true,
+  "git.autofetchPeriod": 180,
+  // 서버에서 삭제된 브랜치는 로컬 목록에서도 정리합니다.
+  "git.pruneOnFetch": true
+}

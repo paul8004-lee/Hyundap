@@ -1,0 +1,53 @@
+name: 이슈 작업 분야 라벨 자동 지정
+
+# 이슈 양식의 "작업 분야" 드롭다운 값을 읽어 area: 라벨을 붙입니다.
+# 이슈 본문을 수정해 분야를 바꾸면 이전 area: 라벨은 떼고 새 라벨을 붙입니다.
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const AREAS = {
+              '1. 기획·설계': 'area:기획·설계',
+              '2. 문서 수집·전처리': 'area:문서 수집·전처리',
+              '3. 검색·AI': 'area:검색·AI',
+              '4. 백엔드·권한': 'area:백엔드·권한',
+              '5. 프론트엔드': 'area:프론트엔드',
+              '6. 품질·테스트': 'area:품질·테스트',
+              '7. 프로젝트 관리·문서': 'area:프로젝트 관리·문서',
+            };
+
+            const issue = context.payload.issue;
+            const match = (issue.body || '').match(/###\s*작업 분야\s+([^\r\n]+)/);
+            if (!match) {
+              core.info('작업 분야 항목이 없는 이슈라 건너뜁니다.');
+              return;
+            }
+            const wanted = AREAS[match[1].trim()];
+            if (!wanted) {
+              core.warning(`알 수 없는 작업 분야: ${match[1].trim()}`);
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = issue.number;
+            const current = issue.labels.map(l => l.name);
+
+            for (const name of current) {
+              if (name.startsWith('area:') && name !== wanted) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              }
+            }
+            if (!current.includes(wanted)) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [wanted] });
+            }
+            core.info(`라벨 지정: ${wanted}`);
