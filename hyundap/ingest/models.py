@@ -8,8 +8,8 @@
     CLS-041 IngestResult
 """
 
+from dataclasses import dataclass, field
 from typing import Optional
-from pydantic import BaseModel
 
 from hyundap.common.schemas import Chunk
 
@@ -46,9 +46,14 @@ class IngestError(Exception):
         self.message = message
 
 
-class IngestResult(BaseModel):
+@dataclass
+class IngestResult:
+    """ingest_document의 결과. 성공이면 chunks·report, 실패면 error_code·error_message를 채운다.
+
+    db의 as_mapping이 dataclass만 읽을 수 있어서 dataclass로 둔다. 목록·딕셔너리 기본값은
+    객체마다 따로 만들어지도록 field(default_factory=...)를 쓴다."""
     status: str
-    chunks: list[Chunk] = []
-    report: dict = {}
+    chunks: list[Chunk] = field(default_factory=list)
+    report: dict = field(default_factory=dict)
     error_code: Optional[str] = None
     error_message: Optional[str] = None
