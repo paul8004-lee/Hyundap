@@ -1,12 +1,12 @@
 """tests/test_common.py — 공통 데이터 형식과 설정의 기본 동작 검증.
 
-테스트 실행 명령은 hyundap 폴더에서 python -m unittest tests.test_common -v이다."""
+테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_common -v이다."""
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from common import config
-from common.schemas import CommonDocument, Section, make_chunk_id
+from hyundap.common import config
+from hyundap.common.schemas import CommonDocument, Section, make_chunk_id
 
 HEADER = {'document_id': 'd1', 'version_id': 'v1', 'company_id': 'c1',
           'company_name': '현대', 'doc_type': 'report', 'file_name': 'a.pdf'}

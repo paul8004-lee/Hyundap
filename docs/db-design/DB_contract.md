@@ -32,6 +32,8 @@ Python 3.11 일반 함수와 dict/list를 사용한다. 문서의 서명은 계�
 
 `UserContext`의 필수 값은 user_id:str, company_id:str|None, role:str, session_id:str, auth_version:int이다. platform_admin만 company_id=None을 허용한다. 전달받은 role/company_id를 권한의 근거로 신뢰하지 않고 session_id로 서버 측 현재 상태를 조회한다.
 
+03·04 구현에서는 세션 ID 복사만으로 인증되지 않도록 서버 내부 dict에 `_session_token`을 추가했다. 이 비밀 필드는 DB 해시와 비교하는 소유 증명이며 UI 표시·로그·JSON 응답·프롬프트에서 제외한다. 각 요청은 서버에 보관한 session_token으로 `auth.login.authenticate(token)`을 호출해 문맥을 다시 만든다. 브라우저가 보낸 actor dict를 인증된 문맥으로 사용하지 않는다. 다른 모듈에 직렬화할 공개 사용자 정보와 이 서버 인증 문맥을 구분한다.
+
 로그인 결과: `{actor: UserContext, session_token: str, expires_at: datetime}`. UI는 토큰을 서버 측 세션에 보관하고 브라우저 표시·로그·모델 프롬프트에 넣지 않는다.
 
 ### DocumentInfo 원시 행 매핑 — 정확히 11필드
@@ -57,6 +59,7 @@ LEFT JOIN에서 활성 버전이 없는 행도 반환한다. 따라서 버전 �
 | auth | INVALID_CREDENTIALS, SESSION_EXPIRED, ACCESS_DENIED | AccessError(code). 계정 존재 여부·비밀값은 메시지에 포함하지 않음 |
 | auth 재검증 | STATE_CHANGED | AccessError(code='STATE_CHANGED'). 소용우가 ChatbotError(STATE_CHANGED)로 변환 |
 | db | DB_UNAVAILABLE, DUPLICATE_FILE, CONFLICT, INVALID_STATE, INVALID_INPUT | DbError(code). 원시 DB 예외는 호출자·UI에 노출하지 않음 |
+| 업로드·게시 | INTEGRATION_UNAVAILABLE, PROCESSING_FAILED, INCOMPLETE_INDEX, ACTIVATION_FAILED, RECOVERY_REQUIRED | 외부 함수 미준비·적재 불완전·게시 실패·복구 필요를 구분하며 원시 외부 예외를 숨김 |
 | ingest/embedding | 기존 모듈 코드 유지 | DB는 저장 가능한 보고서로 기록. search/chatbot은 자기 모듈의 오류로 변환 |
 
 DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없는 ID·빈 결과와 DB 장애를 혼동하지 않는다. 예상하지 못한 프로그래밍 오류는 정상 실패로 숨기지 않는다.
@@ -71,14 +74,18 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 | db.documents_repo.find_duplicate_document(company_id, sha256) | str,str → {document_id,version_id,version_status,deleted_at} 또는 None | 김혜리 FUN-206. 내부 서버 처리에서 이미 권한 확인된 회사만 사용. 64자 소문자 hex 검증 |
 | db.documents_repo.get_documents_with_active_version(document_ids) | list[str] → list[dict] | 이준영 FUN-247. 위 11필드. 빈 목록은 [], 없는 ID 누락. 서버 내부 조회이며 별도 공개 API 아님 |
 | db.documents_repo.create_document_version(actor, metadata) | dict → {document_id,version_id,job_id} | 업로드 서비스. metadata: company_id,doc_type,file_name,storage_path,sha256,file_size,data_category,document_id(기존 문서면 지정). 권한·동시 중복·버전 번호 확인 후 짧은 TX |
-| db.versions_repo.list_document_versions(actor, document_id) | str → list[dict] | 상세·버전 관리. version_no 오름차순. 내부 경로는 사용자에게 반환하지 않음 |
+| db.versions_repo.list_document_versions(actor, document_id) | str → list[dict] | 회사 권한이 있는 관리자용 버전 관리. 직원에게 과거·비공개 버전을 노출하지 않음. version_no 오름차순, 내부 경로 제외 |
 | db.chunks_repo.save_manifest(version_id, chunks) | list[{id,chunk_index,content_hash}] → None | DB 처리 흐름. 소속 후보 확인, 청크 ID 규칙·연속 순번·중복·해시 검증. 동일 재시도는 허용, ID 같고 내용 다르면 CONFLICT |
 | db.chunks_repo.get_expected_chunk_ids(version_id) | str → list[str] | 완전성 검사. chunk_index 순서. 단순 개수만 비교하지 않음 |
-| db.jobs_repo.record_stage_result(job_id, report) | dict → None | 업로드 서비스. ingest/embedding 보고서 원형을 JSON으로 보관하되 비밀정보·불필요한 원문은 제외. P0는 단일 작업 실행자 |
+| db.jobs_repo.record_stage_result(job_id, report) | dict 또는 dataclass → None | 업로드 서비스. 식별자·개수·모델명·시간·상태·안전한 실패 코드만 단계별 JSON으로 보관. 원시 메시지·본문·임의 키 제외. P0는 단일 작업 실행자 |
 | db.version_service.validate_completeness(document_id, version_id) | str,str → {ok,expected_count,actual_count,missing_ids,unexpected_ids} | DB가 embedding.get_version_chunk_ids 호출. 실패·빈 목록·중복·누락·초과는 통과 불가 |
 | db.version_service.publish_version(actor, document_id, candidate_id, expected_active_id) | str,str,str 또는 None → None | ready·operational·완전성·권한 확인, 조건부 포인터 전환. CAS 충돌은 CONFLICT |
 
-물리 경로는 `hyundap`을 PYTHONPATH/작업 디렉터리로 사용한다. `db.get_documents_with_active_version`이라는 원문 가정명은 위 documents_repo 경로로 확정한다. 구체적 클래스 구현은 #120/#121에서 제공한다.
+물리 경로는 저장소 루트를 실행 기준으로 사용하며 sys.path나 PYTHONPATH를 조작하지 않는다. `db.get_documents_with_active_version`이라는 원문 가정명은 위 documents_repo 경로로 확정한다. 구체적 클래스 구현은 #120/#121에서 제공한다.
+
+인증·저장 함수는 db02 작업 트리에서 구현했다. 함수의 선택 인자 `connection=`은 내부 서비스가 하나의 트랜잭션으로 묶을 때만 사용한다. 제공한 연결은 호출자가 커밋·롤백하고, 생략하면 함수가 자체 TX를 관리한다. 실제 공유 DB의 기존 NOT NULL 컬럼·작업 상태 enum은 #119 실측 전이므로 호환 적용을 완료했다고 보지 않는다. 게시·벡터 연계는 아래 #122 계약에서 다룬다.
+
+#122의 DB 업로드·완전성·게시·복구 서비스도 db02 로컬에서 구현했다. 상세 API·원본 저장·재시도·복구 원장은 [WORKFLOW_122.md](WORKFLOW_122.md)를 따른다. 입력 Chunk 객체를 보존하고 실제 VectorHit의 소속·본문 해시를 확인한다. 실제 팀 수집/embedding 함수는 아직 뼈대이므로 기본 연동은 미준비 오류로 거부한다. 테스트 대역의 성공을 실제 외부 연동 완료로 간주하지 않는다.
 
 `IngestResult`는 김혜리 소유이며 status(success/failed), chunks, report, error_code, error_message를 유지한다. `EmbedStoreReport`는 박영준 소유이며 document_id,version_id,company_id,model_name,total,skipped_existing,embedded,stored,truncated_count,failures,status,elapsed_sec를 유지한다. `partial`은 게시 실패이며 재시도에서 skipped_existing을 포함한 실제 ID 집합을 검증한다.
 
@@ -87,9 +94,9 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 ### 호출 예시 (계약 예시, #120~#122 구현 후 실행)
 
 ```python
-from auth.login import login
-from auth.permissions import get_allowed_company_ids, verify_documents_access
-from db.documents_repo import find_duplicate_document, get_documents_with_active_version
+from hyundap.auth.login import login
+from hyundap.auth.permissions import get_allowed_company_ids, verify_documents_access
+from hyundap.db.documents_repo import find_duplicate_document, get_documents_with_active_version
 
 result = login(identifier, password)  # dict: actor, session_token, expires_at
 actor = result['actor']

@@ -10,6 +10,37 @@
 | F41 / F107 | 처리 보고서·실패 사유 영속화 | 김혜리·박영준; 관리 UI는 박경환 |
 | F110~112 | 완전성 판정·DB 포인터·embedding 호출 | 박영준; Chroma 내부는 embedding |
 
-#118은 계약 작성, #119는 구조·마이그레이션 준비다. repo 구현은 #121, 업로드/게시 서비스는 #122에서 수행한다. 현재 실행 가능한 모듈은 connection.py와 읽기 전용 schema.py다.
+#118은 계약 작성, #119는 구조·마이그레이션 준비다. #121 저장 함수와 #122 DB 업로드·게시·복구 서비스를 db02 작업 트리에서 구현했다. 실제 수집/임베딩 모듈은 아직 뼈대여서 실연동 완료와는 구분한다.
 
-`cd hyundap` 후 `python -m db.schema --inspect/--check`로 구조를 확인한다. SQL 생성은 `python -m db.schema --prepare ..\docs\db-design\migrations\004_local.sql`이며 DB 쓰기를 실행하지 않는다. 실제 공유 DB는 아직 미점검이다. 일반 함수·dict/list와 기존 SQLAlchemy text 연결을 재사용한다.
+저장소 맨 위에서 `python -m hyundap.db.schema --inspect/--check`로 구조를 확인한다. SQL 생성은 `python -m hyundap.db.schema --prepare docs\db-design\migrations\004_local.sql`이며 DB 쓰기를 실행하지 않는다. 실제 공유 DB는 아직 미점검이다. 일반 함수·dict/list와 기존 SQLAlchemy text 연결을 재사용한다.
+
+## 구현 파일과 트랜잭션
+
+| 파일 | 제공 기능 |
+|---|---|
+| users_repo.py / sessions_repo.py | 내부 사용자 조회·해시 세션 발급·현재 문맥·폐기 |
+| documents_repo.py | 중복 조회·11필드 일괄 조회·문서/후보/작업 원자적 생성 |
+| chunks_repo.py | 청크 기준 목록 저장·동일 재시도·변경 충돌·순번 조회 |
+| versions_repo.py | 관리자 버전 이력·비활성 처리 후보 실패 표시 |
+| jobs_repo.py / runtime.py / errors.py | 단계별 안전한 보고서·트랜잭션·입력 검증·공통 오류 |
+| upload_service.py / version_service.py | 원본 저장·수집/적재 호출·동일 후보 재시도·실제 청크 검증·포인터 CAS·게시 실패 복구 |
+
+생략 가능한 `connection=`을 제공하면 호출자가 시작한 TX에 참여하고 스스로 커밋하지 않는다. 생략 시 공유 Engine의 짧은 TX를 사용한다. 앱 종료 시 `db.runtime.get_engine().dispose()`로 풀을 닫고, 설정 변경 시 dispose 후 get_engine.cache_clear()를 호출한다.
+
+새 후보 생성은 현재 세션·관리자 역할·회사 활성·레거시 이행 여부를 검사한다. 회사 행과 기존 문서 행 잠금으로 동시 중복·버전 번호 경쟁을 보호한다. 후보나 작업 INSERT가 실패하면 새 문서도 함께 롤백한다. 임베딩·파일 저장을 TX 안에서 실행하지 않는다.
+
+manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재시도는 허용하고 해시 변경·추가·누락은 CONFLICT다. ready 버전과 정상 활성 버전을 mark_failed로 변경하지 않는다. 보고서는 단계별로 보존하며 이미 성공한 단계의 변경과 앞 단계의 지연 결과를 거부한다. 원시 오류 메시지 대신 안전한 코드만 저장한다.
+
+`find_duplicate_document`, `get_documents_with_active_version`, manifest·작업·실패 저장은 인증된 서버 처리 흐름의 내부 함수다. 브라우저에 직접 공개하지 않는다. 회사·버전 접근 판단은 auth를 거쳐야 한다. 검색 DTO·is_visible·UI·Chroma 내부는 수정하지 않았다.
+
+## 실행과 검증
+
+`python -m pip install -r requirements-db.txt` 후 저장소 맨 위에서 실행한다. 오프라인 테스트는 `python -m unittest hyundap.tests.test_db_runtime.OfflineRuntimeTests -v`다. 실제 저장 테스트는 빈 로컬 MySQL의 DB_RUNTIME_TEST_URL(host=127.0.0.1, database=hyundap_runtime_test)을 설정하고 `python -m unittest hyundap.tests.test_db_runtime -v`로 실행한다. 기존 테이블이 있으면 중단한다.
+
+테스트는 대표 v3를 v4로 이행한 합성 fixture다. 실제 공유 DB의 추가 필수 컬럼·enum·기존 자료와의 호환성은 #119 실측 뒤 확인해야 한다. 실제 DB의 DDL/DML, 커밋·푸시·PR 작성은 이번 작업에서 하지 않는다.
+
+#122의 입력·반환·기본 어댑터·실패 원장·운영 복구와 선행 조건은 [WORKFLOW_122.md](../../../docs/db-design/WORKFLOW_122.md)를 따른다. 원본 보관 경로는 앱 서버가 관리하며 외부 벡터 호출은 SQL TX 밖에서 수행한다. 순수 ID 개수 검사로 완전성을 확정하지 않는다. 단일 앱 프로세스 운영이 전제다.
+
+#127/#128 B안 적용 후 루트 실행 명령은 `python -m unittest discover -s hyundap/tests -t . -v`다. #122 워크플로 18개를 포함한 전체 53개 테스트가 통과했고, 마지막 원본 저장·재시도 경계 보완 후 워크플로 18개를 새 DB에서 다시 검증했다. 수집·벡터 대역을 사용한 DB 연계 검증이며 실제 팀 API 실연동 완료로 표시하지 않는다.
+
+2026-10-26 로컬 검증: Python 3.11 / SQLAlchemy 2.0.55 / PyMySQL 1.1.2 / python-dotenv 1.2.4 / argon2-cffi 25.1.0 / MySQL 8.4.13에서 `python -m unittest discover -s hyundap/tests -t . -v`의 35개 테스트가 모두 통과했다. DB_RUNTIME_TEST_URL과 DB_MIGRATION_TEST_URL은 각각 빈 로컬 전용 DB를 가리켰다. 인증·회사 격리·상태 변경·청크 목록·실패 롤백·동시 업로드와 기존 마이그레이션을 포함하며 건너뛴 테스트는 없다. 컴파일·공백 검사와 한글 독스트링 점검도 통과했다.

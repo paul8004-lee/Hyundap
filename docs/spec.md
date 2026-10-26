@@ -1,5 +1,7 @@
 # AI 문서검색 통합 기능명세서
 
+> 실행은 저장소 맨 위 `Hyundap/` 기준입니다. 앱은 `python -m hyundap.app`, 테스트는 `python -m unittest discover -s hyundap/tests -t .`로 실행합니다. 다른 폴더는 `from hyundap.common.config import get_settings`처럼 전체 패키지 경로로, 같은 폴더는 상대 import로 가져옵니다. `.env`도 저장소 맨 위에 둡니다.
+
 > 공유 드라이브의 `문서검색_통합_기능명세서.xlsm.xlsx` 전체 시트를 옮긴 문서입니다. 내용이 다르면 엑셀 파일이 기준입니다.
 > 소스 위치에 적힌 경로는 `hyundap/` 폴더 기준입니다.
 
@@ -193,7 +195,7 @@
 | ENT-034 | 계정 권한 영역 진입·목록 새로고침 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 전재경 제공 계정/역할 목록으로 선택창 채우기 | services, ui_state | ui.admin_page.load_account_options | FUN-169 | ui/admin_page.py (구현 예정·박경환) |
 | ENT-035 | 계정 권한 저장·확인 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 확인 후 전재경 제공 권한 변경 함수에 전달·결과 표시 | account_id, new_role, services, ui_state | ui.admin_page.on_role_change_submit | FUN-170 | ui/admin_page.py (구현 예정·박경환) |
 | ENT-036 | 로그 영역 진입·새로고침 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 전재경 제공 로그/처리 결과를 조회·표시 | services, ui_state | ui.admin_page.load_log_view | FUN-171 | ui/admin_page.py (구현 예정·박경환) |
-| ENT-037 | python app.py | 실행(예정) | Hyundap | 로컬 실행자 | 공통 설정과 제공 기능으로 Gradio 앱 조립·실행 | common.config 제공 설정·담당 모듈 | app.main | FUN-177, FUN-176 | app.py (구현 예정·박경환) |
+| ENT-037 | python -m hyundap.app | 실행(예정) | Hyundap | 로컬 실행자 | 공통 설정과 제공 기능으로 Gradio 앱 조립·실행 | common.config 제공 설정·담당 모듈 | app.main | FUN-177, FUN-176 | app.py (구현 예정·박경환) |
 
 #### 모듈
 
@@ -487,7 +489,7 @@
 - **역할**: 공통 설정과 담당자 제공 기능을 받아 Gradio 앱을 조립하고 실행한다.
 - **입력 인자·기본값**: 없음(실행 설정은 common.config 제공)
 - **반환 형식·구조**: 실행 중인 Gradio 앱
-- **진입점·연결 방식**: 구현 예정: python app.py · ENT-037
+- **진입점·연결 방식**: 구현 예정: python -m hyundap.app · ENT-037
 - **직접 호출 대상**: 예정 연계: common/config.py 제공 설정 · 이성민, FUN-176, Gradio launch
 - **직접 발생 오류**: 오류 처리안: 앱 시작 실패 안내. .env 파싱·패키지 관리·DB 초기화·모델 로딩 구현은 담당자 기능 사용
 - **데코레이터**: 없음(설계안)
@@ -1370,7 +1372,7 @@
 
 | 모듈 ID | 파일 | 주 책임 | 적용 모드 | 설명 | 내부 의존 모듈 | 주요 외부 가져오기 |
 |---|---|---|---|---|---|---|
-| MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
+| MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from hyundap.embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
 | MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai, tiktoken, concurrent.futures, math, time |
 | MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | ChromaDB 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | chromadb, re, time |
 | MOD-103 | embedding/models.py | 결과 형식·오류 | 팀 P1(필수) | embedding이 주고받는 결과 데이터(dataclass)와 오류 클래스를 정의한다. | common.schemas | dataclasses |
