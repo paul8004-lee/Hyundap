@@ -92,6 +92,26 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.search_min_score, 0.3)
         self.assertEqual(settings.search_top_k_max, 80)
 
+    def test_chunk_settings(self):
+        """청크 크기·겹침의 기본값과 환경변수 값이 반영되는지 확인한다."""
+        settings = self.load({})
+        self.assertEqual((settings.chunk_size, settings.chunk_overlap), (1000, 150))
+        settings = self.load({'CHUNK_SIZE': '500', 'CHUNK_OVERLAP': '50'})
+        self.assertEqual((settings.chunk_size, settings.chunk_overlap), (500, 50))
+
+    def test_invalid_chunk_settings_fall_back(self):
+        """잘못된 청크 값에 기본값이 적용되고 겹침이 항상 청크 크기보다 작은지 확인한다."""
+        cases = [
+            ({'CHUNK_SIZE': '0', 'CHUNK_OVERLAP': '-1'}, (1000, 150)),
+            ({'CHUNK_SIZE': 'abc', 'CHUNK_OVERLAP': '1000'}, (1000, 150)),
+            ({'CHUNK_SIZE': '500', 'CHUNK_OVERLAP': '500'}, (500, 150)),
+            ({'CHUNK_SIZE': '100'}, (100, 0)),
+        ]
+        for env, expected in cases:
+            with self.subTest(env=env):
+                settings = self.load(env)
+                self.assertEqual((settings.chunk_size, settings.chunk_overlap), expected)
+
     def test_settings_are_read_only(self):
         """고정된 Settings 필드를 직접 바꾸면 오류가 발생하는지 확인한다."""
         with self.assertRaises(AttributeError):

@@ -10,8 +10,9 @@
 import os
 from importlib.metadata import version
 
-from .chunker import CHUNK_OVERLAP, CHUNK_SIZE, chunk_document
+from .chunker import chunk_document
 from .loaders import load_document
+from hyundap.common.config import get_settings
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, HEADER_KEYS
 from .models import (
     EMPTY_DOCUMENT,
@@ -54,11 +55,12 @@ def build_ingest_report(file_path, doc, chunks):
     """사용한 파서와 청킹 설정, 경고, 구간·조각 개수를 딕셔너리로 모은다."""
     extension = os.path.splitext(file_path)[1].lower()
     parser = PARSERS[extension]
+    settings = get_settings()
     return {
         "parser": parser,
         "parser_version": version(parser),
-        "chunk_size": CHUNK_SIZE,
-        "chunk_overlap": CHUNK_OVERLAP,
+        "chunk_size": settings.chunk_size,
+        "chunk_overlap": settings.chunk_overlap,
         "warnings": doc.warnings,
         "section_count": len(doc.sections),
         "chunk_count": len(chunks),
