@@ -121,7 +121,7 @@ DOCX·PPTX의 표를 마크다운 표로 바꿉니다. 표가 길면 행 묶음�
 ### F70~F71 청킹과 위치 정보 (`chunker.py`)
 
 - 섹션 1개를 LangChain `Document` 1개로 바꾼 뒤 `RecursiveCharacterTextSplitter`로 자릅니다. Document마다 따로 자르므로 **쪽·슬라이드 경계를 넘는 청크가 없습니다.** 자르는 순서는 문단(빈 줄) → 줄 → 공백 → 글자.
-- 기본값은 `chunk_size=1000`, `chunk_overlap=150`입니다 (임베딩 쪽 "청크 1000자 기준"과 맞춤). 이 부분은 용우가 기본값으로 넣어놨고(1000), 구현 과정에서 설정으로 바꿀 수 있게 하며 검색 질문 세트로 성능을 재서 확정합니다.
+- 기본값은 `chunk_size=1000`, `chunk_overlap=150`입니다 (임베딩 쪽 "청크 1000자 기준"과 맞춤). 값은 `hyundap.common.config.get_settings()`의 `chunk_size`·`chunk_overlap`에서 읽으며, `.env`의 `CHUNK_SIZE`·`CHUNK_OVERLAP`으로 바꿀 수 있습니다. 검색 질문 세트로 성능을 재서 확정합니다.
 - 청크마다 문서 정보(`document_id, version_id, company_id, company_name, doc_type, file_name`)와 위치(`section_no, location_label`), 문서 안 순번(`chunk_index`), `chunk_id`를 붙입니다.
 
 ### F72 일괄 실행 (`pipeline.py`)
@@ -169,7 +169,7 @@ IngestResult         status("success"|"failed"), chunks(list[Chunk]), report(dic
 |---|---|---|
 | 최대 파일 크기 | 104,857,600바이트 (100MiB) | `check_file_size(max_bytes)` |
 | 해시 읽기 단위 | 1MiB | `compute_file_hash` |
-| 청크 크기 / 겹침 | 1000자 / 150자 | `chunk_document(chunk_size, chunk_overlap)` |
+| 청크 크기 / 겹침 | 1000자 / 150자 | `.env`의 `CHUNK_SIZE`·`CHUNK_OVERLAP` (`get_settings()`) |
 | 표 한 조각 최대 글자 | 800자 | `table_to_text(max_chars)` |
 
 ## 9. 구현 계획

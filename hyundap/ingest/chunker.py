@@ -13,11 +13,9 @@
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from hyundap.common.config import get_settings
 from hyundap.common.schemas import Chunk, make_chunk_id
 from .models import EMPTY_DOCUMENT, IngestError
-
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 150
 
 
 def to_langchain_documents(doc):
@@ -53,8 +51,15 @@ def build_chunk(piece, chunk_index):
     )
 
 
-def chunk_document(doc, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
-    """정규화된 문서를 섹션마다 따로 잘라 Chunk 목록으로 돌려준다."""
+def chunk_document(doc, chunk_size=None, chunk_overlap=None):
+    """정규화된 문서를 섹션마다 따로 잘라 Chunk 목록으로 돌려준다.
+
+    크기·겹침을 넘기지 않으면 common 설정(CHUNK_SIZE·CHUNK_OVERLAP, 기본 1000·150)을 쓴다."""
+    settings = get_settings()
+    if chunk_size is None:
+        chunk_size = settings.chunk_size
+    if chunk_overlap is None:
+        chunk_overlap = settings.chunk_overlap
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
