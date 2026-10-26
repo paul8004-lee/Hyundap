@@ -11,10 +11,7 @@
 -- document_ids가 비면 []를 반환하고, allowed_company_ids가 비면 SQL 실행 전에 거부한다.
 -- 권한 범위는 현재 서버 DB 상태로 판정한다. 호출자가 전달한 회사 범위를 신뢰하지 않는다.
 
--- Q01 로그인 조회: 이메일의 앞뒤 공백을 제거하고 소문자로 바꾼다. 최대 254자다.
--- Argon2id 검증은 Python에서 한다. 해시는 UI에 반환하지 않고 값은 모두 바인딩한다.
-SELECT id, company_id, role, is_active, password_hash, auth_version
-FROM users WHERE login_identifier = :normalized_email LIMIT 1;
+-- Q01은 로그인 구현 범위 제외에 따라 제거했다. 후속 쿼리 번호는 유지한다.
 
 -- Q02 회사 목록: 실행 전에 현재 사용자가 platform_admin인지 확인한다.
 -- 다른 역할은 자기 회사만 조회한다. 권한 확인 실패 시 이 전체 목록 조회로 넘어가지 않는다.

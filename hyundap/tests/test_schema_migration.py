@@ -1,6 +1,6 @@
 """tests/test_schema_migration.py — 격리 MySQL에서 마이그레이션과 무결성 제약 검증.
 
-테스트 실행 명령은 hyundap 폴더에서 python -m unittest tests.test_schema_migration -v이다.
+테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_schema_migration -v이다.
 DB_MIGRATION_TEST_URL이 없으면 통합 검증을 건너뛴다.
 합성 데이터만 사용하며 기존 테이블이 있는 DB에는 실행하지 않는다."""
 
@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from db import connection, schema
+from hyundap.db import connection, schema
 
 
 BASELINE = '''
