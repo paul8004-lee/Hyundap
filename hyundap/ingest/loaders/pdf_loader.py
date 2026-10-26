@@ -3,7 +3,7 @@
 담당: 김혜리
 기준 명세: AI_문서검색_통합_기능명세서
 
-구현 예정 함수:
+함수:
     FUN-208 load_pdf — PDF 페이지 텍스트를 공통 문서로 읽는다."""
 
 from langchain_community.document_loaders import PyPDFLoader
