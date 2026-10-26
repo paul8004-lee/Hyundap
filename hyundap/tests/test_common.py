@@ -1,13 +1,13 @@
 """tests/test_common.py — 공통 데이터 형식과 설정의 기본 동작 검증.
 
-테스트 실행 명령은 hyundap 폴더에서 python -m unittest tests.test_common -v이다."""
+테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_common -v이다."""
 import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from common import config
-from common.schemas import (DEFAULT_DOC_TYPE, DOC_TYPE_CODES, DOC_TYPES, CommonDocument,
+from hyundap.common import config
+from hyundap.common.schemas import (DEFAULT_DOC_TYPE, DOC_TYPE_CODES, DOC_TYPES, CommonDocument,
                             Section, make_chunk_id)
 
 HEADER = {'document_id': 'd1', 'version_id': 'v1', 'company_id': 'c1',
@@ -50,7 +50,7 @@ class DocTypeTests(unittest.TestCase):
 
     def test_codes_match_db_check_constraint(self):
         """공통 목록과 DB documents.doc_type CHECK 제약의 허용 값이 같은지 확인한다."""
-        from db.schema import CHECKS
+        from hyundap.db.schema import CHECKS
         allowed = set(re.findall(r"'([^']+)'", CHECKS['documents']['ck_v4_doc_type']))
         self.assertEqual(DOC_TYPE_CODES, allowed)
 
