@@ -6,5 +6,49 @@
 구현 예정 자료형:
     CLS-040 IngestError
     CLS-041 IngestResult
+"""
 
-현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""
+from typing import Optional
+from pydantic import BaseModel
+
+from hyundap.common.schemas import Chunk
+
+# 오류 이름표 6개 (명세서 CLS-040)
+UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
+FILE_TOO_LARGE = "FILE_TOO_LARGE"
+ENCRYPTED_FILE = "ENCRYPTED_FILE"
+CORRUPTED_FILE = "CORRUPTED_FILE"
+DUPLICATE_FILE = "DUPLICATE_FILE"
+EMPTY_DOCUMENT = "EMPTY_DOCUMENT"
+
+# 오류 이름표별 기본 문구예요. 문구는 임시안이에요.
+ERROR_MESSAGES = {
+    UNSUPPORTED_FORMAT: "PDF, DOCX, PPTX 파일만 업로드할 수 있습니다.",
+    FILE_TOO_LARGE: "파일은 100MiB 이하로 선택해 주세요.",
+    ENCRYPTED_FILE: "암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요.",
+    CORRUPTED_FILE: "파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인한 뒤 다시 올려 주세요.",
+    DUPLICATE_FILE: "같은 회사에 동일한 내용의 파일이 이미 등록되어 있습니다.",
+    EMPTY_DOCUMENT: "문서에서 글자를 읽을 수 없습니다. 스캔한 이미지 문서는 지원하지 않습니다.",
+}
+
+# 결과 상태 2가지
+STATUS_SUCCESS = "success"
+STATUS_FAILED = "failed"
+
+
+class IngestError(Exception):
+    """파일 검사·읽기·청킹 중 입력 때문에 생기는 오류. code와 message를 담는다."""
+
+    def __init__(self, code, message=""):
+        if message == "":
+            message = ERROR_MESSAGES.get(code, code)
+        self.code = code
+        self.message = message
+
+
+class IngestResult(BaseModel):
+    status: str
+    chunks: list[Chunk] = []
+    report: dict = {}
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
