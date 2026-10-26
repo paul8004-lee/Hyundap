@@ -11,16 +11,16 @@ Figma의 색상·배치·카드를 실제 Gradio 입력창과 버튼으로 재�
 
 ```powershell
 python -m pip install -r requirements.txt
-python hyundap/app.py
+python -m hyundap.app
 ```
 
-VS Code에서 `hyundap/app.py`를 열어 **Python 파일 실행**을 눌러도 됩니다. 직접 실행(`python hyundap/app.py`)과 모듈 실행은 동일한 `hyundap.ui` 코드를 사용합니다. `hyundap` 폴더로 들어간 상태에서는 `python app.py`로 실행할 수 있습니다.
+VS Code에서도 저장소 최상위가 작업 경로인 터미널에서 위 명령으로 실행합니다.
 
-설치 목록은 저장소 최상위의 `requirements.txt`를 사용합니다. 앱 상단의 별도 실행 의존성 블록과 UI 전용 설치 목록은 제거했습니다. 현재 `hyundap.ui` import는 팀의 공통 import 기준 확정 전까지 유지합니다. 이 실행 안내는 현재 UI에 대한 것이며, 기존 `common.config`·`db` 방식의 백엔드 import와의 통합은 아직 검증되지 않았습니다. 이를 우회하는 새 경로 설정은 추가하지 않았습니다.
+설치 목록은 저장소 최상위의 `requirements.txt`를 사용합니다. 팀 import 규칙에 따라 다른 폴더는 `from hyundap.<폴더>...`, UI 내부는 상대 import를 사용합니다. `app.py`의 `sys.path` 변경 코드를 제거하고 모듈 실행으로 통일했습니다. 실제 백엔드 함수 연결 후 통합 검수는 별도로 진행합니다.
 
 루트에 예전 `app.py`를 새로 만들 필요는 없습니다. 이전 `ui/`에 남은 `__pycache__`는 실행 대상이 아닙니다. CSS·아이콘도 현재 UI 파일을 기준으로 읽으므로 작업 폴더에 따라 경로가 달라지지 않습니다.
 
-브라우저에서 `http://127.0.0.1:7860`을 엽니다. 포트가 사용 중이면 `python hyundap/app.py --port 7861`로 실행합니다.
+브라우저에서 `http://127.0.0.1:7860`을 엽니다. 포트가 사용 중이면 `python -m hyundap.app --port 7861`로 실행합니다.
 기본 실행은 **예시 데이터 모드**이며 외부 공유 링크를 만들지 않습니다.
 
 | 로그인 화면 선택 | 아이디 | 역할·범위 |
@@ -65,10 +65,17 @@ P3인 권한 변경·별도 로그/이력 관리·삭제·재색인·저장 원�
 `hyundap/ui/backend_bindings.py`의 `create_bindings()`에서 `BackendBindings`에 실제 담당 함수를 지정합니다. 입력·반환값이 다르면 이 연결부의 래퍼/normalizer에서 맞춥니다. 화면 이벤트 이름과 백엔드 함수 이름이 같을 필요는 없습니다.
 
 ```powershell
-python hyundap/app.py --mode backend
+python -m hyundap.app --mode backend
 ```
 
 실제 모드는 연결되지 않은 기능에 오류 안내를 표시합니다. 실패를 예시 데이터로 자동 대체하지 않습니다.
+
+챗봇 PR #134의 현재 규격은 다음과 같습니다. 실제 함수 등록은 인증·검색 등 필요한 연결과 함께 진행합니다.
+
+- 질문: `from hyundap.chatbot.ask import ask` — `ask(question, filters, user)`. `filters`는 `dict`, `ChatFilters`, `None`을 받으므로 UI의 dict를 그대로 전달할 수 있으며 `filters_factory`는 선택 사항입니다.
+- 결과: `status`, `answer`, `citations`, `citations_by_company`, `document_ids`, `message`, `error_code`를 반환합니다. 현재 UI가 사용하는 필드명과 일치하며 dataclass 응답은 어댑터가 dict로 변환합니다.
+- 요약: `from hyundap.chatbot.summary import summarize_document` — `summarize_document(document_id, user)`. 요약 내용·문서 버전·포함/제외 범위의 필드명도 UI와 일치합니다.
+- 오류: `from hyundap.chatbot.models import to_feedback`. 실제 함수 연결 시 오류 변환기도 함께 등록합니다.
 
 | 필요한 연결 | 담당자에게 받을 내용 |
 |---|---|
@@ -87,7 +94,7 @@ python hyundap/app.py --mode backend
 
 문서 유형은 [공통 문서 유형 PR #126](https://github.com/paul8004-lee/Hyundap/pull/126)의 목록을 사용합니다. `services.py`에서 `from hyundap.common.schemas import DOC_TYPES as COMMON_DOC_TYPES`로 가져와 `[(label, code) for code, label in COMMON_DOC_TYPES]`로 변환합니다. 공통 목록의 `(코드, 표시명)`을 Gradio가 받는 `(표시명, 코드)` 순서로 맞추며, `guide`의 표시명은 공통 목록에 따라 `가이드`로 표시합니다.
 
-회사 목록 `hri`·`gte`·`bpa`는 여전히 화면 개발용 예시입니다. 공통 설계상 실제 회사 목록은 `common`의 정적 목록이 아니라 DB `companies` 테이블과 auth 권한 함수가 제공합니다. 조회 함수가 제공되기 전까지 예시 `COMPANIES`를 유지합니다. 팀 전체 import 기준과 백엔드 통합 실행 경로는 계속 확정 대기 상태입니다.
+회사 목록 `hri`·`gte`·`bpa`는 여전히 화면 개발용 예시입니다. 공통 설계상 실제 회사 목록은 `common`의 정적 목록이 아니라 DB `companies` 테이블과 auth 권한 함수가 제공합니다. 조회 함수가 제공되기 전까지 예시 `COMPANIES`를 유지합니다.
 
 ## 검증 기록
 
@@ -98,7 +105,7 @@ python hyundap/app.py --mode backend
 - 관리자 업로드 폼·입력 누락 안내·회사 변경 후 검색 범위 적용 확인.
 - 실제 백엔드·DB·LLM 통합 검수는 담당 함수 연결 후 별도로 수행해야 합니다.
 
-현재 `hyundap/ui/tests/`의 16개 검사는 인계용 원본으로 임시 유지합니다. 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성할 예정이며, 아직 이전된 UI 검사가 없어 기존 검사를 삭제하지 않았습니다. 검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구해 예전 `actor` 호출이 다시 들어오면 실패하도록 했습니다. 테스트 폴더 이전과 import 기준 변경은 담당자 작업에 맞춰 진행합니다.
+현재 `hyundap/ui/tests/`의 16개 검사는 인계용 원본으로 임시 유지합니다. 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성할 예정이며, 아직 이전된 UI 검사가 없어 기존 검사를 삭제하지 않았습니다. 검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구해 예전 `actor` 호출이 다시 들어오면 실패하도록 했습니다. 테스트 폴더 이전은 담당자 작업에 맞춰 진행합니다.
 
 ## 리뷰 후속 반영
 
@@ -109,7 +116,8 @@ python hyundap/app.py --mode backend
 - [x] UI 전용 의존성 파일·앱의 uv script 블록을 제거하고 루트 설치 명령으로 통일했습니다.
 - [x] 문서 유형은 `hyundap.common.schemas.DOC_TYPES`에서 가져와 Gradio 선택지 순서로 변환합니다.
 - [ ] DB·auth 회사 목록 조회 함수가 제공되면 예시 `COMPANIES`를 교체합니다.
-- [ ] 팀 import 기준 확정 후 UI와 백엔드의 모듈 경로를 통합 검수합니다.
+- [x] 팀 import 규칙에 맞춰 저장소 최상위의 `python -m hyundap.app` 실행으로 통일하고 앱의 경로 우회를 제거했습니다.
+- [ ] 실제 백엔드 함수 등록 후 UI와 백엔드의 통합 동작을 검수합니다.
 - [ ] 리뷰 담당자의 `hyundap/tests/` 이전 완료 후 UI 테스트 원본을 정리합니다.
 
-공통 문서 유형 연결은 실제 DB·인증·검색·LLM 연결 완료를 뜻하지 않습니다. 회사 목록 조회, 팀 import 기준 확정과 실제 담당 함수 연결은 계속 대기 상태입니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.
+공통 문서 유형 연결은 실제 DB·인증·검색·LLM 연결 완료를 뜻하지 않습니다. 회사 목록 조회와 실제 담당 함수 연결은 계속 대기 상태입니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.

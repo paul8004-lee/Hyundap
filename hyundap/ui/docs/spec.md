@@ -79,7 +79,7 @@ hyundap/
 
 `app.py`는 `hyundap.ui` 경로로 불러오며, UI 내부 모듈은 상대 import를 사용한다. CSS와 아이콘은 `components.UI_DIR`을 기준으로 읽는다. 설치 목록은 저장소 최상위 `requirements.txt` 하나를 사용한다.
 
-현재 UI import 기준과 기존 백엔드의 `common.config`·`db` import 기준은 다르다. 팀의 기준 확정 전까지 UI의 `hyundap.ui` import를 유지하며, 이번 수정에서 경로 우회 코드를 추가하지 않는다. 실제 담당 함수를 등록하기 전에 통합 실행 경로를 확정하고 검증해야 한다.
+팀 import 기준은 저장소 루트의 `hyundap` 패키지다. 다른 폴더는 `from hyundap.<폴더>...`, UI 내부는 상대 import를 사용한다. 앱은 저장소 최상위에서 `python -m hyundap.app`으로 실행하며, `app.py`에서 `sys.path`를 변경하지 않는다. 실제 담당 함수 등록 후 통합 동작은 별도로 검증한다.
 
 ## 3. 역할과 회사 범위
 
@@ -93,7 +93,7 @@ hyundap/
 
 문서 유형은 [공통 문서 유형 PR #126](https://github.com/paul8004-lee/Hyundap/pull/126)의 `DOC_TYPES`를 사용한다. [DB·인증 계약 PR #125](https://github.com/paul8004-lee/Hyundap/pull/125)의 DB CHECK 제약에 맞춘 `manual`(매뉴얼), `policy`(규정), `guide`(가이드), `other`(기타)다. `services.py`에서 `from hyundap.common.schemas import DOC_TYPES as COMMON_DOC_TYPES`로 가져와 `[(label, code) for code, label in COMMON_DOC_TYPES]`로 변환한다. 공통 목록은 `(코드, 표시명)`, Gradio 선택지는 `(표시명, 코드)` 순서다.
 
-회사 `hri`·`gte`·`bpa`는 화면 개발용 예시다. 공통 설계상 실제 회사 목록은 `common`의 정적 목록이 아니라 DB `companies` 테이블과 auth 권한 함수가 제공한다. 회사 목록 조회 함수가 제공되기 전까지 `services.py`의 예시 `COMPANIES`를 유지하며, 동적 옵션 조회 기능은 아직 없다. 문서 유형 연결과 별개로 팀 전체 import 기준과 백엔드 통합 실행 경로는 확정 대기 상태다.
+회사 `hri`·`gte`·`bpa`는 화면 개발용 예시다. 공통 설계상 실제 회사 목록은 `common`의 정적 목록이 아니라 DB `companies` 테이블과 auth 권한 함수가 제공한다. 회사 목록 조회 함수가 제공되기 전까지 `services.py`의 예시 `COMPANIES`를 유지하며, 동적 옵션 조회 기능은 아직 없다.
 
 예시 문서의 기존 유형은 위 네 값으로 정리했다. 이는 데모 데이터만의 변경이며 실제 백엔드가 반환한 알 수 없는 유형을 임의로 `other`로 바꾸는 정책이 아니다.
 
@@ -190,7 +190,8 @@ UI가 의존하는 `UIServices` 메서드는 모두 async 규격이다. 실제 �
 | `download(session, document_id, version_id)` | `download(user=검증 사용자, document_id=, version_id=)` | 존재하는 로컬 파일의 `str` 또는 `Path` |
 
 - 전체 필터의 UI 값은 `__all__`이며 호출 시 `None`으로 변환한다. 개별 회사·유형은 길이 1의 목록으로 전달한다.
-- 질문 `filters`는 `company_ids`, `doc_types`, `document_ids`를 갖는 dict다. `filters_factory`가 있으면 실제 팀 자료형으로 바꾼다.
+- 질문 `filters`는 `company_ids`, `doc_types`, `document_ids`를 갖는 dict다. PR #134의 `hyundap.chatbot.ask.ask`는 dict·`ChatFilters`·`None`을 받으므로 `filters_factory` 없이 연결할 수 있다. 명시적 변환이 필요하면 `from hyundap.chatbot.models import ChatFilters`와 `filters_factory=lambda d: ChatFilters(**d)`를 사용할 수 있다.
+- 요약 함수는 `hyundap.chatbot.summary.summarize_document(document_id, user)`다. 현재 UI 어댑터의 호출 인자와 일치하며 반환 `version_id`로 선택 문서 버전을 비교한다.
 - `normalizers[바인딩 이름]`는 원래 응답을 받아 UI 규격으로 바꾼다. 이후 dict·dataclass·Pydantic `model_dump()`·Enum을 기본 자료형으로 변환한다.
 - 실제 함수가 예외 대신 오류 dict를 반환한다면 래퍼 또는 normalizer에서 해당 오류를 `UIServiceError`로 변환해야 한다. 오류 dict를 정상 문서·요약 응답으로 전달하지 않는다.
 - 상세·다운로드의 권한과 문서 버전 검증은 담당 함수의 책임이다. 현재 어댑터가 결과 버전을 직접 비교하는 기능은 요약이다.
@@ -205,7 +206,7 @@ UI가 의존하는 `UIServices` 메서드는 모두 async 규격이다. 실제 �
 | 검색 응답 | `results` 목록이 필수다. `query`, `total_hits`, `company_ids`, `doc_types`, `elapsed_sec` 등이 함께 올 수 있다. |
 | 문서 | 동작에 필요한 `document_id`, 회사 범위 이동을 위한 `company_id`; 버전 확인을 위한 `version_id`. 표시 필드는 `file_name`, `company_name`, `doc_type`, `version_no`, `indexed_at`, `location_label`, `excerpt`, `citations`다. |
 | 문서 출처 | `document_id`, `version_id`, `file_name`, `company_name`, `location_label`, `excerpt`; 선택 필드 `number`, `chunk_id`, `company_id`, `doc_type`, `version_no`, `score`. 이동 가능한 출처에는 문서 식별자가 필요하다. |
-| 답변 | `status` (`ANSWERED`/`NO_EVIDENCE`), `answer`, `citations`, `message`, `error_code`. `document_ids` 등 추가 정보는 보존할 수 있다. |
+| 답변 | PR #134의 `ChatResponse`: `status` (`ANSWERED`/`NO_EVIDENCE`), `answer`, `citations`, `citations_by_company`, `document_ids`, `message`, `error_code`. UI가 읽는 필드명과 일치하며 회사별 묶음 등 추가 정보도 변환 과정에서 보존한다. |
 | 요약 | `document_id`, `version_id`, `summary`, `is_full`, `included_range`, `excluded_range`, `total_chunks`, `used_chunks`; `citations`가 올 수 있으나 요약 전용 출처 목록 UI는 없다. |
 | 업로드 결과 | `status` 또는 `job_status`, `file_name`, `company_name`, `doc_type`, `stage` 또는 `step`, `message`, `error_code`, `searchable`; 선택 필드 `document_id`, `job_id`. 예시 결과에는 `demo`, `simulated`를 사용한다. |
 
@@ -314,7 +315,7 @@ Gradio 화면 상태 TTL과 예시 세션 기본 유효시간은 각각 3,600초
 
 ```powershell
 python -m pip install -r requirements.txt
-python hyundap/app.py
+python -m hyundap.app
 ```
 
 같은 환경에서 현재 인계용 UI 검사를 실행할 수 있다.
@@ -343,7 +344,7 @@ python -m unittest discover -s hyundap/ui/tests -v
 ## 10. 실제 연결 전 받아야 할 정보
 
 1. 담당 함수의 실제 파일/import 경로, 이름, 동기/async 여부, 의존 모듈과 실행 설정.
-2. 사용자·세션·역할·회사 ID·문서 유형 코드 및 `UserContext`/`ChatFilters` 자료형.
+2. 사용자·세션·역할·회사 ID·문서 유형 코드 및 실제 인증 결과를 `UserContext`로 변환하는 계약. 챗봇 필터는 dict 또는 `hyundap.chatbot.models.ChatFilters` 사용이 가능함을 확인했다.
 3. 검색·상세·답변·출처·요약·업로드의 정상·빈 결과·실패 반환 예시.
 4. 인증 만료·권한 거부·문서 변경/삭제·요약 실패·중복 파일 등의 오류 코드 매핑.
 5. 문서 버전 일치 정책, 질문 시 최신/선택 버전 처리 정책, 원문 다운로드 준비 방식.
@@ -362,11 +363,11 @@ python -m unittest discover -s hyundap/ui/tests -v
 | 설치·실행 방식 | UI 전용 의존성 파일과 앱의 uv script 블록 제거, 루트 `requirements.txt` 설치 방식으로 안내 |
 | 공통 문서 유형 | `hyundap.common.schemas.DOC_TYPES`를 가져와 Gradio 선택지 순서로 변환; `guide` 표시명은 `가이드` |
 | 회사 목록 | DB·auth 조회 함수 제공 대기; 예시 `COMPANIES` 유지 |
-| import 기준 | 팀 기준 확정 대기; UI의 현재 import를 유지하며 새 경로 우회 없음 |
+| import 기준 | 저장소 루트의 `hyundap` 패키지 기준; `python -m hyundap.app`으로 실행 통일, 앱의 `sys.path` 우회 제거 |
 | 테스트 담당 | 기존 UI 검사 16개를 인계용으로 보존; 담당자가 `hyundap/tests/`로 이전한 뒤 정리 |
 | PR 본문·화면 | 사용자 검토용 초안·캡처를 준비하며 PR 생성·수정은 사용자가 진행 |
 
-완료로 표시한 항목은 UI 코드와 문서의 수정 상태다. 공통 문서 유형은 연결했으며, 회사 목록 조회, 팀 import 기준 확정, 실제 백엔드 함수 등록과 DB·인증·검색·LLM 통합 검수는 계속 대기 상태다. 실제 담당 함수 연결과 통합 검수 전에는 백엔드 연결 완료로 표시하지 않는다.
+완료로 표시한 항목은 UI 코드와 문서의 수정 상태다. 공통 문서 유형은 연결했으며, 회사 목록 조회, 실제 백엔드 함수 등록과 DB·인증·검색·LLM 통합 검수는 계속 대기 상태다. 실제 담당 함수 연결과 통합 검수 전에는 백엔드 연결 완료로 표시하지 않는다.
 
 ### 로그인 디자인·접근성 보완
 
