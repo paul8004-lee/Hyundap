@@ -66,7 +66,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.s.upload(self.a, str(path), 'hri', 'manual')
             await self.s.upload(self.a, str(path), 'gte', 'manual')
             path.write_bytes(b'')
-            await self.error('EMPTY_DOCUMENT', self.s.upload(self.m, str(path), 'hri', 'manual'))
+            await self.error('CORRUPTED_FILE', self.s.upload(self.m, str(path), 'hri', 'manual'))
             wrong = Path(folder) / 'test.txt'
             wrong.write_text('x')
             await self.error('UNSUPPORTED_FORMAT', self.s.upload(self.m, str(wrong), 'hri', 'manual'))

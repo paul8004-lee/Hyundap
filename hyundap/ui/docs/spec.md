@@ -159,6 +159,7 @@ hyundap/
 - 회사·문서 유형·파일 1개를 입력하고 `문서 등록`으로 제출한다.
 - 허용 확장자는 `.pdf`, `.docx`, `.pptx`이며 대소문자를 구분하지 않는다.
 - 허용 크기는 **1~104,857,600바이트(100MiB)**다. 빈 파일, 접근할 수 없는 파일, 허용 외 확장자, 제한 초과 파일을 안내한다.
+- 통합 명세 F61·CLS-040에 따라 **0바이트 파일은 `CORRUPTED_FILE`**로 거부한다. `EMPTY_DOCUMENT`는 파일에서 추출한 글자가 없는 경우(스캔본 등)를 뜻하며 수집 담당 함수가 판단한다.
 - 확장자·크기 검사는 빠른 입력 검사다. 실제 파일 형식·손상·암호화·스캔 PDF/내용 추출 가능 여부는 수집 담당 함수가 판단해야 한다.
 - 예시 중복 검사는 같은 예시 로그인 세션·회사에 제출한 파일의 SHA-256을 기준으로 한다. 실제 시스템 전체의 중복 검사를 대신하지 않는다.
 - 실패 시 회사·유형·파일 입력을 유지한다. 재제출 시 이전 결과 카드를 먼저 비운다.
@@ -241,7 +242,9 @@ Gradio 화면 상태 TTL과 예시 세션 기본 유효시간은 각각 3,600초
 | `QUERY_REQUIRED`, `QUESTION_REQUIRED`, `SELECTION_REQUIRED`, `SOURCE_REQUIRED`, `INVALID_FILTER` | 입력·문서·출처 선택 또는 필터 확인 요청 |
 | `ACCESS_DENIED`, `FORBIDDEN`, `FILTER_CONFLICT` | 권한·회사·문서 범위 오류 안내; 실제 검증은 백엔드 책임 |
 | `DOCUMENT_CHANGED`, `DOCUMENT_UNAVAILABLE` | 문서 변경·접근 실패 안내와 재선택 유도 |
-| `FILE_REQUIRED`, `FILE_UNAVAILABLE`, `UNSUPPORTED_FORMAT`, `EMPTY_DOCUMENT`, `FILE_TOO_LARGE` | 업로드 입력 안내 |
+| `FILE_REQUIRED`, `FILE_UNAVAILABLE`, `UNSUPPORTED_FORMAT`, `FILE_TOO_LARGE` | 업로드 입력 안내 |
+| `CORRUPTED_FILE` | 손상 또는 0바이트 파일. UI는 0바이트를 검사하며 그 외 손상 판정은 수집 담당 함수가 수행 |
+| `EMPTY_DOCUMENT` | 추출한 글자가 없는 문서(스캔본 등). 수집 단계에서 판단하며 0바이트 오류와 구분해 안내 |
 | `METADATA_REQUIRED`, `DUPLICATE_FILE` | 예시 서비스의 필수 정보·중복 제출 안내 |
 | `BACKEND_NOT_CONNECTED`, `INVALID_RESPONSE`, `INVALID_SESSION` | 함수 연결 또는 응답 규격 점검 안내 |
 | `DOWNLOAD_UNAVAILABLE`, `BACKEND_ERROR`, `UI_ERROR` | 해당 기능의 실패 안내 |

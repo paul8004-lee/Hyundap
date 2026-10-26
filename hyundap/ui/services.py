@@ -95,7 +95,8 @@ def validate_upload_file(file_path: str | Path) -> Path:
     except OSError as error:
         raise UIServiceError("FILE_UNAVAILABLE", "파일 정보를 읽을 수 없습니다.", "input_error") from error
     if size == 0:
-        raise UIServiceError("EMPTY_DOCUMENT", "비어 있는 파일은 업로드할 수 없습니다.", "input_error")
+        # 통합 명세 F61·CLS-040: 0바이트는 손상, EMPTY_DOCUMENT는 추출한 글자가 없는 경우다.
+        raise UIServiceError("CORRUPTED_FILE", "비어 있는 파일(0바이트)은 업로드할 수 없습니다.", "input_error")
     if size > MAX_UPLOAD_BYTES:
         raise UIServiceError("FILE_TOO_LARGE", "파일은 100MiB 이하로 선택해 주세요.", "input_error")
     return path
