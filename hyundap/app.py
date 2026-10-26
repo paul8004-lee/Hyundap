@@ -8,7 +8,8 @@ FUN-177 main: 실행 옵션을 읽고 Gradio 앱을 실행한다.
 저장소 최상위에서 설치: python -m pip install -r requirements.txt
 저장소 최상위에서 실행: python -m hyundap.app
 팀 import 기준은 저장소 루트의 hyundap 패키지이며 실행 경로를 우회하지 않는다.
-기본은 예시 모드. 실제 함수는 hyundap/ui/backend_bindings.py에 연결한다.
+기본은 실제 백엔드 연결 모드이며 인증만 임시 체험 계정을 유지한다.
+전체 예시 실행은 --mode demo. 연결 환경 점검은 --check-backend.
 백엔드/DB/수집 모듈은 이 파일에서 구현하거나 변경하지 않는다.
 """
 from __future__ import annotations
@@ -100,7 +101,7 @@ APP_JS = """() => {
 }"""
 
 
-def build_app(service=None, *, mode="demo") -> gr.Blocks:
+def build_app(service=None, *, mode="backend") -> gr.Blocks:
     """FUN-176: 동일 화면에 예시 서비스 또는 실제 담당 함수 어댑터를 주입."""
     if service is None:
         if mode == "demo":
@@ -112,9 +113,15 @@ def build_app(service=None, *, mode="demo") -> gr.Blocks:
         else:
             raise ValueError("mode must be demo or backend")
     demo_mode = bool(service.demo)
+    temporary_auth = bool(getattr(service, "temporary_auth", False))
+    companies = COMPANIES if demo_mode or temporary_auth else []
+    mode_note = "예시 데이터 · 실제 백엔드 미연결" if demo_mode else (
+        "임시 로그인 · 실제 문서 처리는 서버 인증 연결 후 이용할 수 있습니다."
+        if temporary_auth else "문서의 근거를 확인하고, 함께 활용하세요."
+    )
     with gr.Blocks(title="Hyundap · 문서 검색", analytics_enabled=False, fill_width=True) as demo:
         key = gr.State(value=lambda: uuid4().hex, time_to_live=3600)
-        login = build_login_page(demo_mode=demo_mode)
+        login = build_login_page(demo_mode=demo_mode or temporary_auth)
         with gr.Column(visible=False, elem_id="hd-shell", elem_classes=["hd-app"]) as container:
             with gr.Column(elem_id="hd-topnav", elem_classes=["hd-nav"]):
                 with gr.Row(elem_id="hd-topnav-row", elem_classes=["hd-nav-inner"]):
@@ -123,13 +130,13 @@ def build_app(service=None, *, mode="demo") -> gr.Blocks:
                     upload_nav = gr.Button("문서 업로드", visible=False, elem_id="hd-nav-upload", elem_classes=["hd-nav-button"])
                     account = gr.HTML("", elem_id="hd-nav-user")
                     logout = gr.Button("로그아웃", elem_id="hd-nav-logout", elem_classes=["hd-account"])
-            gr.HTML("예시 데이터 모드 · 실제 백엔드 미연결" if demo_mode else "팀 백엔드 연결 모드", elem_id="hd-mode")
+            gr.HTML(mode_note, elem_id="hd-mode")
             with gr.Column(elem_id="hd-content", elem_classes=["hd-content"]):
-                search = build_search_page(COMPANIES, DOC_TYPES, demo_mode)
+                search = build_search_page(companies, DOC_TYPES, demo_mode)
                 chat = build_chat_page()
                 chat["container"].visible = False
-                admin = build_admin_page(COMPANIES, DOC_TYPES, demo_mode)
-            gr.HTML(footer_html("예시 데이터 · 실제 백엔드 미연결" if demo_mode else "문서의 근거를 확인하고, 함께 활용하세요."), elem_classes=["hd-footer", "hd-plain-html"])
+                admin = build_admin_page(companies, DOC_TYPES, demo_mode)
+            gr.HTML(footer_html(mode_note), elem_classes=["hd-footer", "hd-plain-html"])
         with gr.Column(visible=False, elem_id="hd-modal") as modal:
             with gr.Column(elem_id="hd-modal-card"):
                 gr.HTML("<h2>문서 출처 확인</h2>", elem_id="hd-modal-heading")
@@ -197,12 +204,16 @@ def build_app(service=None, *, mode="demo") -> gr.Blocks:
 
 
 def main():
-    """FUN-177: 기본은 내 컴퓨터에서만 열리는 화면 개발용 앱."""
+    """FUN-177: 내 컴퓨터에서 실행. 인증 준비 전에는 체험 계정으로 화면 확인."""
     parser = argparse.ArgumentParser(description="Hyundap Gradio UI")
-    parser.add_argument("--mode", choices=["demo", "backend"], default="demo")
+    parser.add_argument("--mode", choices=["demo", "backend"], default="backend")
+    parser.add_argument("--check-backend", action="store_true", help="외부 호출 없이 백엔드 함수·설정 준비 상태 확인")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
     args = parser.parse_args()
+    if args.check_backend:
+        from hyundap.ui.backend_check import print_backend_status
+        raise SystemExit(print_backend_status())
     demo = build_app(mode=args.mode)
     demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024)
 
