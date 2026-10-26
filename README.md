@@ -1,20 +1,5 @@
 <img src="images/hero.png" alt="현답. 개떡같이 물어도, 찰떡같이 답해드립니다. 현대 부트캠프 AI서비스개발과정 3팀" width="100%" />
 
-## 개발 실행 기준
-
-모든 명령은 저장소 맨 위 `Hyundap/`에서 실행합니다. `.env`도 같은 폴더에 둡니다.
-
-```powershell
-python -m pip install -r requirements-db.txt
-python -m hyundap.app
-python -m unittest discover -s hyundap/tests -t .
-python -m hyundap.db.connection
-```
-
-앱 진입점은 현재 화면 조립 전 단계입니다. DB 연결 점검은 `DATABASE_URL` 설정이 필요하며, DB 통합 테스트는 전용 테스트 DB 설정이 없으면 건너뜁니다.
-
-다른 폴더는 `from hyundap.common.config import get_settings`, 같은 폴더는 `from .errors import DBError`처럼 가져옵니다. `sys.path`·`PYTHONPATH` 조작은 사용하지 않습니다. 자세한 역할은 [작업폴더_구조.md](작업폴더_구조.md)를 참고합니다.
-
 <br>
 
 <img src="images/h_team.png" alt="우리 팀은요" width="100%" />
