@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
-DEFAULT_CHAT_MODEL = 'gpt-4o-mini'
+DEFAULT_CHAT_MODEL = 'gpt-5'
 DEFAULT_MIN_SCORE = 0.3
 DEFAULT_TOP_K_MAX = 80
 

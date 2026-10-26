@@ -42,6 +42,7 @@ class SettingsTests(unittest.TestCase):
         settings = self.load({})
         self.assertIsNone(settings.openai_api_key)
         self.assertEqual(settings.openai_embedding_model, 'text-embedding-3-small')
+        self.assertEqual(settings.openai_chat_model, 'gpt-5')
         self.assertEqual(settings.search_min_score, 0.3)
         self.assertEqual(settings.search_top_k_max, 80)
         self.assertEqual(settings.chroma_db_path, config.PROJECT_ROOT / 'data/chroma_db')
