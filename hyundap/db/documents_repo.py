@@ -5,6 +5,7 @@ from uuid import uuid4
 from sqlalchemy import bindparam, text
 
 from hyundap.auth.errors import AccessError
+from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
 from .runtime import require_hash, require_id, transaction
 from .sessions_repo import current_actor
@@ -21,18 +22,33 @@ DOCUMENT_INFO_SQL = '''
 '''
 
 
-def find_duplicate_document(company_id, sha256, *, connection=None):
+def find_duplicate_document(company_id, sha256, *, exclude_version_id=None, connection=None):
     """같은 회사·해시의 삭제/실패 포함 후보를 dict로 반환한다. 없으면 None이다.
 
-    ingest 내부에서 권한 확인된 회사로만 호출한다. 조회만으로 동시 중복을 막지는 못한다.
+    권한 확인된 서버 처리에서만 사용한다. 제외 ID는 서버가 확정한 현재 후보이며
+    같은 회사·해시의 존재하는 버전이어야 한다. 불일치는 INVALID_INPUT이다.
+    연결을 받으면 호출자 TX에 참여하고 커밋하지 않는다. 생략하면 자체 읽기 TX다.
+    삭제/실패 후보도 포함하며 조회만으로 동시 중복을 막지는 못한다.
     """
     values = {'company': require_id(company_id), 'sha256': require_hash(sha256)}
+    if exclude_version_id is not None:
+        values['exclude'] = require_id(exclude_version_id)
     with transaction(connection) as database:
-        row = database.execute(text('''
+        if exclude_version_id is not None:
+            candidate = database.execute(text('''
+                SELECT id FROM document_versions
+                WHERE id=:exclude AND company_id=:company AND sha256=:sha256
+            '''), values).scalar_one_or_none()
+            if candidate is None:
+                raise DbError('INVALID_INPUT')
+        query = '''
             SELECT d.id AS document_id,v.id AS version_id,v.version_status,d.deleted_at
             FROM document_versions v JOIN documents d ON d.id=v.document_id AND d.company_id=v.company_id
             WHERE v.company_id=:company AND v.sha256=:sha256
-        '''), values).mappings().one_or_none()
+        '''
+        if exclude_version_id is not None:
+            query += ' AND v.id<>:exclude'
+        row = database.execute(text(query), values).mappings().one_or_none()
         return dict(row) if row else None
 
 
@@ -56,16 +72,19 @@ def validate_metadata(metadata):
     """업로드 계약의 필수 값·길이·분류·해시를 검사해 새 dict로 돌려준다.
 
     파일 검증·원본 저장은 여기서 수행하지 않는다. storage_path는 서버가 정한 내부 경로다.
+    doc_type 생략은 공통 기본값이며 명시적 None/빈 값/미등록 코드는 INVALID_INPUT이다.
+    입력을 변경하거나 DB에 연결하지 않는다.
     """
     if not isinstance(metadata, dict):
         raise DbError('INVALID_INPUT')
-    fields = ('company_id', 'doc_type', 'file_name', 'storage_path', 'sha256', 'file_size', 'data_category')
+    fields = ('company_id', 'file_name', 'storage_path', 'sha256', 'file_size', 'data_category')
     if not set(fields) <= metadata.keys():
         raise DbError('INVALID_INPUT')
     result = {name: metadata[name] for name in fields}
+    result['doc_type'] = metadata.get('doc_type', DEFAULT_DOC_TYPE)
     require_id(result['company_id'])
     require_hash(result['sha256'])
-    if result['doc_type'] not in ('manual', 'policy', 'guide', 'other'):
+    if not isinstance(result['doc_type'], str) or result['doc_type'] not in DOC_TYPE_CODES:
         raise DbError('INVALID_INPUT')
     if result['data_category'] not in ('operational', 'evaluation'):
         raise DbError('INVALID_INPUT')

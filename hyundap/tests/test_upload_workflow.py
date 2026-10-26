@@ -17,7 +17,8 @@ from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.engine import make_url
 
 from hyundap.auth.errors import AccessError
@@ -403,6 +404,70 @@ class UploadWorkflowTests(unittest.TestCase):
 
         self.embedding.on_activate = acquire_document_lock
         self.publish(candidate)
+
+    def test_publication_record_failure_rolls_back_pointer_and_candidate(self):
+        """포인터 변경 후 작업 기록 SQL이 실패하면 두 변경을 함께 롤백한다."""
+        previous = self.upload()
+        candidate = self.candidate(previous['document_id'])
+        with self.engine.begin() as database:
+            database.execute(text("UPDATE document_versions SET version_status='processing' WHERE id=:id"),
+                             {'id': candidate['version_id']})
+        calls_before = len(self.embedding.activation_calls)
+
+        def fail_record(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().startswith('UPDATE index_jobs SET stage='):
+                raise OperationalError('synthetic', {}, Exception('synthetic-secret'))
+
+        event.listen(self.engine, 'before_cursor_execute', fail_record)
+        try:
+            with self.assertRaises(DbError) as caught:
+                self.publish(candidate, previous['version_id'])
+            self.assertEqual(caught.exception.code, 'DB_UNAVAILABLE')
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', fail_record)
+        self.assertEqual(self.active_version(candidate['document_id']), previous['version_id'])
+        self.assertEqual(len(self.embedding.activation_calls), calls_before)
+        with self.engine.connect() as database:
+            status = database.execute(text('SELECT version_status FROM document_versions WHERE id=:id'),
+                                      {'id': candidate['version_id']}).scalar_one()
+        self.assertEqual(status, 'processing')
+
+    def test_stale_recovery_records_superseded_without_changing_latest_pointer(self):
+        """오래된 복구 요청은 새 포인터를 보존하고 superseded만 기록한다."""
+        previous = self.upload()
+        candidate = self.candidate(previous['document_id'])
+        complete = self.version_service.validate_completeness(
+            candidate['document_id'], candidate['version_id'], embedding=self.embedding)
+        self.version_service.prepare_publication(self.actor, candidate['document_id'],
+            candidate['version_id'], self.company, previous['version_id'], complete['_seal'])
+        latest = self.candidate(previous['document_id'])
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE documents SET active_version_id=:version WHERE id=:id'),
+                             {'version': latest['version_id'], 'id': latest['document_id']})
+        result = self.version_service.prepare_recovery(candidate['document_id'], candidate['version_id'])
+        self.assertEqual(result, {'phase': 'superseded'})
+        self.assertEqual(self.active_version(candidate['document_id']), latest['version_id'])
+        with self.engine.connect() as database:
+            raw = database.execute(text('SELECT report FROM index_jobs WHERE id=:id'),
+                                   {'id': candidate['job_id']}).scalar_one()
+        self.assertEqual(json.loads(raw)['_publication']['phase'], 'superseded')
+
+    def test_initial_publication_failure_restores_draft_and_preserves_ids(self):
+        """첫 게시 활성화 실패는 NULL/draft로 복구하고 같은 후보·작업 ID를 보존한다."""
+        candidate = self.candidate()
+        self.embedding.fail_activation.add(candidate['version_id'])
+        with self.assertRaises(DbError) as caught:
+            self.publish(candidate)
+        self.assertEqual(caught.exception.code, 'ACTIVATION_FAILED')
+        with self.engine.connect() as database:
+            document = database.execute(text('SELECT active_version_id,publication_status FROM documents WHERE id=:id'),
+                                        {'id': candidate['document_id']}).mappings().one()
+            job = database.execute(text('SELECT id,version_id,report FROM index_jobs WHERE id=:id'),
+                                   {'id': candidate['job_id']}).mappings().one()
+        self.assertIsNone(document['active_version_id'])
+        self.assertEqual(document['publication_status'], 'draft')
+        self.assertEqual(job['version_id'], candidate['version_id'])
+        self.assertEqual(json.loads(job['report'])['_publication']['phase'], 'restored')
 
     def test_unauthorized_upload_does_not_create_files(self):
         """타 회사 업로드를 거부하며 저장 폴더 밖이나 안에 원본을 생성하지 않는다."""

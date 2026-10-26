@@ -73,7 +73,7 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 
 | 흐름 담당 함수 | 책임별 보조 함수 |
 |---|---|
-| `record_stage_result` | `_read_stage_target` 조회 → `_check_stage_result` 입력·단계 검사 → `_merge_stage_reports` 보고서 조립 → `_store_stage_result` 저장 |
+| `record_stage_result` | `_read_stage_target` 버전→작업 잠금 조회 → `_check_stage_result` 입력·단계 검사 → 명시적 수집 성공 청크 수 검사 → `_merge_stage_reports` 보고서 조립 → `_store_stage_result` 저장 |
 | `run_attempt` | 수집·임베딩 단계 실행은 각각 `ingest_and_save_chunks`·`embed_and_record_result`가 담당하고, 실패 단계 선택·후보 정리는 상위 함수가 담당 |
 | `prepare_retry` | `read_retry_records` 권한·잠금 조회 → `check_retry_allowed` 상태 검사 → `build_retry_report` 이력 조립 → `reset_retry_records` 저장 |
 | `compare_stored_chunks` | `collect_chunk_comparison` 비교 자료 수집 → `inspect_chunk_contents`로 청크별 내용 검사 → 상위 함수에서 전체 완전성 판정 |

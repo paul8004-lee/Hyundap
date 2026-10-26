@@ -18,11 +18,10 @@ import 기준은 이슈 #131: 다른 폴더는 hyundap. 전체 경로, 같은 �
 """
 from __future__ import annotations
 
-import logging
-import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
+
+from hyundap.common.config import get_settings
 
 if TYPE_CHECKING:  # 실행할 때는 불러오지 않는다(타입 표시용)
     from hyundap.common.schemas import Chunk
@@ -119,12 +118,6 @@ class VectorStoreError(Exception):
 # 팀 코드와 연결되는 자리 (이 아래만 나중에 고친다)
 # ---------------------------------------------------------------------------
 
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
-DEFAULT_CHROMA_DB_PATH = "data/chroma_db"
-_REPO_ROOT = Path(__file__).resolve().parents[2]  # hyundap/embedding/models.py -> 저장소 맨 위
-_log = logging.getLogger(__name__)
-_warned_fallback = False
-
 
 @dataclass(frozen=True)
 class EmbeddingSettings:
@@ -138,66 +131,17 @@ class EmbeddingSettings:
 def load_embedding_settings() -> EmbeddingSettings:
     """설정을 읽는다. (연결 자리 ①: hyundap/common/config.py)
 
-    1) hyundap.common.config.get_settings()가 있으면 그 값을 쓴다(속성·키 이름이 같을 때).
-    2) 없거나 필요한 값이 비어 있으면 환경변수(.env 포함)로 채운다.
-    반환 형식(EmbeddingSettings)은 바뀌지 않으므로 호출하는 쪽은 고칠 것이 없다.
+    hyundap.common.config.get_settings() 한 곳에서만 읽는다(이슈 #141).
+    .env 읽기·기본값·경로 계산은 common/config.py가 맡으므로 여기서 다시 하지 않는다.
+    get_settings()가 실패하면 그 오류를 그대로 올린다(조용히 다른 값으로 대체하지 않는다).
+    API 키가 없으면(None) 빈 문자열로 담고, NO_API_KEY 오류는 get_embedding_model에서 낸다.
     """
-    global _warned_fallback
-    team: Any = None
-    try:  # common.config를 못 불러와도 멈추지 않고 환경변수로 대체한다(단, 조용히 넘어가지는 않는다).
-        from hyundap.common.config import get_settings
-
-        team = get_settings()
-    except Exception as exc:  # noqa: BLE001 - 모듈 없음·python-dotenv 미설치·잘못된 실행 위치 등
-        team = None
-        if not _warned_fallback:  # 같은 경고가 반복되지 않게 한 번만 남긴다.
-            _warned_fallback = True
-            _log.warning(
-                "hyundap.common.config를 불러오지 못해 환경변수로 대체합니다(%s). "
-                "저장소 맨 위 폴더에서 실행했는지, python-dotenv가 설치돼 있는지 확인하세요.",
-                type(exc).__name__,
-            )
-
-    def from_team(*names: str) -> str:
-        for name in names:
-            value = team.get(name) if isinstance(team, dict) else getattr(team, name, None)
-            if value:
-                return str(value)
-        return ""
-
-    _load_dotenv_once()
-    api_key = from_team("OPENAI_API_KEY", "openai_api_key") or os.environ.get("OPENAI_API_KEY", "")
-    model = (
-        from_team("OPENAI_EMBEDDING_MODEL", "openai_embedding_model", "embedding_model")
-        or os.environ.get("OPENAI_EMBEDDING_MODEL", "")
-        or DEFAULT_EMBEDDING_MODEL
+    s = get_settings()
+    return EmbeddingSettings(
+        openai_api_key=(s.openai_api_key or "").strip(),
+        model_name=s.openai_embedding_model.strip(),
+        chroma_path=str(s.chroma_db_path),
     )
-    path = (
-        from_team("CHROMA_DB_PATH", "chroma_db_path", "chroma_path")
-        or os.environ.get("CHROMA_DB_PATH", "")
-        or DEFAULT_CHROMA_DB_PATH
-    )
-    chroma_path = Path(path)
-    if not chroma_path.is_absolute():
-        chroma_path = _REPO_ROOT / chroma_path
-    return EmbeddingSettings(api_key.strip(), model.strip(), str(chroma_path))
-
-
-_dotenv_loaded = False
-
-
-def _load_dotenv_once() -> None:
-    """저장소 맨 위 .env를 한 번만 읽는다(이미 있는 환경변수는 덮어쓰지 않음). dotenv가 없으면 건너뛴다."""
-    global _dotenv_loaded
-    if _dotenv_loaded:
-        return
-    _dotenv_loaded = True
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(_REPO_ROOT / ".env", override=False)
-    except Exception:  # noqa: BLE001 - python-dotenv 미설치 등
-        pass
 
 
 def get_chunk_value(chunk: Chunk | dict, name: str, default: Any = None) -> Any:

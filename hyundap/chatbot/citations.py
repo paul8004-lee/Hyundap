@@ -8,6 +8,11 @@
     FUN-412 format_evidence — 이름표와 청크를 프롬프트용 근거 문자열로 만든다.
     FUN-413 extract_cited_aliases — 답변에서 사용된 인용 이름표를 추출한다.
     FUN-414 validate_citations — 인용 누락이나 제공하지 않은 이름표 사용을 검사한다.
+        validate_citations_answer — 빈 답변·너무 긴 답변을 거부한다.
+        validate_citations_aliases — 이름표 유무와 준 적 없는 이름표를 검사한다.
+        validate_citations_line — 줄 1개의 문장마다 이름표가 있는지 검사한다.
+        validate_citations_split — 줄을 문장으로 나눈다.
+        validate_citations_exempt — 이름표 검사를 통과하는 문장인지 판정한다.
     FUN-415 build_citation — 원본 문서·버전·위치에 연결되는 출처를 만든다.
     FUN-416 make_excerpt — 화면 표시 길이에 맞춰 본문 발췌를 만든다.
     FUN-417 format_source_label — 회사·파일·위치를 읽기 쉬운 출처 문구로 만든다.
@@ -25,7 +30,8 @@ from .models import ChatbotError, Citation
 ALIAS_PATTERN = re.compile(r'\[(E\d+)\]')
 # 숫자 바로 뒤 마침표('1. 항목'·'2026. 11. 3.')에서는 문장을 자르지 않는다
 SENTENCE_END = re.compile(r'(?<=\D[.!?])\s+')
-ALIAS_ONLY = re.compile(r'(?:\[E\d+\]\s*)+[.!?]?')  # '…합니다. [E1]'처럼 앞 문장 뒤에 따로 붙은 이름표
+# 문장 앞에 온 이름표. '…합니다. [E1]'·'…합니다. [E1] 다음 문장'처럼 마침표 뒤에 따로 붙은 이름표를 찾는다
+LEADING_ALIASES = re.compile(r'(?:\[E\d+\]\s*)+[.!?]?\s*')
 # version_id는 필수로 두지 않는다: 공유 DB는 아직 스키마 v3라 문서 버전이 없어 빈 값이 올 수 있다 (v4 적용 후 재검토)
 REQUIRED_FIELDS = ('company_name', 'file_name', 'document_id', 'location_label')
 
@@ -51,9 +57,25 @@ def validate_citations(answer, aliases, max_chars=MAX_ANSWER_CHARS):
     제목 줄('A사:' 등)과 '확인할 수 없습니다' 같은 유보 문장은 이름표가 없어도 된다.
     번호 목록('1. …')·날짜('2026. 11. 3.')의 마침표에서는 문장을 자르지 않고,
     마침표 뒤에 붙은 이름표('…합니다. [E1]')는 바로 앞 문장의 근거로 인정한다."""
+    answer = validate_citations_answer(answer, max_chars)
+    used = validate_citations_aliases(answer, aliases)
+    for line in answer.splitlines():
+        validate_citations_line(line)
+    return used
+
+
+def validate_citations_answer(answer, max_chars):
+    """받는 것: 답변, 최대 글자 수 / 돌려주는 것: 앞뒤 공백을 지운 답변 (비었거나 너무 길면 INVALID_ANSWER)"""
     answer = (answer or '').strip()
     if not answer or len(answer) > max_chars:
         raise ChatbotError('INVALID_ANSWER')
+    return answer
+
+
+def validate_citations_aliases(answer, aliases):
+    """받는 것: 답변, 이름표 사전 / 돌려주는 것: 쓰인 이름표 목록
+    이름표가 하나도 없으면 유보 답변(NO_EVIDENCE)인지 인용 누락(INVALID_CITATION)인지 가르고,
+    준 적 없는 이름표를 쓰면 INVALID_CITATION."""
     used = extract_cited_aliases(answer)
     if not used:
         # LLM이 근거에서 답을 못 찾고 유보 문구만 쓴 경우는 근거 없음으로 처리한다
@@ -62,22 +84,37 @@ def validate_citations(answer, aliases, max_chars=MAX_ANSWER_CHARS):
         raise ChatbotError('INVALID_CITATION')
     if any(alias not in aliases for alias in used):
         raise ChatbotError('INVALID_CITATION')
-    for line in answer.splitlines():
-        uncited = False  # 이름표 없이 끝난 문장이 있는지 (같은 줄 다음 조각의 이름표로만 풀린다)
-        for sentence in SENTENCE_END.split(line.strip()):
-            sentence = sentence.strip(' -*#')
-            if ALIAS_ONLY.fullmatch(sentence):
-                uncited = False
-                continue
-            if uncited:
-                raise ChatbotError('INVALID_CITATION')
-            if (not sentence or sentence.endswith(':') or ALIAS_PATTERN.search(sentence)
-                    or any(hint in sentence for hint in NO_EVIDENCE_HINTS)):
-                continue
-            uncited = True
+    return used
+
+
+def validate_citations_line(line):
+    """받는 것: 답변 1줄 / 돌려주는 것: 없음 (이름표 없이 끝난 문장이 있으면 INVALID_CITATION)
+    문장 앞에 온 이름표('… . [E1] 다음 문장')는 앞에 이름표 없이 끝난 문장이 있으면 그 문장의 근거로 본다.
+    다음 줄의 이름표로는 앞 줄 문장을 인정하지 않는다."""
+    uncited = False  # 이름표 없이 끝난 문장이 남아 있는지
+    for sentence in validate_citations_split(line):
+        lead = LEADING_ALIASES.match(sentence)
+        if lead and (uncited or not sentence[lead.end():]):
+            uncited = False
+            sentence = sentence[lead.end():]
         if uncited:
             raise ChatbotError('INVALID_CITATION')
-    return used
+        uncited = not validate_citations_exempt(sentence)
+    if uncited:
+        raise ChatbotError('INVALID_CITATION')
+
+
+def validate_citations_split(line):
+    """받는 것: 답변 1줄 / 돌려주는 것: 문장 목록 (목록 기호 '-*#'와 공백을 지움)
+    숫자 바로 뒤 마침표('1. 항목'·'2026. 11. 3.')에서는 자르지 않는다."""
+    return [sentence.strip(' -*#') for sentence in SENTENCE_END.split(line.strip())]
+
+
+def validate_citations_exempt(sentence):
+    """받는 것: 문장 1개 / 돌려주는 것: 이름표 검사를 통과하면 True
+    이름표가 있는 문장, 빈 문장, ':'로 끝나는 제목 줄, 유보 표현이 든 문장이 해당한다."""
+    return (not sentence or sentence.endswith(':') or bool(ALIAS_PATTERN.search(sentence))
+            or any(hint in sentence for hint in NO_EVIDENCE_HINTS))
 
 
 def build_citation(hit, number):

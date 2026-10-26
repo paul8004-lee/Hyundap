@@ -37,9 +37,20 @@ ERROR_MESSAGES = {
     'ACCESS_DENIED': '이 문서에 접근할 권한이 없습니다.',
     'STATE_CHANGED': '문서 상태가 바뀌었습니다. 다시 질문해 주세요.',
     'CONFIG_MISSING': 'AI 설정을 확인해 주세요.',
+    # 통합본 10개 밖 코드. UI가 로그인 화면으로 돌아가도록 search(SearchError)와 같은 코드·문구를 쓴다 (#143·#144 리뷰)
+    'SESSION_EXPIRED': '로그인 시간이 만료되었습니다. 다시 로그인해 주세요.',
 }
 ERROR_CODES = tuple(ERROR_MESSAGES)
+# to_feedback이 화면에 넘기는 상태. 여기 없는 코드는 'failed'. session_expired면 UI가 로그인 화면으로 이동한다
+FEEDBACK_STATUS = {
+    'EMPTY_QUESTION': 'input_error',
+    'QUESTION_TOO_LONG': 'input_error',
+    'NO_EVIDENCE': 'empty',
+    'ACCESS_DENIED': 'denied',
+    'SESSION_EXPIRED': 'session_expired',
+}
 
-# 다른 폴더 오류를 이름으로 구분한다. 이름(AccessError·DbError)은 DB 계약으로 확정됐지만 클래스가 아직 없어 import하지 않는다
+# 다른 폴더 오류를 클래스 이름과 code 속성으로 구분한다 (auth.AccessError·db.DbError·search.SearchError)
+# 세션 만료(SESSION_EXPIRED)는 권한 없음이 아니라 재로그인 안내로 따로 보낸다
 ACCESS_ERROR_NAMES = ('AccessError',)
 SEARCH_ACCESS_CODES = ('ACCESS_DENIED', 'COMPANY_FORBIDDEN', 'NO_COMPANY_SCOPE')
