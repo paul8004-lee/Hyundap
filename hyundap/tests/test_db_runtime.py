@@ -276,6 +276,25 @@ class DatabaseRuntimeTests(unittest.TestCase):
         other = documents_repo.create_document_version(self.actor, dict(self.metadata, company_id=self.other_company))
         self.assertNotEqual(other['version_id'], candidate['version_id'])
 
+    def test_duplicate_exclusion_validates_scope_and_preserves_final_guard(self):
+        """현재 후보만 제외하고 최종 신규 생성의 중복 보호는 유지한다."""
+        candidate = self.candidate()
+        with self.engine.begin() as database:
+            self.assertIsNone(documents_repo.find_duplicate_document(
+                self.company, 'a' * 64, exclude_version_id=candidate['version_id'], connection=database))
+            for company, digest, excluded in (
+                    (self.other_company, 'a' * 64, candidate['version_id']),
+                    (self.company, 'b' * 64, candidate['version_id']),
+                    (self.company, 'a' * 64, str(uuid4()))):
+                with self.subTest(company=company, digest=digest), self.assertRaises(DbError) as caught:
+                    documents_repo.find_duplicate_document(company, digest,
+                        exclude_version_id=excluded, connection=database)
+                self.assertEqual(caught.exception.code, 'INVALID_INPUT')
+            self.assertTrue(database.in_transaction())
+        with self.assertRaises(DbError) as caught:
+            self.candidate()
+        self.assertEqual(caught.exception.code, 'DUPLICATE_FILE')
+
     def test_manifest_idempotency_conflict_and_active_version_protection(self):
         """동일 목록 재시도는 허용하고 다른 내용·ready 목록 변경·활성 버전 실패 처리는 거부한다."""
         candidate = self.candidate()

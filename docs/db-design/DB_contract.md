@@ -68,7 +68,7 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 |---|---|---|
 | auth.permissions.get_allowed_company_ids(actor) | UserContext → set[str] | 이준영 FUN-253. 활성 회사만 반환, 허용 범위가 없으면 ACCESS_DENIED. 선택 회사 인자는 받지 않음 |
 | auth.permissions.verify_documents_access(actor, refs) | list[tuple[document_id,version_id]] → None | 소용우 FUN-407. 빈 refs는 INVALID_INPUT. 현재 세션·권한과 모든 참조를 일괄 재확인. 하나라도 실패하면 예외 |
-| db.documents_repo.find_duplicate_document(company_id, sha256) | str,str → {document_id,version_id,version_status,deleted_at} 또는 None | 김혜리 FUN-206. 내부 서버 처리에서 이미 권한 확인된 회사만 사용. 64자 소문자 hex 검증 |
+| db.documents_repo.find_duplicate_document(company_id, sha256, *, exclude_version_id=None, connection=None) | str,str → {document_id,version_id,version_status,deleted_at} 또는 None | 권한 확인된 서버 처리 전용. 제외 ID는 서버가 확정한 현재 후보이며 같은 회사·해시로 존재해야 함. 불일치 INVALID_INPUT. 삭제·실패 포함, 옵션 생략 시 기존 조회 유지. 후보 최종 생성에서는 제외하지 않음 |
 | db.documents_repo.get_documents_with_active_version(document_ids) | list[str] → list[dict] | 이준영 FUN-247. 위 11필드. 빈 목록은 [], 없는 ID 누락. 서버 내부 조회이며 별도 공개 API 아님 |
 | db.documents_repo.create_document_version(actor, metadata) | dict → {document_id,version_id,job_id} | 업로드 서비스. metadata: company_id,doc_type,file_name,storage_path,sha256,file_size,data_category,document_id(기존 문서면 지정). 권한·동시 중복·버전 번호 확인 후 짧은 TX |
 | db.versions_repo.list_document_versions(actor, document_id) | str → list[dict] | 회사 권한이 있는 관리자용 버전 관리. 직원에게 과거·비공개 버전을 노출하지 않음. version_no 오름차순, 내부 경로 제외 |
@@ -104,6 +104,24 @@ verify_documents_access(actor, cited_pairs)  # None 또는 AccessError/DbError
 성공: 빈 문서 ID 목록은 []이다. 실패: 권한 밖 회사는 ACCESS_DENIED, 인용 후 활성 버전 변경은 STATE_CHANGED, DB 장애는 DB_UNAVAILABLE이다. chatbot은 예외 발생 시 생성된 답변 전체를 반환하지 않는다.
 
 ## 4. 상태·트랜잭션·실패 계약
+
+### DB P1 문서 저장 보완 (db01, 2026-10-26)
+
+`validate_metadata`는 공통 `DOC_TYPE_CODES`로 저장 유형을 검사한다. doc_type 키가
+없으면 `DEFAULT_DOC_TYPE`을 사용하고, 명시적 None·빈 문자열·미등록 값은
+`INVALID_INPUT`이다. 입력 dict를 변경하지 않으며 파일을 읽거나 DB에 접속하지 않는다.
+
+중복 조회의 `exclude_version_id`는 외부 공개 요청에서 임의로 받지 않는다.
+서버가 고정한 후보를 같은 DB 연결에서 존재·회사·해시 조건으로 검증한 뒤 제외한다.
+검증 실패는 `INVALID_INPUT`, DB 장애는 `DB_UNAVAILABLE`이다. 옵션을 생략하면
+삭제·실패 포함 기존 정책이다. 현재 v4의 회사+해시 UNIQUE는 동일 회사·해시의
+다른 버전 공존을 차단하므로 자기 후보를 제외하면 보통 None이다.
+이 조회는 쓰기나 동시성 보호를 수행하지 않는다.
+
+`connection` 제공 시 호출자 트랜잭션에 참여하며 커밋·종료하지 않는다.
+생략하면 자체 읽기 트랜잭션을 사용한다. 최종 후보 생성은 제외 옵션 없이
+회사 잠금 아래 검사하며 사전 중복은 `DUPLICATE_FILE`, 고유키 경쟁은
+`CONFLICT`다. 콜백/파일/업로드 흐름 변경은 이 저장소 보완에 포함하지 않는다.
 
 | 대상 | 상태 전이 | 조건·실패 처리 |
 |---|---|---|
