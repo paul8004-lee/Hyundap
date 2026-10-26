@@ -82,6 +82,8 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 
 `IngestResult`는 김혜리 소유이며 status(success/failed), chunks, report, error_code, error_message를 유지한다. `EmbedStoreReport`는 박영준 소유이며 document_id,version_id,company_id,model_name,total,skipped_existing,embedded,stored,truncated_count,failures,status,elapsed_sec를 유지한다. `partial`은 게시 실패이며 재시도에서 skipped_existing을 포함한 실제 ID 집합을 검증한다.
 
+최신 develop의 common.schemas.Chunk는 chunk_id/text 필드를 가진다. #122의 DB 처리 흐름에서 Chunk.chunk_id를 manifest의 id로 매핑하고 최종 text의 UTF-8 SHA-256을 content_hash로 계산한다. 공통 Chunk에 DB 전용 필드를 추가하지 않는다. 원본 기본 저장 위치는 common.config.get_settings().upload_dir이며 DB에는 해당 경로 정책에 따른 내부 storage_path를 저장한다.
+
 ### 호출 예시 (계약 예시, #120~#122 구현 후 실행)
 
 ```python
