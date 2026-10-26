@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1704 1538" width="1704" height="1538" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif">
+<title>흐름 4. 선택 문서 요약</title>
+<defs>
+<marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#57606a"/></marker>
+<marker id="arrow_c" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto"><path d="M 0 0 L 10 4 L 0 8 z" fill="#9a6700"/></marker>
+</defs>
+<rect x="0" y="0" width="1704" height="1538" fill="#FAF9F5"/>
+<text x="40" y="74" font-family="MaruBuri, 'Noto Serif KR', Georgia, serif" font-size="32" font-weight="600" fill="#141413">흐름 4. 선택 문서 요약</text>
+<text x="40" y="106" font-size="15" fill="#6B6359">선택한 문서의 공개 청크를 나눠 요약하고, 포함 범위와 출처를 함께 돌려주기까지</text>
+<rect x="40" y="140" width="312" height="1316" rx="10" fill="#F3EFE6" stroke="#D9CDBE"/>
+<text x="196.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">ui 화면</text>
+<text x="196.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">박경환</text>
+<line x1="56" y1="202" x2="336" y2="202" stroke="#D9CDBE"/>
+<rect x="368" y="140" width="312" height="1316" rx="10" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="524.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">chatbot 요약</text>
+<text x="524.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">소용우</text>
+<line x1="384" y1="202" x2="664" y2="202" stroke="#D9CDBE"/>
+<rect x="696" y="140" width="312" height="1316" rx="10" fill="#F3EFE6" stroke="#D9CDBE"/>
+<text x="852.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">embedding 임베딩</text>
+<text x="852.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">박영준</text>
+<line x1="712" y1="202" x2="992" y2="202" stroke="#D9CDBE"/>
+<rect x="1024" y="140" width="312" height="1316" rx="10" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="1180.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">auth</text>
+<text x="1180.0" y="190" font-size="14" fill="#9a6700" text-anchor="middle">전재경 · 명세 대기</text>
+<line x1="1040" y1="202" x2="1320" y2="202" stroke="#D9CDBE"/>
+<rect x="1352" y="140" width="312" height="1316" rx="10" fill="#F3EFE6" stroke="#D9CDBE"/>
+<text x="1508.0" y="168" font-size="17" font-weight="600" fill="#141413" text-anchor="middle">OpenAI 채팅 모델</text>
+<text x="1508.0" y="190" font-size="14" fill="#6B6359" text-anchor="middle">외부 · 모델명 미정</text>
+<line x1="1368" y1="202" x2="1648" y2="202" stroke="#D9CDBE"/>
+<path d="M 196.0 290.0 V 307.0 H 524.0 V 314.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 389.0 V 406.0 H 1180.0 V 413.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 1180.0 487.0 V 504.0 H 852.0 V 511.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 852.0 606.0 V 623.0 H 524.0 V 630.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 725.0 V 749.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 823.0 V 840.0 H 1508.0 V 847.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1508.0 921.0 V 945.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 1508.0 1019.0 V 1036.0 H 524.0 V 1043.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 1138.0 V 1162.0" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 524.0 1236.0 V 1253.0 H 1180.0 V 1260.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<path d="M 1180.0 1334.0 V 1351.0 H 196.0 V 1358.0" fill="none" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow_c)"/>
+<rect x="58.0" y="226.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="256.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">1. 요약 요청</text>
+<text x="70.0" y="276.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">on_summary_request</text>
+<rect x="386.0" y="324.0" width="276.0" height="65.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="354.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">2. 요약 시작</text>
+<text x="398.0" y="375.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">요약 입구 함수 (이름 미정)</text>
+<rect x="1042.0" y="423.0" width="276.0" height="64.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="1054.0" y="453.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">3. 문서 접근 확인</text>
+<text x="1054.0" y="473.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">verify_documents_access</text>
+<rect x="714.0" y="521.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="726.0" y="551.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">4. 공개 청크 순서대로</text>
+<text x="726.0" y="571.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">get_document_chunks</text>
+<text x="726.0" y="592.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#cf222e" text-anchor="start">↳ 0개면 NO_EVIDENCE</text>
+<rect x="386.0" y="640.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="670.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">5. 요약 범위 정하기</text>
+<text x="398.0" y="690.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">limit_summary_chunks</text>
+<text x="398.0" y="711.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">최대 개수는 미정</text>
+<rect x="386.0" y="759.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="789.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">6. 이름표 붙이기</text>
+<text x="398.0" y="809.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">assign_aliases</text>
+<rect x="1370.0" y="857.0" width="276.0" height="64.0" rx="8" fill="#F3EFE6" stroke="#57606a" stroke-width="1"/>
+<text x="1382.0" y="887.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">7. 8개씩 부분 요약</text>
+<text x="1382.0" y="907.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">summarize_batch</text>
+<rect x="1370.0" y="955.0" width="276.0" height="64.0" rx="8" fill="#F3EFE6" stroke="#57606a" stroke-width="1"/>
+<text x="1382.0" y="985.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">8. 하나로 병합</text>
+<text x="1382.0" y="1005.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">merge_summaries</text>
+<rect x="386.0" y="1053.0" width="276.0" height="85.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="1083.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">9. 포함 범위 계산</text>
+<text x="398.0" y="1103.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">compute_coverage</text>
+<text x="398.0" y="1124.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="14" font-weight="400" fill="#141413" text-anchor="start">예: 포함 p.1~p.12</text>
+<rect x="386.0" y="1172.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="398.0" y="1202.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">10. 출처·번호 붙이기</text>
+<text x="398.0" y="1222.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">build_citation · render_answer</text>
+<rect x="1042.0" y="1270.0" width="276.0" height="64.0" rx="8" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="1054.0" y="1300.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">11. 반환 직전 재검증</text>
+<text x="1054.0" y="1320.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">verify_documents_access</text>
+<rect x="58.0" y="1368.0" width="276.0" height="64.0" rx="8" fill="#FFFFFF" stroke="#D9CDBE" stroke-width="1"/>
+<text x="70.0" y="1398.0" font-family="Pretendard, 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Hiragino Sans', 'Microsoft YaHei', system-ui, sans-serif" font-size="16" font-weight="600" fill="#141413" text-anchor="start">12. 요약·포함 범위 표시</text>
+<text x="70.0" y="1418.0" font-family="'JetBrains Mono', Consolas, ui-monospace, monospace" font-size="13" font-weight="400" fill="#6B6359" text-anchor="start">SummaryResponse</text>
+<rect x="40" y="1480" width="28" height="18" rx="4" fill="#FFFFFF" stroke="#D9CDBE"/>
+<text x="78" y="1494" font-size="14" fill="#6B6359">처리 단계</text>
+<rect x="178.4" y="1480" width="28" height="18" rx="4" fill="#FAF9F5" stroke="#9a6700" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="216.4" y="1494" font-size="14" fill="#6B6359">전재경 명세 대기 (함수 이름·내용 미정)</text>
+<rect x="529.6" y="1480" width="28" height="18" rx="4" fill="#F3EFE6" stroke="#57606a"/>
+<text x="567.6" y="1494" font-size="14" fill="#6B6359">외부 서비스</text>
+<text x="682.0" y="1495" font-size="14" fill="#cf222e">↳</text>
+<text x="720.0" y="1494" font-size="14" fill="#6B6359">실패·예외 처리</text>
+</svg>

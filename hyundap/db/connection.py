@@ -10,7 +10,7 @@ from sqlalchemy.exc import ArgumentError
 
 def create_db_engine() -> Engine:
     """Create a lazy MySQL engine from the process environment or project .env."""
-    load_dotenv(Path(__file__).resolve().parents[1]/'.env',override=False)
+    load_dotenv(Path(__file__).resolve().parents[2]/'.env',override=False)
     value=os.environ.get('DATABASE_URL','').strip()
     if not value:
         raise ValueError('Set DATABASE_URL in your local .env or process environment')

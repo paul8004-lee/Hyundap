@@ -4,7 +4,7 @@ GitHub 레포 접근 권한과 MySQL 접속 권한은 별개입니다. 이 레�
 
 1. Python 3.11 이상에서 `python -m pip install -r requirements-db.txt`를 실행합니다.
 2. `.env.example`을 `.env`로 복사하고 본인에게 발급된 계정으로 `DATABASE_URL`을 채웁니다. 기존 `.env`가 있다면 덮어쓰지 말고 해당 항목만 추가합니다.
-3. `python -m db.connection`을 실행합니다. `DB_CONNECTION_OK: schema_version=3, tables=9`가 나오면 연결과 현재 스키마 버전 조회가 성공한 것입니다.
+3. `hyundap` 폴더로 이동한 뒤(`cd hyundap`) `python -m db.connection`을 실행합니다. `.env`는 레포 맨 위 폴더에 둡니다. `DB_CONNECTION_OK: schema_version=3, tables=9`가 나오면 연결과 현재 스키마 버전 조회가 성공한 것입니다.
 4. 코드에서는 `db.connection.create_db_engine()`을 사용합니다. 스키마 변경·초기화는 담당 관리자만 수행합니다.
 
 | 항목 | 팀원 PC에서 사용하는 값 |
