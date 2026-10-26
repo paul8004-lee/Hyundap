@@ -1,4 +1,8 @@
-"""격리 MySQL 전용 검증. 공유 DB URL을 받지 않으며 기존 테이블이 있으면 중단한다."""
+"""tests/test_schema_migration.py — 격리 MySQL에서 마이그레이션과 무결성 제약 검증.
+
+테스트 실행 명령은 hyundap 폴더에서 python -m unittest tests.test_schema_migration -v이다.
+DB_MIGRATION_TEST_URL이 없으면 통합 검증을 건너뛴다.
+합성 데이터만 사용하며 기존 테이블이 있는 DB에는 실행하지 않는다."""
 
 import io
 import os
@@ -45,7 +49,11 @@ INSERT INTO sessions (id,user_id) VALUES ('old-session','user-a');
 
 
 def execute_script(database, script):
-    """테스트 파일에 한해 단순 SQL 문장을 실행한다. 운영 마이그레이션 실행기가 아니다."""
+    """격리 테스트 연결에서 단순 SQL 문장을 순서대로 실행한다.
+
+    입력 database는 테스트 DB 연결, script는 테스트용 SQL 문자열이다.
+    줄 주석을 제외하고 세미콜론으로 나누므로 범용 SQL 해석기가 아니다.
+    테이블 생성·데이터 변경을 실제 실행하므로 운영 마이그레이션 도구로 사용하지 않는다."""
     lines = [line for line in script.splitlines() if not line.lstrip().startswith('--')]
     for statement in '\n'.join(lines).split(';'):
         if statement.strip():
@@ -53,8 +61,15 @@ def execute_script(database, script):
 
 
 class SchemaMigrationTests(unittest.TestCase):
+    """빈 로컬 MySQL에 대표 v3 구조를 만들고 v4 제약·데이터 보존을 검증한다."""
     @unittest.skipUnless(os.getenv('DB_MIGRATION_TEST_URL'), 'isolated MySQL URL required')
     def test_additive_migration_and_database_guards(self):
+        """대표 v3 자료를 보존하면서 v4 DDL과 검증 CLI가 동작하는지 확인한다.
+
+        로컬의 hyundap_schema_test라는 빈 DB만 허용한다. 회사가 다른 활성 버전,
+        버전·해시·청크 중복, 잘못된 CHECK 값과 불완전 manifest를 검사한다.
+        테스트 DB에는 실제 DDL·DML을 실행하며 마지막에는 CHECK 하나를 제거해
+        구조 누락 탐지도 확인한다. 실제 공유 DB의 이행 성공을 증명하는 테스트는 아니다."""
         url = make_url(os.environ['DB_MIGRATION_TEST_URL'])
         self.assertEqual(url.host, '127.0.0.1')
         self.assertEqual(url.database, 'hyundap_schema_test')
@@ -98,6 +113,9 @@ class SchemaMigrationTests(unittest.TestCase):
             (id,document_id,company_id,version_no,file_name,storage_path,sha256,file_size)
             VALUES (:id,:document,:company,:number,'test.txt','test/test.txt',:hash,1)'''
         def add_version(identifier, document, company, number, digest):
+            """인자로 받은 식별자·회사·버전 번호·해시로 합성 테스트 버전을 삽입한다.
+
+            별도 트랜잭션을 사용하므로 제약 위반이 다음 검증에 영향을 주지 않게 한다."""
             with engine.begin() as database:
                 database.execute(text(version_insert), {'id': identifier, 'document': document,
                     'company': company, 'number': number, 'hash': digest})

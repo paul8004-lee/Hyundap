@@ -1,4 +1,7 @@
-"""Shared MySQL connection factory. Credentials are loaded locally, never stored in Git."""
+"""db/connection.py — 로컬 접속 설정으로 MySQL 연결을 만들고 상태를 점검.
+
+접속 비밀값은 프로세스 환경변수 또는 Git에서 제외된 레포 루트 .env로 읽는다.
+연결 생성과 읽기 전용 점검을 제공하며 스키마 변경·계정 발급은 수행하지 않는다."""
 import os
 from pathlib import Path
 
@@ -9,7 +12,13 @@ from sqlalchemy.exc import ArgumentError
 
 
 def create_db_engine() -> Engine:
-    """Create a lazy MySQL engine from the process environment or project .env."""
+    """로컬 접속 설정을 검사하고 지연 연결 방식의 SQLAlchemy Engine을 만든다.
+
+    프로세스 DATABASE_URL이 레포 루트 .env보다 우선한다.
+    MySQL URL의 드라이버·호스트·계정·비밀번호·DB·포트를 검사하고
+    PyMySQL, UTF-8, UTC 시간대, 엄격한 SQL 모드로 연결하도록 설정한다.
+    설정 누락·잘못된 URL은 비밀값 없는 ValueError로 알린다.
+    Engine 생성만으로 DB에 접속하지 않으며 사용 후 호출자가 dispose()해야 한다."""
     load_dotenv(Path(__file__).resolve().parents[2]/'.env',override=False)
     value=os.environ.get('DATABASE_URL','').strip()
     if not value:
@@ -30,7 +39,12 @@ def create_db_engine() -> Engine:
 
 
 def main() -> int:
-    """Read-only connection check. Do not echo connection URLs or exception messages."""
+    """현재 DB의 연결과 지원 스키마 구조를 읽기 전용으로 확인한다.
+
+    명령: hyundap 폴더에서 python -m db.connection.
+    v3는 기존 구조로, v4는 추가 구조 검증 후 성공으로 판정한다.
+    표준 출력에 접속 URL·DB 예외 원문을 노출하지 않고 성공 시 0, 실패 시 1을 반환한다.
+    생성한 Engine은 성공·실패와 관계없이 닫으며 스키마 변경은 실행하지 않는다."""
     engine=None
     try:
         engine=create_db_engine()

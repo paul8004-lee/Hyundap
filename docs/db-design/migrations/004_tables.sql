@@ -1,4 +1,4 @@
--- Template, not directly executable. db.schema --prepare fills existing key collations.
+-- 직접 실행하는 SQL이 아닌 템플릿이다. db.schema --prepare가 기존 키의 정렬 규칙을 채운다.
 CREATE TABLE document_versions (
     id __DOCUMENT_KEY__ NOT NULL PRIMARY KEY,
     document_id __DOCUMENT_KEY__ NOT NULL,

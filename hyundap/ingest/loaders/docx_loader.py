@@ -1,8 +1,9 @@
-"""ingest/loaders/docx_loader.py
+"""ingest/loaders/docx_loader.py — DOCX 문단·표를 공통 섹션으로 변환.
 
-Owner: 김혜리
-Spec: AI_문서검색_통합_기능명세서
+담당: 김혜리
+기준 명세: AI_문서검색_통합_기능명세서
 
-Functions:
-    FUN-209 load_docx
-"""
+구현 예정 함수:
+    FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

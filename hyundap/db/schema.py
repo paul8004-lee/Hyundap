@@ -1,4 +1,8 @@
-"""스키마 조회·마이그레이션 SQL 준비 전용. DB 쓰기는 실행하지 않는다."""
+"""db/schema.py — DB 구조 조회·검증과 검토용 마이그레이션 SQL 생성.
+
+마이그레이션을 자동 적용하지 않는 읽기 전용 준비 도구다.
+입력은 현재 DB 구조이고 결과는 구조 JSON·오류 목록·검토용 SQL이다.
+실제 DDL 적용과 버전 번호 확정은 관리자가 별도 절차로 수행한다."""
 
 import argparse
 import json
@@ -101,7 +105,12 @@ CHECKS = {
 
 
 def snapshot(connection):
-    """구조만 딕셔너리로 읽는다. 사용자 행·문서 본문·접속 URL은 출력하지 않는다."""
+    """연결된 DB의 버전·컬럼·키·제약 구조를 딕셔너리로 읽는다.
+
+    입력 connection은 SQLAlchemy Connection이다. 반환 딕셔너리는
+    version, tables, keys를 가지며 사용자 행·문서 본문·접속 URL은 포함하지 않는다.
+    schema_migrations가 단일 현재 버전 행이 아니면 ValueError를 발생시킨다.
+    메타데이터 조회 오류는 호출자에게 전달하며 DDL·DML은 실행하지 않는다."""
     columns = connection.execute(text('''
         SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE,
                CHARACTER_SET_NAME, COLLATION_NAME, GENERATION_EXPRESSION
@@ -128,7 +137,11 @@ def snapshot(connection):
 
 
 def key_definition(column):
-    """FK 문자셋을 기존 키에 맞추고 메타데이터의 식별자도 검증한다."""
+    """기존 ID 컬럼과 호환되는 새 FK 컬럼의 SQL 정의를 만든다.
+
+    입력 column은 snapshot의 컬럼 메타데이터 딕셔너리다.
+    VARCHAR(36), 문자셋, 정렬 규칙(collation)을 확인해 SQL 문자열을 반환한다.
+    다른 ID 타입이나 허용하지 않은 식별자는 ValueError로 거부한다. SQL 실행은 하지 않는다."""
     if column['COLUMN_TYPE'].lower() != 'varchar(36)':
         raise ValueError('Existing IDs must be VARCHAR(36); no automatic key conversion')
     charset = column['CHARACTER_SET_NAME']
@@ -140,7 +153,12 @@ def key_definition(column):
 
 
 def prepare_sql(layout):
-    """검토용 SQL 문자열만 만든다. 부분 적용된 스키마는 자동으로 재개하지 않는다."""
+    """점검한 v3 구조를 기준으로 추가형 v4 마이그레이션 SQL을 만든다.
+
+    입력 layout은 snapshot 결과이며 반환값은 관리자가 검토할 SQL 문자열이다.
+    기존 호환 컬럼·제약은 보존하고 키의 문자셋·정렬 규칙을 복사한다.
+    지원하지 않는 구조·타입·버전·부분 적용 상태는 ValueError로 중단한다.
+    로컬 SQL 템플릿만 읽으며 DB 쓰기와 버전 번호 변경은 수행하지 않는다."""
     tables, keys = layout['tables'], layout['keys']
     if layout['version'] != 3:
         raise ValueError('Preparation requires schema version 3')
@@ -218,7 +236,11 @@ def prepare_sql(layout):
 
 
 def validate_v4(layout):
-    """새 기능에 필요한 컬럼·유일성·FK·CHECK 존재를 점검한다. 실행 코드 검증과 별개다."""
+    """v4에서 요구하는 컬럼·타입·기본 키·유일성·FK·CHECK 존재를 검사한다.
+
+    입력 layout은 snapshot 결과, 반환값은 발견한 구조 오류 문자열의 목록이다.
+    빈 목록이면 이 함수가 확인하는 구조 조건을 통과한 것이다.
+    문서 내용·Chroma 적재·모든 CHECK 식의 의미나 앱 전체 동작까지 검증하지는 않는다."""
     errors = []
     required = {table: set(columns) for table, columns in ADDITIONS.items()}
     required.update({
@@ -265,7 +287,12 @@ def validate_v4(layout):
 
 
 def audit_counts(connection):
-    """검증 SQL의 결과는 건수만 반환한다. 문서 내용이나 사용자 행은 출력하지 않는다."""
+    """v4 검증 SQL을 실행하고 DB 내부 정합성 위반 건수를 반환한다.
+
+    입력 connection은 SQLAlchemy Connection이다. 반환값은
+    check_name과 violations를 가진 딕셔너리 목록이다. 활성 버전·회사 연결과
+    ready 청크 목록의 개수·순번을 조회하며 행 내용이나 비밀정보는 출력하지 않는다.
+    필수 v4 구조가 적용돼 있어야 하고 외부 Chroma 집합 비교는 별도 서비스 책임이다."""
     queries = (DESIGN_DIR / 'migrations' / '004_verify.sql').read_text(encoding='utf-8')
     counts = []
     for statement in queries.split(';'):
@@ -276,6 +303,12 @@ def audit_counts(connection):
 
 
 def main():
+    """구조 조회·SQL 준비·v4 점검 중 하나를 수행하는 CLI 진입점.
+
+    --inspect는 구조 JSON, --prepare 경로는 새 검토용 SQL 파일을 만들고,
+    --check는 구조·DB 내부 정합성을 확인한다. DB에는 읽기 전용 조회만 수행한다.
+    기존 출력 파일은 덮어쓰지 않는다. 성공은 0, 구조·데이터·접속·파일 오류는 1이다.
+    DB 예외는 원문 대신 종류만 출력해 접속 비밀값 노출을 막고 Engine을 정리한다."""
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument('--inspect', action='store_true', help='비밀값 없는 구조 JSON 출력')

@@ -1,10 +1,11 @@
-"""ui/chat_page.py - 질문·답변·출처·요약 표시
+"""ui/chat_page.py — 질문·답변·출처·요약 화면.
 
-Owner: 박경환
-Spec: AI_문서검색_통합_기능명세서 (MOD-034)
+담당: 박경환
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-034)
 
-Functions:
-    FUN-164 build_chat_page
-    FUN-165 on_question_submit
-    FUN-166 on_summary_request
-"""
+구현 예정 함수:
+    FUN-164 build_chat_page — 질문·답변·출처·요약 화면을 구성한다.
+    FUN-165 on_question_submit — 질문을 챗봇에 전달하고 응답을 표시한다.
+    FUN-166 on_summary_request — 선택 문서의 요약을 요청하고 결과를 표시한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""
