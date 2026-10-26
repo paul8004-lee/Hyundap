@@ -250,3 +250,6 @@ dist-ssr/
 
 # Runtime data (originals, vector DB)
 data/
+
+# Per-database migration SQL, generated locally after inspecting metadata
+docs/db-design/migrations/004_local*.sql

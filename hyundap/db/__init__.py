@@ -1,8 +1,9 @@
-"""db package - storage, versions, job records
+"""db/__init__.py — 문서·버전·작업 기록을 저장하는 DB 패키지.
 
-Owner: 전재경
-Spec: AI_문서검색_통합_기능명세서
+담당: 전재경
+기준 명세: AI_문서검색_통합_기능명세서
 
-Referenced by other modules as: db.documents_repo
-Module files and functions are not defined in the merged spec yet (see 미정_목록).
-"""
+연계 모듈: db.documents_repo
+연동 계약은 docs/db-design/DB_contract.md를 따른다. 실제 구현 여부는 각 파일에서 확인한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

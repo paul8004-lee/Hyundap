@@ -1,9 +1,10 @@
-"""ingest/normalizer.py
+"""ingest/normalizer.py — 청킹 전 텍스트의 문자·공백 정리.
 
-Owner: 김혜리
-Spec: AI_문서검색_통합_기능명세서
+담당: 김혜리
+기준 명세: AI_문서검색_통합_기능명세서
 
-Functions:
-    FUN-213 normalize_text
-    FUN-214 normalize_document
-"""
+구현 예정 함수:
+    FUN-213 normalize_text — 문자 표현·제어 문자·불필요한 공백을 정리한다.
+    FUN-214 normalize_document — 각 섹션의 텍스트를 정리하고 빈 섹션을 제외한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

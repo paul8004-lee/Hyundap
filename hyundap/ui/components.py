@@ -1,11 +1,12 @@
-"""ui/components.py - 공통 스타일·로딩·확인 팝업·안내
+"""ui/components.py — 공통 스타일·로딩·확인창·안내 표시.
 
-Owner: 박경환
-Spec: AI_문서검색_통합_기능명세서 (MOD-036)
+담당: 박경환
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-036)
 
-Functions:
-    FUN-172 apply_common_style
-    FUN-173 set_loading
-    FUN-174 confirm_action
-    FUN-175 show_feedback
-"""
+구현 예정 함수:
+    FUN-172 apply_common_style — 여러 화면에 공통 표시 스타일을 적용한다.
+    FUN-173 set_loading — 요청 처리 중 로딩·중복 클릭 방지 상태를 표시한다.
+    FUN-174 confirm_action — 변경 실행 전 사용자 확인창을 표시한다.
+    FUN-175 show_feedback — 성공·오류 안내를 화면에 표시한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""
