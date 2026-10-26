@@ -6,8 +6,8 @@ FUN-176 build_app: 각 화면·공통 스타일·이벤트와 서비스 연결�
 FUN-177 main: 실행 옵션을 읽고 Gradio 앱을 실행한다.
 
 저장소 최상위에서 설치: python -m pip install -r requirements.txt
-설치한 Python 환경으로 실행: python hyundap/app.py
-현재 python -m hyundap.app도 지원하며, 팀 import 기준 확정 후 함께 통일한다.
+저장소 최상위에서 실행: python -m hyundap.app
+팀 import 기준은 저장소 루트의 hyundap 패키지이며 실행 경로를 우회하지 않는다.
 기본은 예시 모드. 실제 함수는 hyundap/ui/backend_bindings.py에 연결한다.
 백엔드/DB/수집 모듈은 이 파일에서 구현하거나 변경하지 않는다.
 """
@@ -15,14 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
-from pathlib import Path
 from uuid import uuid4
-
-# B02: VS Code의 'Python 파일 실행'과 패키지 실행이 동일한 모듈을 사용한다.
-# 파일을 직접 실행할 때만 저장소 경로를 추가한다. 작업 폴더는 변경하지 않는다.
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
