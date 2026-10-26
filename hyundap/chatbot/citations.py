@@ -23,7 +23,9 @@ from .constants import EXCERPT_MAX_CHARS, MAX_ANSWER_CHARS, NO_EVIDENCE_HINTS
 from .models import ChatbotError, Citation
 
 ALIAS_PATTERN = re.compile(r'\[(E\d+)\]')
-SENTENCE_END = re.compile(r'(?<=[.!?])\s+')
+# 숫자 바로 뒤 마침표('1. 항목'·'2026. 11. 3.')에서는 문장을 자르지 않는다
+SENTENCE_END = re.compile(r'(?<=\D[.!?])\s+')
+ALIAS_ONLY = re.compile(r'(?:\[E\d+\]\s*)+[.!?]?')  # '…합니다. [E1]'처럼 앞 문장 뒤에 따로 붙은 이름표
 # version_id는 필수로 두지 않는다: 공유 DB는 아직 스키마 v3라 문서 버전이 없어 빈 값이 올 수 있다 (v4 적용 후 재검토)
 REQUIRED_FIELDS = ('company_name', 'file_name', 'document_id', 'location_label')
 
@@ -46,7 +48,9 @@ def extract_cited_aliases(answer):
 def validate_citations(answer, aliases, max_chars=MAX_ANSWER_CHARS):
     """받는 것: 답변, 이름표 사전 / 돌려주는 것: 실제로 쓰인 이름표 목록
     빈 답변·너무 긴 답변·준 적 없는 이름표·이름표 없는 문장이 있는 답변은 거부한다.
-    제목 줄('A사:' 등)과 '확인할 수 없습니다' 같은 유보 문장은 이름표가 없어도 된다."""
+    제목 줄('A사:' 등)과 '확인할 수 없습니다' 같은 유보 문장은 이름표가 없어도 된다.
+    번호 목록('1. …')·날짜('2026. 11. 3.')의 마침표에서는 문장을 자르지 않고,
+    마침표 뒤에 붙은 이름표('…합니다. [E1]')는 바로 앞 문장의 근거로 인정한다."""
     answer = (answer or '').strip()
     if not answer or len(answer) > max_chars:
         raise ChatbotError('INVALID_ANSWER')
@@ -59,11 +63,19 @@ def validate_citations(answer, aliases, max_chars=MAX_ANSWER_CHARS):
     if any(alias not in aliases for alias in used):
         raise ChatbotError('INVALID_CITATION')
     for line in answer.splitlines():
+        uncited = False  # 이름표 없이 끝난 문장이 있는지 (같은 줄 다음 조각의 이름표로만 풀린다)
         for sentence in SENTENCE_END.split(line.strip()):
             sentence = sentence.strip(' -*#')
+            if ALIAS_ONLY.fullmatch(sentence):
+                uncited = False
+                continue
+            if uncited:
+                raise ChatbotError('INVALID_CITATION')
             if (not sentence or sentence.endswith(':') or ALIAS_PATTERN.search(sentence)
                     or any(hint in sentence for hint in NO_EVIDENCE_HINTS)):
                 continue
+            uncited = True
+        if uncited:
             raise ChatbotError('INVALID_CITATION')
     return used
 

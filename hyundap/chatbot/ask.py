@@ -25,6 +25,8 @@ def ask(question, filters, user):
     """받는 것: 질문, 필터(ChatFilters·dict·None), 로그인 사용자 / 돌려주는 것: ChatResponse
     질문 검사 → 근거 받기·고르기 → 답변 생성 → 인용 검사 → 출처 → 반환 직전 재검증 → 화면용 정리."""
     question = validate_question(question)
+    if isinstance(filters, dict):  # UI는 필터를 dict로 넘길 수 있다
+        filters = ChatFilters(**filters)
     filters = filters or ChatFilters()  # 필터가 없으면 허용 범위 전체
     hits = select_evidence(retrieve_evidence(question, filters, user))
     if not hits:
