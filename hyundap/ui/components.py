@@ -1,9 +1,13 @@
-"""현답 공통 UI — Owner: 박경환 / MOD-036.
+"""현답 공통 UI — 담당: 박경환.
 
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-036).
 B01/B02: Figma 색상·폰트·공통 레이아웃과 입력 컨트롤.
 B17/B18/B20/B21/B22/B23: 오류·빈 결과·처리 중 안내.
 FUN-172 apply_common_style / FUN-173 set_loading / FUN-175 show_feedback.
-백엔드 인증·권한·데이터 접근을 수행하지 않는 화면 전용 모듈입니다.
+로딩 문구는 이 모듈이 만들고, 요청 중 버튼 잠금은 controller.py가 처리한다.
+FUN-174 confirm_action의 관리 동작 확인창은 이번 범위에서 제외한다.
+출처 확인 모달은 app.py가 구성한다.
+백엔드 인증·권한·데이터 접근을 수행하지 않는 화면 전용 모듈이다.
 """
 
 from __future__ import annotations

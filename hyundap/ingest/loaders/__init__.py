@@ -1,8 +1,9 @@
-"""ingest/loaders package - upload validation, parsing, normalization, chunking
+"""ingest/loaders/__init__.py — 확장자에 맞는 문서 로더 선택.
 
-Owner: 김혜리
-Spec: AI_문서검색_통합_기능명세서
+담당: 김혜리
+기준 명세: AI_문서검색_통합_기능명세서
 
-Functions:
-    FUN-207 load_document
-"""
+구현 예정 함수:
+    FUN-207 load_document — 파일 확장자에 맞는 로더를 선택한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

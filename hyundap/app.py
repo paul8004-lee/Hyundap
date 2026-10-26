@@ -1,5 +1,10 @@
 """FUN-176/177 · B02/B16/B24~B32: 현답 UI 조립·실행.
 
+담당: 박경환
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-037).
+FUN-176 build_app: 각 화면·공통 스타일·이벤트와 서비스 연결부를 조립한다.
+FUN-177 main: 실행 옵션을 읽고 Gradio 앱을 실행한다.
+
 저장소 최상위에서 설치: python -m pip install -r requirements.txt
 설치한 Python 환경으로 실행: python hyundap/app.py
 현재 python -m hyundap.app도 지원하며, 팀 import 기준 확정 후 함께 통일한다.

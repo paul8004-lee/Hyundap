@@ -1,10 +1,11 @@
-"""chatbot/prompts.py - 프롬프트·LLM 체인
+"""chatbot/prompts.py — 답변·요약용 프롬프트와 LLM 호출 체인.
 
-Owner: 소용우
-Spec: AI_문서검색_통합_기능명세서 (MOD-122)
+담당: 소용우
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-122)
 
-Functions:
-    FUN-408 get_chat_model
-    FUN-409 build_answer_chain
-    FUN-410 build_summary_chain
-"""
+구현 예정 함수:
+    FUN-408 get_chat_model — 공통 설정을 사용해 챗봇 모델을 준비한다.
+    FUN-409 build_answer_chain — 질문 답변용 프롬프트·모델·출력 처리를 연결한다.
+    FUN-410 build_summary_chain — 문서 요약용 프롬프트·모델·출력 처리를 연결한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

@@ -1,8 +1,10 @@
 """B04/B05/B09/B10/B18/B20: 검색과 선택 문서 상세. UI 담당: 박경환.
 
-FUN-159 build_search_page. 검색(FUN-160), 선택(FUN-161) 이벤트는
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-033).
+FUN-159 build_search_page: 검색 조건·결과 목록·상세 영역을 구성한다.
+검색(FUN-160 on_search_submit), 선택(FUN-161 on_document_select) 이벤트는
 app.py → ui/controller.py → 담당 함수 연결부 순서로 흐른다.
-피그마 68:9 / 9:183의 검색 바·분할 카드를 Gradio 컴포넌트로 구현.
+피그마 68:9 / 9:183의 검색 바·분할 카드를 Gradio 컴포넌트로 구현한다.
 """
 from __future__ import annotations
 

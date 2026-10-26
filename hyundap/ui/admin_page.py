@@ -1,8 +1,11 @@
 """관리자 수동 업로드 화면 — UI 담당: 박경환.
 
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-035).
 B11/B12/B16/B21: 회사·문서 유형·파일 입력과 현재 업로드 결과를 표시한다.
-FUN-167 build_admin_page. 업로드 제출(FUN-168)은 app.py에서 연결한다.
-FUN-169~171 계정/권한/로그는 P3 또는 범위 보류이므로 구현하지 않는다.
+FUN-167 build_admin_page. 업로드 제출(FUN-168 on_upload_submit)은
+app.py와 controller.py에서 담당 함수에 연결한다.
+FUN-169 load_account_options, FUN-170 on_role_change_submit,
+FUN-171 load_log_view의 계정·권한 변경·처리 로그는 P3 또는 범위 보류로 구현하지 않는다.
 파일 추출·청킹·임베딩·저장은 백엔드의 통합 진입 함수가 수행한다.
 """
 
