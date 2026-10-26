@@ -1,12 +1,14 @@
-"""세션의 해시·만료·폐기 저장과 현재 사용자 상태 조회."""
+"""별도 인증 담당자가 발급한 세션을 조회해 DB 접근 권한을 재검증한다.
+
+세션 발급·갱신·폐기는 구현하지 않는다. 토큰 해시는 비밀번호 처리가 아니라
+전달받은 서버 세션의 소유 증명을 DB에 저장된 값과 비교하기 위한 용도다.
+"""
 
 import hashlib
-from uuid import uuid4
 
 from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
-from .runtime import require_id, transaction
 
 
 ROLE_MAP = {
@@ -23,34 +25,43 @@ def token_hash(token):
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
-def create_session(user, token, expires_at, *, connection):
-    """이미 검증·잠금한 사용자에 대해 세션을 삽입하고 DB 세션 ID를 반환한다.
-
-    호출자 TX에 참여하며 원본 토큰을 저장하지 않는다. 만료 시각은 UTC datetime이다.
-    """
-    session_id = str(uuid4())
-    connection.execute(text('''
-        INSERT INTO sessions (id,user_id,token_hash,auth_version,expires_at)
-        VALUES (:id,:user_id,:token_hash,:auth_version,:expires_at)
-    '''), {'id': session_id, 'user_id': user['id'], 'token_hash': token_hash(token),
-          'auth_version': user['auth_version'], 'expires_at': expires_at})
-    return session_id
-
-
 def current_actor(actor, *, connection, lock=False):
-    """토큰 소유 증명을 검사하고 DB의 현재 사용자·역할·회사로 문맥을 다시 만든다.
+    """서버 actor dict와 DB 연결을 받아 현재 권한을 담은 새 actor dict를 반환한다.
 
-    actor는 서버 내부 dict이며 _session_token을 포함해야 한다. 공개 필드의 역할·회사·
-    auth_version을 신뢰하지 않는다. 쓰기 경로의 lock=True는 계정·세션 행을 잠근다.
-    토큰 불일치·만료·폐기·계정/회사 비활성·권한 버전 불일치는 인증 실패다.
+    세션 확인 → 사용자 확인 → 회사·역할 확인 순서다. 전달받은 역할·회사는
+    믿지 않고 DB 값을 사용한다. lock=True이면 호출자의 트랜잭션 안에서
+    세션 → 사용자 → 회사 순서로 행을 잠가 검사 중 권한 변경을 막는다.
     """
+    session_id, digest = _session_credentials(actor)
+    session = _read_valid_session(connection, session_id, digest, lock)
+    user = _read_active_user(connection, session, lock)
+    role = _check_company_role(connection, user, lock)
+    return {
+        'user_id': user['id'],
+        'company_id': user['company_id'],
+        'role': role,
+        'session_id': session['id'],
+        'auth_version': user['auth_version'],
+        '_session_token': actor['_session_token'],
+    }
+
+
+def _session_credentials(actor):
+    """서버 actor dict의 입력을 검사하고 (세션 ID, 비교용 토큰 해시)를 반환한다."""
     if not isinstance(actor, dict):
         raise AccessError('SESSION_EXPIRED')
     digest = token_hash(actor.get('_session_token'))
     session_id = actor.get('session_id')
     if not isinstance(session_id, str) or not session_id or len(session_id) > 36:
         raise AccessError('SESSION_EXPIRED')
-    suffix = ' FOR UPDATE' if lock else ''
+    return session_id, digest
+
+
+def _read_valid_session(connection, session_id, digest, lock):
+    """ID·토큰 해시가 일치하고 만료·폐기되지 않은 세션 DB 행을 반환한다."""
+    suffix = ''
+    if lock:
+        suffix = ' FOR UPDATE'
     # 기존 세션·사용자 키의 collation이 달라도 동작하도록 컬럼 간 JOIN을 피한다.
     session = connection.execute(text('''
         SELECT id,user_id,auth_version FROM sessions
@@ -59,38 +70,38 @@ def current_actor(actor, *, connection, lock=False):
     ''' + suffix), {'id': session_id, 'token_hash': digest}).mappings().one_or_none()
     if not session:
         raise AccessError('SESSION_EXPIRED')
-    row = connection.execute(text('''
+    return session
+
+
+def _read_active_user(connection, session, lock):
+    """세션 DB 행에 연결된 활성 사용자를 반환하고 권한 버전 변경을 거부한다."""
+    suffix = ''
+    if lock:
+        suffix = ' FOR UPDATE'
+    user = connection.execute(text('''
         SELECT id,company_id,role,auth_version,is_active FROM users WHERE id=:id
     ''' + suffix), {'id': session['user_id']}).mappings().one_or_none()
-    if not row or not row['is_active'] or session['auth_version'] != row['auth_version']:
+    if not user or not user['is_active']:
         raise AccessError('SESSION_EXPIRED')
-    role = ROLE_MAP.get(row['role'])
-    if role is None or (role != 'platform_admin' and not row['company_id']):
+    if session['auth_version'] != user['auth_version']:
+        raise AccessError('SESSION_EXPIRED')
+    return user
+
+
+def _check_company_role(connection, user, lock):
+    """사용자 DB 행의 역할·소속 회사 유효성을 검사하고 표준 역할명을 반환한다."""
+    role = ROLE_MAP.get(user['role'])
+    if role is None:
         raise AccessError('ACCESS_DENIED')
-    if row['company_id']:
+    if role != 'platform_admin' and not user['company_id']:
+        raise AccessError('ACCESS_DENIED')
+
+    suffix = ''
+    if lock:
+        suffix = ' FOR UPDATE'
+    if user['company_id']:
         active = connection.execute(text('SELECT is_active FROM companies WHERE id=:id' + suffix),
-                                    {'id': row['company_id']}).scalar_one_or_none()
+                                    {'id': user['company_id']}).scalar_one_or_none()
         if not active:
             raise AccessError('ACCESS_DENIED')
-    return {'user_id': row['id'], 'company_id': row['company_id'], 'role': role,
-            'session_id': session['id'], 'auth_version': row['auth_version'],
-            '_session_token': actor['_session_token']}
-
-
-def authenticate_token(token, *, connection=None):
-    """서버에 보관한 토큰으로 새 요청의 사용자 문맥을 만든다. 비밀값은 출력하지 않는다."""
-    digest = token_hash(token)
-    with transaction(connection) as database:
-        session_id = database.execute(text('SELECT id FROM sessions WHERE token_hash=:hash'),
-                                      {'hash': digest}).scalar_one_or_none()
-        if session_id is None:
-            raise AccessError('SESSION_EXPIRED')
-        return current_actor({'session_id': session_id, '_session_token': token}, connection=database)
-
-
-def revoke_session(actor, *, connection=None):
-    """토큰을 소유한 현재 세션만 폐기한다. 다른 사용자 세션을 ID만으로 폐기하지 않는다."""
-    with transaction(connection) as database:
-        current = current_actor(actor, connection=database, lock=True)
-        database.execute(text('UPDATE sessions SET revoked_at=UTC_TIMESTAMP(6) WHERE id=:id'),
-                         {'id': require_id(current['session_id'])})
+    return role

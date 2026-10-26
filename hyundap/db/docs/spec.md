@@ -18,7 +18,7 @@
 
 | 파일 | 제공 기능 |
 |---|---|
-| users_repo.py / sessions_repo.py | 내부 사용자 조회·해시 세션 발급·현재 문맥·폐기 |
+| sessions_repo.py | 외부 인증 담당이 관리한 세션의 소유 증명·현재 권한 읽기 검증. 발급·폐기 제외 |
 | documents_repo.py | 중복 조회·11필드 일괄 조회·문서/후보/작업 원자적 생성 |
 | chunks_repo.py | 청크 기준 목록 저장·동일 재시도·변경 충돌·순번 조회 |
 | versions_repo.py | 관리자 버전 이력·비활성 처리 후보 실패 표시 |
@@ -41,6 +41,28 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 
 #122의 입력·반환·기본 어댑터·실패 원장·운영 복구와 선행 조건은 [WORKFLOW_122.md](../../../docs/db-design/WORKFLOW_122.md)를 따른다. 원본 보관 경로는 앱 서버가 관리하며 외부 벡터 호출은 SQL TX 밖에서 수행한다. 순수 ID 개수 검사로 완전성을 확정하지 않는다. 단일 앱 프로세스 운영이 전제다.
 
-#127/#128 B안 적용 후 루트 실행 명령은 `python -m unittest discover -s hyundap/tests -t . -v`다. #122 워크플로 18개를 포함한 전체 53개 테스트가 통과했고, 마지막 원본 저장·재시도 경계 보완 후 워크플로 18개를 새 DB에서 다시 검증했다. 수집·벡터 대역을 사용한 DB 연계 검증이며 실제 팀 API 실연동 완료로 표시하지 않는다.
+로그인 범위 제거 전 검증 기록: #127/#128 B안 적용 후 루트 실행 명령은 `python -m unittest discover -s hyundap/tests -t . -v`다. #122 워크플로 18개를 포함한 전체 53개 테스트가 통과했고, 마지막 원본 저장·재시도 경계 보완 후 워크플로 18개를 새 DB에서 다시 검증했다. 수집·벡터 대역을 사용한 DB 연계 검증이며 실제 팀 API 실연동 완료로 표시하지 않는다.
 
-2026-10-26 로컬 검증: Python 3.11 / SQLAlchemy 2.0.55 / PyMySQL 1.1.2 / python-dotenv 1.2.4 / argon2-cffi 25.1.0 / MySQL 8.4.13에서 `python -m unittest discover -s hyundap/tests -t . -v`의 35개 테스트가 모두 통과했다. DB_RUNTIME_TEST_URL과 DB_MIGRATION_TEST_URL은 각각 빈 로컬 전용 DB를 가리켰다. 인증·회사 격리·상태 변경·청크 목록·실패 롤백·동시 업로드와 기존 마이그레이션을 포함하며 건너뛴 테스트는 없다. 컴파일·공백 검사와 한글 독스트링 점검도 통과했다.
+로그인 범위 제거 전 2026-10-26 로컬 검증: Python 3.11 / SQLAlchemy 2.0.55 / PyMySQL 1.1.2 / python-dotenv 1.2.4 / MySQL 8.4.13에서 `python -m unittest discover -s hyundap/tests -t . -v`의 35개 테스트가 모두 통과했다. DB_RUNTIME_TEST_URL과 DB_MIGRATION_TEST_URL은 각각 빈 로컬 전용 DB를 가리켰다. 인증·회사 격리·상태 변경·청크 목록·실패 롤백·동시 업로드와 기존 마이그레이션을 포함하며 건너뛴 테스트는 없다. 컴파일·공백 검사와 한글 독스트링 점검도 통과했다.
+
+
+로그인·비밀번호 해싱/검증·세션 발급/폐기는 DB 담당 범위에서 제외했다. 테스트는 합성 사용자·세션 행을 준비하여 DB 접근 검증만 확인한다. 실제 인증 담당과의 연결은 미완료다.
+
+## 메인 함수와 보조 함수 읽는 순서
+
+메인 함수는 처리 순서를 보여 주고, 보조 함수는 한 단계의 검사나 저장을 담당한다. 일반 함수·dict·명시적인 if/for를 사용하며 새 클래스나 프레임워크를 추가하지 않는다. 보조 함수의 입력·반환값은 각 한글 독스트링에서 확인한다. 아래 보조 함수는 서버 내부 단계이며 별도 사용자 API가 아니다.
+
+| 메인 함수 | 처리 순서와 주요 보조 함수 |
+|---|---|
+| `normalize_report` | `_report_dict` 입력 변환 → `_report_identity` 기본 정보 → `_report_metrics` 수치 → `_report_failures` 실패 상세 → 성공/실패 모순 검사 |
+| `current_actor` | `_session_credentials` 입력 확인 → `_read_valid_session` 세션 조회 → `_read_active_user` 사용자 조회 → `_check_company_role` 회사·역할 검사 |
+| `run_attempt` | `read_attempt_source` 원본 확인 → 수집 호출·`save_ingest_chunks` → 임베딩 호출 → `verify_uploaded_chunks` → 게시 |
+| `upload_document` | 권한 확인 → `prepare_upload_source` 원본 정보 준비 → `create_upload_candidate` 후보 저장 → 원본 복사 → `run_attempt` |
+| `retry_upload` | `prepare_retry` 기존 후보 준비 → 경로 확인 → 기존 벡터 정리 → 필요 시 원본 보충 → `run_attempt` |
+| `validate_completeness` | DB 기준 목록 조회 → 실제 벡터 조회 → `compare_stored_chunks` 목록 대조·`chunk_matches_manifest` 개별 내용 검사 |
+| `publish_version` | `check_publication_access` 권한 → 완전성 확인 → `prepare_publication` DB 전환 → `activate_candidate` 벡터 활성화 → `finish_publication` 완료 기록 |
+| `recover_publication` | `prepare_recovery` DB 복구 준비 → `restore_vectors` 벡터 복구 → `finish_recovery` 완료 기록 |
+
+`with transaction()`은 안쪽 DB 변경이 모두 성공해야 함께 확정되는 범위다. 파일 읽기·복사와 외부 벡터 호출은 이 범위가 끝난 뒤 실행한다. `WORKFLOW_LOCK`과 `PUBLICATION_LOCK`은 한 앱 프로세스에서 작업이 겹치지 않게 하는 기존 잠금이다. 보조 함수만 따로 호출해 메인 함수의 잠금·권한 확인을 건너뛰지 않는다.
+
+게시 시 `expected_active_id`는 처음 확인한 활성 버전이다. DB 값이 달라졌으면 다른 작업이 먼저 게시한 것이므로 중단한다. `_seal`은 완전성 검사 전후의 DB 기준 목록이 같은지 비교하는 값이다. 이 검사와 실패 복구 순서는 함수 분리 후에도 유지한다.

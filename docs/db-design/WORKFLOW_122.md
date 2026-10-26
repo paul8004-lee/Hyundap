@@ -1,6 +1,6 @@
 # 업로드·적재·게시·복구 — #122
 
-구현 위치는 `hyundap/db/upload_service.py`, `version_service.py`다. 기존 #120 인증과 #121 저장 함수를 사용한다. 모든 실행은 저장소 루트에서 하며 다른 폴더 import는 `hyundap.*`, 같은 폴더는 상대 import를 쓴다(#127/#128, B안).
+구현 위치는 `hyundap/db/upload_service.py`, `version_service.py`다. 기존 #120 접근 권한 재검증과 #121 저장 함수를 사용한다. 모든 실행은 저장소 루트에서 하며 다른 폴더 import는 `hyundap.*`, 같은 폴더는 상대 import를 쓴다(#127/#128, B안).
 
 ## 구현과 명세 대응
 
@@ -27,11 +27,10 @@ F39/F72/F107/F110~F112와 FUN-168/218/307/316~318의 DB 담당 연계 부분이�
 인증·입력·의존성 오류는 후보 생성 전에 예외로 전달한다. 후보 생성 후 예상 처리 실패는 status=failed와 안전한 코드로 반환한다. 외부 모듈의 예외 원문·비밀값은 반환하거나 기록하지 않는다. 내부 프로그래밍 오류는 실패 기록 후 다시 전달한다. `_session_token`이 있는 actor는 서버 안에서만 사용한다.
 
 ```python
-from hyundap.auth.login import authenticate
 from hyundap.db.upload_service import upload_document, retry_upload
 from hyundap.db.version_service import recover_publication
 
-actor = authenticate(server_session_token)
+# actor는 외부 인증 담당이 서버에서 제공한다. 로그인 함수는 DB 작업에 포함하지 않는다.
 result = upload_document(actor, server_uploaded_path, {
     'company_id': selected_company_id,
     'doc_type': 'manual',
@@ -43,7 +42,7 @@ result = retry_upload(actor, result['version_id'])
 recovery = recover_publication(document_id, version_id)
 ```
 
-위 예시는 실제 수집·벡터 함수가 제공된 뒤 실행한다. source_path는 서버가 업로드 후 확정한 파일 경로다. 클라이언트의 임의 서버 파일 경로를 그대로 넘기거나 이 함수를 브라우저에 직접 공개하지 않는다.
+위 예시는 외부 인증 담당의 actor 연결과 실제 수집·벡터 함수가 제공된 뒤 실행한다. actor의 서버 내부 `_session_token`은 DB token_hash(SHA-256)와 일치해야 하며, 세션 발급·폐기는 인증 담당 책임이다. source_path는 서버가 업로드 후 확정한 파일 경로다. 클라이언트의 임의 서버 파일 경로를 그대로 넘기거나 이 함수를 브라우저에 직접 공개하지 않는다.
 
 ## 외부 담당 함수의 연결 조건
 
@@ -85,6 +84,6 @@ P0는 단일 앱 프로세스의 업로드/게시/복구 직렬 실행이다. Py
 
 저장소 루트에서 `python -m unittest discover -s hyundap/tests -t . -v`를 실행한다. 워크플로 통합 테스트는 DB_WORKFLOW_TEST_URL(host=127.0.0.1, database=hyundap_workflow_test)의 빈 일회용 DB만 허용한다. 기존 테이블이 있으면 중단한다. 다른 두 fixture는 DB_RUNTIME_TEST_URL과 DB_MIGRATION_TEST_URL을 별도 빈 DB로 설정한다.
 
-현재 검증은 실제 MySQL과 임시 원본 파일, fake 수집기·벡터 저장소 조합이다. 실제 공유 DB 접속·기존 데이터 이행은 #119, 팀 외부 모듈과의 실제 연결은 해당 담당 함수 제공 후 남아 있다. 모든 변경은 db02의 미커밋 로컬 작업 트리이며 커밋·푸시·PR은 보류한다.
+현재 검증은 실제 MySQL과 임시 원본 파일, fake 수집기·벡터 저장소 조합이다. 실제 공유 DB 접속·기존 데이터 이행은 #119, 팀 외부 모듈과의 실제 연결은 해당 담당 함수 제공 후 남아 있다. 로그인 범위 제거 전 구현은 db02에 커밋·푸시되었다. 로그인 범위 제거 변경의 검증 결과는 별도로 확인한다.
 
-2026-10-26 검증: Python 3.11 / SQLAlchemy 2.0.55 / MySQL 8.4.13에서 루트 전체 테스트 53개가 건너뜀 없이 통과했다. 원본 경로·작업 정보의 원자 기록과 재시도 경로 검사를 마지막 보완한 뒤 전용 새 DB에서 워크플로 18개도 다시 통과했다. 짧은 절대 import·sys.path 조작이 없고, 모든 모듈·클래스·함수의 한글 독스트링, Python 컴파일과 공백 검사를 확인했다. 실제 외부 API 호출은 없었다.
+로그인 범위 제거 전 2026-10-26 검증: Python 3.11 / SQLAlchemy 2.0.55 / MySQL 8.4.13에서 루트 전체 테스트 53개가 건너뜀 없이 통과했다. 원본 경로·작업 정보의 원자 기록과 재시도 경로 검사를 마지막 보완한 뒤 전용 새 DB에서 워크플로 18개도 다시 통과했다. 짧은 절대 import·sys.path 조작이 없고, 모든 모듈·클래스·함수의 한글 독스트링, Python 컴파일과 공백 검사를 확인했다. 실제 외부 API 호출은 없었다.

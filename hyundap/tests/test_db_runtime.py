@@ -1,15 +1,15 @@
-"""03·04 인증·저장 기능 검증. 합성 데이터와 빈 로컬 MySQL만 사용한다.
+"""03·04 회사 접근·저장 기능 검증. 합성 데이터와 빈 로컬 MySQL만 사용한다.
 
 DB_RUNTIME_TEST_URL은 host=127.0.0.1, database=hyundap_runtime_test여야 한다.
 실제 공유 DB에 이 테스트를 실행하지 않는다. 외부 API와 Chroma는 호출하지 않는다.
 """
 
+import hashlib
 import json
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import datetime, timezone
 from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4
@@ -19,11 +19,25 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
 from hyundap.auth.errors import AccessError
-from hyundap.auth.login import PASSWORD_HASHER, authenticate, login, logout
 from hyundap.auth.permissions import get_allowed_company_ids, verify_documents_access
 from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, versions_repo
 from hyundap.db.errors import DbError
 from .test_schema_migration import BASELINE, execute_script
+
+
+def session_fixture(engine, user_id, company_id):
+    """인증 담당자가 제공할 세션을 합성 SQL로 준비한다. 로그인 구현을 호출하지 않는다."""
+    session_id = str(uuid4())
+    token = 'synthetic-session-' + str(uuid4())
+    with engine.begin() as database:
+        database.execute(text('''
+            INSERT INTO sessions (id,user_id,token_hash,auth_version,expires_at)
+            SELECT :id,id,:digest,auth_version,DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 1 HOUR)
+            FROM users WHERE id=:user_id
+        '''), {'id': session_id, 'user_id': user_id,
+               'digest': hashlib.sha256(token.encode('utf-8')).hexdigest()})
+    return {'user_id': user_id, 'company_id': company_id, 'role': 'company_admin',
+            'session_id': session_id, 'auth_version': 1, '_session_token': token}
 
 
 class OfflineRuntimeTests(unittest.TestCase):
@@ -80,7 +94,6 @@ class DatabaseRuntimeTests(unittest.TestCase):
             migration = schema.prepare_sql(schema.snapshot(database))
             execute_script(database, migration)
             database.execute(text('UPDATE schema_migrations SET version=4 WHERE version=3'))
-        cls.encoded = PASSWORD_HASHER.hash('synthetic-password-with-space ')
 
     def setUp(self):
         """테스트마다 서로 다른 회사·관리자·세션을 만들고 연결 풀을 격리한다."""
@@ -94,11 +107,10 @@ class DatabaseRuntimeTests(unittest.TestCase):
                              [{'id': self.company, 'name': '합성 회사 A'},
                               {'id': self.other_company, 'name': '합성 회사 B'}])
             database.execute(text('''
-                INSERT INTO users (id,company_id,email,role,password_hash)
-                VALUES (:id,:company,:email,'COMPANY_ADMIN',:password)
-            '''), {'id': self.user_id, 'company': self.company, 'email': self.email, 'password': self.encoded})
-        self.result = login(self.email, 'synthetic-password-with-space ')
-        self.actor = self.result['actor']
+                INSERT INTO users (id,company_id,email,role)
+                VALUES (:id,:company,:email,'COMPANY_ADMIN')
+            '''), {'id': self.user_id, 'company': self.company, 'email': self.email})
+        self.actor = session_fixture(self.engine, self.user_id, self.company)
         self.metadata = {'company_id': self.company, 'doc_type': 'manual', 'file_name': '합성.pdf',
                          'storage_path': 'data/uploads/synthetic.pdf', 'sha256': 'a' * 64,
                          'file_size': 10, 'data_category': 'operational'}
@@ -118,33 +130,6 @@ class DatabaseRuntimeTests(unittest.TestCase):
             database.execute(text("UPDATE documents SET publication_status='published',active_version_id=:version WHERE id=:id"),
                              {'id': candidate['document_id'], 'version': version_id})
 
-    def test_login_token_is_hashed_and_expires_after_eight_hours(self):
-        """이메일 정규화·비밀번호 공백 보존·해시 저장·8시간 만료를 확인한다."""
-        result = login(' ' + self.email.upper() + ' ', 'synthetic-password-with-space ')
-        self.assertEqual(result['actor']['role'], 'company_admin')
-        hours = (result['expires_at'] - datetime.now(timezone.utc)).total_seconds() / 3600
-        self.assertTrue(7.99 < hours <= 8)
-        with self.engine.connect() as database:
-            digest = database.execute(text('SELECT token_hash FROM sessions WHERE id=:id'),
-                                      {'id': result['actor']['session_id']}).scalar_one()
-        self.assertNotEqual(digest, result['session_token'])
-        self.assertEqual(len(digest), 64)
-        self.assertNotIn('password_hash', result['actor'])
-        self.assertEqual(authenticate(result['session_token'])['user_id'], self.user_id)
-
-    def test_wrong_password_missing_account_and_hashless_account(self):
-        """잘못된 비밀번호·없는 계정·해시 없는 계정은 같은 인증 실패 코드를 낸다."""
-        for email, password in ((self.email, 'synthetic-password-with-space'),
-                                ('missing@test.invalid', 'wrong')):
-            with self.subTest(email=email), self.assertRaises(AccessError) as caught:
-                login(email, password)
-            self.assertEqual(caught.exception.code, 'INVALID_CREDENTIALS')
-        with self.engine.begin() as database:
-            database.execute(text('UPDATE users SET password_hash=NULL WHERE id=:id'), {'id': self.user_id})
-        with self.assertRaises(AccessError) as caught:
-            login(self.email, 'synthetic-password-with-space ')
-        self.assertEqual(caught.exception.code, 'INVALID_CREDENTIALS')
-
     def test_forged_role_and_company_cannot_expand_scope(self):
         """전달 문맥의 역할·회사·권한 버전 위조를 무시하고 DB의 현재 값을 사용한다."""
         forged = dict(self.actor, role='platform_admin', company_id=self.other_company, auth_version=999)
@@ -160,17 +145,19 @@ class DatabaseRuntimeTests(unittest.TestCase):
                 get_allowed_company_ids(actor)
 
     def test_expiry_revocation_and_auth_version_invalidation(self):
-        """로그아웃·명시 만료·권한 버전 변경이 기존 문맥에도 즉시 적용된다."""
-        logout(self.actor)
+        """저장된 폐기·명시 만료·권한 버전 변경이 기존 문맥에도 즉시 적용된다."""
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE sessions SET revoked_at=UTC_TIMESTAMP(6) WHERE id=:id'),
+                             {'id': self.actor['session_id']})
         with self.assertRaises(AccessError):
             get_allowed_company_ids(self.actor)
-        fresh = login(self.email, 'synthetic-password-with-space ')['actor']
+        fresh = session_fixture(self.engine, self.user_id, self.company)
         with self.engine.begin() as database:
             database.execute(text('UPDATE sessions SET expires_at=UTC_TIMESTAMP(6) WHERE id=:id'),
                              {'id': fresh['session_id']})
         with self.assertRaises(AccessError):
             get_allowed_company_ids(fresh)
-        fresh = login(self.email, 'synthetic-password-with-space ')['actor']
+        fresh = session_fixture(self.engine, self.user_id, self.company)
         with self.engine.begin() as database:
             database.execute(text('UPDATE users SET auth_version=auth_version+1 WHERE id=:id'), {'id': self.user_id})
         with self.assertRaises(AccessError):

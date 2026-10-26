@@ -21,11 +21,11 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from hyundap.auth.errors import AccessError
-from hyundap.auth.login import PASSWORD_HASHER, login
 from hyundap.common.schemas import Chunk
 from hyundap.db import chunks_repo, documents_repo, runtime, schema
 from hyundap.db.errors import DbError
 from .test_schema_migration import BASELINE, execute_script
+from .test_db_runtime import session_fixture
 
 
 class FakeEmbedding:
@@ -107,7 +107,6 @@ class UploadWorkflowTests(unittest.TestCase):
             execute_script(database, BASELINE)
             execute_script(database, schema.prepare_sql(schema.snapshot(database)))
             database.execute(text('UPDATE schema_migrations SET version=4 WHERE version=3'))
-        cls.encoded = PASSWORD_HASHER.hash('synthetic-workflow-password')
 
     def setUp(self):
         """테스트별 회사·관리자·원본 파일·벡터 저장소를 준비한다."""
@@ -123,10 +122,10 @@ class UploadWorkflowTests(unittest.TestCase):
                              [{'id': self.company, 'name': '합성 회사'},
                               {'id': self.other_company, 'name': '다른 합성 회사'}])
             database.execute(text('''INSERT INTO users
-                (id,company_id,email,role,password_hash)
-                VALUES (:id,:company,:email,'COMPANY_ADMIN',:password)'''),
-                {'id': self.user_id, 'company': self.company, 'email': email, 'password': self.encoded})
-        self.actor = login(email, 'synthetic-workflow-password')['actor']
+                (id,company_id,email,role)
+                VALUES (:id,:company,:email,'COMPANY_ADMIN')'''),
+                {'id': self.user_id, 'company': self.company, 'email': email})
+        self.actor = session_fixture(self.engine, self.user_id, self.company)
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)

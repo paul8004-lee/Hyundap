@@ -16,16 +16,38 @@ COUNT_FIELDS = ('total', 'skipped_existing', 'embedded', 'stored', 'truncated_co
 
 
 def normalize_report(report):
-    """보고서를 허용 필드만 가진 dict로 바꾼다. 임의 원문·토큰·예외 메시지는 버린다.
+    """dict/dataclass 보고서에서 저장해도 되는 필드만 새 dict로 반환한다.
 
-    dict 또는 dataclass를 받는다. stage 생략 시 model_name이 있으면 embedding,
-    아니면 ingest다. 실패 상세는 안전한 코드·청크 식별자만 저장한다.
+    기본 정보 → 처리 수치 → 실패 상세 순서로 검사한다. 입력은 수정하지 않는다.
+    원문·토큰·예외 메시지는 복사하지 않으며 잘못된 값은 INVALID_INPUT으로 거부한다.
     """
+    report = _report_dict(report)
+    clean = _report_identity(report)
+    clean.update(_report_metrics(report))
+    clean.update(_report_failures(report))
+
+    # 성공 보고서에 실패 내용이 함께 있으면 서로 모순되므로 저장하지 않는다.
+    if clean['status'] == 'success':
+        if 'error_code' in clean or clean['failures']:
+            raise DbError('INVALID_INPUT')
+    return clean
+
+
+def _report_dict(report):
+    """dict 또는 dataclass 입력을 dict로 반환하고 나머지 자료형은 거부한다."""
     if is_dataclass(report) and not isinstance(report, type):
         report = asdict(report)
     if not isinstance(report, dict):
         raise DbError('INVALID_INPUT')
-    stage = report.get('stage', 'embedding' if 'model_name' in report else 'ingest')
+    return report
+
+
+def _report_identity(report):
+    """보고서 dict에서 단계·상태·문서 식별자를 검사해 새 dict로 반환한다."""
+    default_stage = 'ingest'
+    if 'model_name' in report:
+        default_stage = 'embedding'
+    stage = report.get('stage', default_stage)
     status = report.get('status')
     if stage not in STAGES or status not in ('success', 'partial', 'failed'):
         raise DbError('INVALID_INPUT')
@@ -33,12 +55,19 @@ def normalize_report(report):
     for field in ('document_id', 'version_id', 'company_id'):
         if field in report:
             clean[field] = require_id(report[field])
+    return clean
+
+
+def _report_metrics(report):
+    """보고서 dict에서 개수·모델명·소요 시간을 검사해 새 dict로 반환한다."""
+    clean = {}
     for field in COUNT_FIELDS:
         if field in report:
             value = report[field]
             if type(value) is not int or value < 0:
                 raise DbError('INVALID_INPUT')
             clean[field] = value
+
     model = report.get('model_name')
     if model is not None:
         if not isinstance(model, str) or not re.fullmatch(r'[a-zA-Z0-9_./:-]{1,128}', model):
@@ -49,6 +78,12 @@ def normalize_report(report):
         if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
             raise DbError('INVALID_INPUT')
         clean['elapsed_sec'] = elapsed
+    return clean
+
+
+def _report_failures(report):
+    """보고서 dict에서 안전한 오류 코드와 실패 목록만 새 dict로 반환한다."""
+    clean = {}
     code = report.get('error_code')
     if code is not None:
         if not isinstance(code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', code):
@@ -60,27 +95,27 @@ def normalize_report(report):
     clean['failure_count'] = len(failures)
     clean['failures'] = []
     for failure in failures:
-        if is_dataclass(failure) and not isinstance(failure, type):
-            failure = asdict(failure)
-        if not isinstance(failure, dict):
-            raise DbError('INVALID_INPUT')
-        failure_code = failure.get('code', failure.get('error_code'))
-        if not isinstance(failure_code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', failure_code):
-            raise DbError('INVALID_INPUT')
-        item = {'code': failure_code}
-        chunk_id = failure.get('chunk_id')
-        if chunk_id is not None:
-            if not isinstance(chunk_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,36}:[0-9]{5}', chunk_id):
-                raise DbError('INVALID_INPUT')
-            item['chunk_id'] = chunk_id
-        if 'retryable' in failure:
-            if type(failure['retryable']) is not bool:
-                raise DbError('INVALID_INPUT')
-            item['retryable'] = failure['retryable']
-        clean['failures'].append(item)
-    if status == 'success' and (code is not None or failures):
-        raise DbError('INVALID_INPUT')
+        clean['failures'].append(_failure_detail(failure))
     return clean
+
+
+def _failure_detail(failure):
+    """실패 항목 하나에서 코드·청크 ID·재시도 여부만 새 dict로 반환한다."""
+    failure = _report_dict(failure)
+    failure_code = failure.get('code', failure.get('error_code'))
+    if not isinstance(failure_code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', failure_code):
+        raise DbError('INVALID_INPUT')
+    item = {'code': failure_code}
+    chunk_id = failure.get('chunk_id')
+    if chunk_id is not None:
+        if not isinstance(chunk_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,36}:[0-9]{5}', chunk_id):
+            raise DbError('INVALID_INPUT')
+        item['chunk_id'] = chunk_id
+    if 'retryable' in failure:
+        if type(failure['retryable']) is not bool:
+            raise DbError('INVALID_INPUT')
+        item['retryable'] = failure['retryable']
+    return item
 
 
 def record_stage_result(job_id, report, *, connection=None):

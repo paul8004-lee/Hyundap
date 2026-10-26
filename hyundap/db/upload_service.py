@@ -117,52 +117,107 @@ def record_upload_failure(ids, stage, error, backend):
         return dict(ids, status='failed', error_code=code, recovery_required=cleanup_pending)
 
 
+def read_attempt_source(ids):
+    """문서·버전 ID로 저장 원본을 확인하고 (파일 경로, 수집용 정보 dict)를 반환한다.
+
+    DB 조회를 끝낸 뒤 파일을 읽는다. 파일의 해시·크기가 저장 당시와 다르면 중단한다.
+    """
+    with transaction() as database:
+        document, version = version_service.read_candidate(
+            database, ids['document_id'], ids['version_id'])
+        company_name = database.execute(
+            text('SELECT name FROM companies WHERE id=:id'),
+            {'id': document['company_id']},
+        ).scalar_one()
+
+    source = Path(version['storage_path'])
+    if file_digest(source) != (version['sha256'], version['file_size']):
+        raise DbError('CONFLICT')
+    info = {
+        'document_id': ids['document_id'],
+        'version_id': ids['version_id'],
+        'company_id': document['company_id'],
+        'company_name': company_name,
+        'doc_type': document['doc_type'],
+        'file_name': version['file_name'],
+    }
+    return source, info
+
+
+def save_ingest_chunks(ids, company_id, result):
+    """성공한 수집 결과의 청크를 검사·기록하고 원래 청크 목록을 반환한다.
+
+    DB에는 식별자·순번·본문 해시만 저장한다. 임베딩에 넘길 원래 청크 객체는 유지한다.
+    """
+    chunks = result.get('chunks')
+    if not isinstance(chunks, list) or not chunks:
+        raise DbError('INVALID_INPUT')
+    manifest = []
+    for chunk in chunks:
+        row = version_service.as_mapping(chunk)
+        if row.get('document_id') != ids['document_id']:
+            raise DbError('INVALID_INPUT')
+        if row.get('version_id') != ids['version_id']:
+            raise DbError('INVALID_INPUT')
+        if row.get('company_id') != company_id:
+            raise DbError('INVALID_INPUT')
+        if not isinstance(row.get('text'), str):
+            raise DbError('INVALID_INPUT')
+        content_hash = hashlib.sha256(row['text'].encode('utf-8')).hexdigest()
+        manifest.append({
+            'id': row.get('chunk_id'),
+            'chunk_index': row.get('chunk_index'),
+            'content_hash': content_hash,
+        })
+    chunks_repo.save_manifest(ids['version_id'], manifest)
+    report = version_service.as_mapping(result.get('report') or {})
+    jobs_repo.record_stage_result(
+        ids['job_id'], dict(report, stage='ingest', status='success'))
+    return chunks
+
+
+def verify_uploaded_chunks(ids, backend):
+    """DB 청크 목록과 벡터 저장 결과를 대조하고 성공 보고서를 남긴다. 반환값은 없다."""
+    complete = version_service.validate_completeness(
+        ids['document_id'], ids['version_id'], embedding=backend)
+    if not complete['ok']:
+        raise DbError('INCOMPLETE_INDEX')
+    jobs_repo.record_stage_result(ids['job_id'], {
+        'stage': 'verify', 'status': 'success', 'total': complete['expected_count'],
+    })
+
+
 def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
-    """저장된 원본으로 한 번의 수집·적재·검증·게시 시도를 실행한다. 외부 작업은 TX 밖이다."""
+    """원본 확인 → 수집 → 임베딩 → 검증 → 게시 순서로 실행하고 결과 dict를 반환한다.
+
+    ids는 document_id/version_id/job_id를 가진 dict다. stage는 실패한 단계를 기록한다.
+    각 보조 함수의 DB 작업이 끝난 뒤 외부 함수를 호출하므로 SQL 잠금을 오래 잡지 않는다.
+    """
     stage = 'received'
     try:
-        with transaction() as database:
-            document, version = version_service.read_candidate(database, ids['document_id'], ids['version_id'])
-            name = database.execute(text('SELECT name FROM companies WHERE id=:id'),
-                                    {'id': document['company_id']}).scalar_one()
-        source = Path(version['storage_path'])
-        if file_digest(source) != (version['sha256'], version['file_size']):
-            raise DbError('CONFLICT')
+        source, info = read_attempt_source(ids)
         jobs_repo.record_stage_result(ids['job_id'], {'stage': stage, 'status': 'success'})
+
         stage = 'ingest'
-        info = {'document_id': ids['document_id'], 'version_id': ids['version_id'],
-                'company_id': document['company_id'], 'company_name': name,
-                'doc_type': document['doc_type'], 'file_name': version['file_name']}
-        result = version_service.as_mapping(version_service.call_external(ingest_function, str(source), info))
+        raw_result = version_service.call_external(ingest_function, str(source), info)
+        result = version_service.as_mapping(raw_result)
         if result.get('status') != 'success':
             return record_upload_failure(ids, stage, failure_code(result.get('error_code')), backend)
-        chunks = result.get('chunks')
-        if not isinstance(chunks, list) or not chunks:
-            raise DbError('INVALID_INPUT')
-        manifest = []
-        for chunk in chunks:
-            row = version_service.as_mapping(chunk)
-            if (row.get('document_id') != ids['document_id'] or row.get('version_id') != ids['version_id']
-                    or row.get('company_id') != document['company_id'] or not isinstance(row.get('text'), str)):
-                raise DbError('INVALID_INPUT')
-            manifest.append({'id': row.get('chunk_id'), 'chunk_index': row.get('chunk_index'),
-                             'content_hash': hashlib.sha256(row['text'].encode('utf-8')).hexdigest()})
-        chunks_repo.save_manifest(ids['version_id'], manifest)
-        report = version_service.as_mapping(result.get('report') or {})
-        jobs_repo.record_stage_result(ids['job_id'], dict(report, stage=stage, status='success'))
+        chunks = save_ingest_chunks(ids, info['company_id'], result)
+
         stage = 'embedding'
-        report = version_service.as_mapping(version_service.call_external(backend.embed_and_store, chunks))
+        raw_report = version_service.call_external(backend.embed_and_store, chunks)
+        report = version_service.as_mapping(raw_report)
         jobs_repo.record_stage_result(ids['job_id'], dict(report, stage=stage))
         if report.get('status') != 'success':
             return record_upload_failure(ids, stage, failure_code(report.get('error_code')), backend)
+
         stage = 'verify'
-        complete = version_service.validate_completeness(ids['document_id'], ids['version_id'], embedding=backend)
-        if not complete['ok']:
-            raise DbError('INCOMPLETE_INDEX')
-        jobs_repo.record_stage_result(ids['job_id'], {'stage': stage, 'status': 'success',
-                                                    'total': complete['expected_count']})
+        verify_uploaded_chunks(ids, backend)
+
         stage = 'publish'
-        version_service.publish_version(actor, ids['document_id'], ids['version_id'], expected_active_id, embedding=backend)
+        version_service.publish_version(
+            actor, ids['document_id'], ids['version_id'], expected_active_id, embedding=backend)
         return dict(ids, status='success', error_code=None, recovery_required=False)
     except (DbError, OSError) as error:
         return record_upload_failure(ids, stage, error, backend)
@@ -170,6 +225,60 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
         # 예상하지 못한 코드 오류도 실패 원장을 남긴 뒤 호출자에게 다시 전달한다.
         record_upload_failure(ids, stage, error, backend)
         raise
+
+
+def prepare_upload_source(source_path, metadata, upload_dir):
+    """서버 파일을 읽어 (원본 Path, 저장 루트 Path, 저장 정보 dict)를 준비한다.
+
+    해시·크기·경로는 사용자가 보낸 값을 쓰지 않는다. 이 함수는 DB 잠금 밖에서 호출한다.
+    """
+    try:
+        source = Path(source_path).resolve(strict=True)
+        if not source.is_file():
+            raise DbError('INVALID_INPUT')
+        digest, size = file_digest(source)
+    except (OSError, TypeError):
+        raise DbError('INVALID_INPUT') from None
+
+    if upload_dir is None:
+        upload_dir = get_settings().upload_dir
+    root = Path(upload_dir).resolve()
+    values = dict(metadata)
+    values['file_name'] = metadata.get('file_name', source.name)
+    values['sha256'] = digest
+    values['file_size'] = size
+    values['storage_path'] = 'pending'
+    values['data_category'] = metadata.get('data_category', 'operational')
+    return source, root, values
+
+
+def create_upload_candidate(actor, company_id, values, source, root):
+    """후보와 최종 저장 경로를 한 번에 저장하고 (ID dict, 이전 활성 ID, 목적지 Path)를 반환한다.
+
+    with transaction 안의 변경은 모두 성공해야 함께 확정된다. 파일 복사는 이 함수 밖이다.
+    """
+    with transaction() as database:
+        version_service.require_manager(actor, database, company_id)
+        expected_active_id = None
+        if values.get('document_id') is not None:
+            row = database.execute(
+                text('SELECT active_version_id FROM documents WHERE id=:id FOR UPDATE'),
+                {'id': require_id(values['document_id'])},
+            ).first()
+            if row:
+                expected_active_id = row[0]
+        ids = documents_repo.create_document_version(actor, values, connection=database)
+        destination = source_destination(
+            root, company_id, ids['document_id'], ids['version_id'], source.suffix)
+        database.execute(
+            text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
+            {'path': str(destination), 'id': ids['version_id']},
+        )
+        database.execute(
+            text('UPDATE index_jobs SET attempts=1,report=:report WHERE id=:id'),
+            {'id': ids['job_id'], 'report': json.dumps({'_upload_root': str(root)})},
+        )
+    return ids, expected_active_id, destination
 
 
 def upload_document(actor, source_path, metadata, *, ingest_document=None, embedding=None, upload_dir=None):
@@ -187,76 +296,103 @@ def upload_document(actor, source_path, metadata, *, ingest_document=None, embed
             version_service.require_manager(actor, database, company_id)
         ingest_function = get_ingest_function(ingest_document)
         backend = version_service.get_embedding_backend(embedding)
-        try:
-            source = Path(source_path).resolve(strict=True)
-            if not source.is_file():
-                raise DbError('INVALID_INPUT')
-            digest, size = file_digest(source)
-        except (OSError, TypeError):
-            raise DbError('INVALID_INPUT') from None
-        root = Path(upload_dir if upload_dir is not None else get_settings().upload_dir).resolve()
-        values = dict(metadata, file_name=metadata.get('file_name', source.name), sha256=digest,
-                      file_size=size, storage_path='pending', data_category=metadata.get('data_category', 'operational'))
-        with transaction() as database:
-            version_service.require_manager(actor, database, company_id)
-            expected = None
-            if metadata.get('document_id') is not None:
-                row = database.execute(text('SELECT active_version_id FROM documents WHERE id=:id FOR UPDATE'),
-                                       {'id': require_id(metadata['document_id'])}).first()
-                expected = row[0] if row else None
-            ids = documents_repo.create_document_version(actor, values, connection=database)
-            destination = source_destination(root, company_id, ids['document_id'], ids['version_id'], source.suffix)
-            database.execute(text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
-                             {'path': str(destination), 'id': ids['version_id']})
-            database.execute(text('UPDATE index_jobs SET attempts=1,report=:report WHERE id=:id'),
-                             {'id': ids['job_id'], 'report': json.dumps({'_upload_root': str(root)})})
+        source, root, values = prepare_upload_source(source_path, metadata, upload_dir)
+        ids, expected_active_id, destination = create_upload_candidate(
+            actor, company_id, values, source, root)
+
+        # 후보 저장이 확정된 다음 원본을 복사한다. 복사 실패도 같은 후보에 기록한다.
         try:
             if not destination.resolve().is_relative_to(root):
                 raise DbError('INVALID_INPUT')
-            copy_original(source, destination, digest, size)
+            copy_original(source, destination, values['sha256'], values['file_size'])
         except (DbError, OSError) as error:
             return record_upload_failure(ids, 'received', error, backend)
-        return run_attempt(actor, ids, expected, ingest_function, backend)
+        return run_attempt(actor, ids, expected_active_id, ingest_function, backend)
+
+
+def check_retry_allowed(document, version, reports):
+    """문서·버전·보고서 dict가 재시도 가능한 상태인지 확인한다. 반환값은 없다."""
+    if version['version_status'] not in ('failed', 'processing'):
+        raise DbError('INVALID_STATE')
+    if document['active_version_id'] == version['id']:
+        raise DbError('INVALID_STATE')
+    if document['deleted_at'] is not None:
+        raise DbError('INVALID_STATE')
+    if document['publication_status'] == 'blocked':
+        raise DbError('INVALID_STATE')
+    phase = reports.get('_publication', {}).get('phase')
+    if phase in version_service.PENDING_PHASES:
+        raise DbError('INVALID_STATE')
+
+
+def prepare_retry(actor, version_id):
+    """권한·후보를 잠가 재시도를 준비하고 ID·이전 활성 ID·원본 정보를 dict로 반환한다.
+
+    과거 보고서를 _attempts에 보존하고 새 시도를 received부터 시작한다.
+    여기서는 경로 문자열만 다루며 실제 파일 확인은 DB 변경 확정 후에 한다.
+    """
+    with transaction() as database:
+        reference = database.execute(
+            text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
+            {'id': version_id},
+        ).mappings().one_or_none()
+        if not reference:
+            raise DbError('INVALID_STATE')
+        version_service.require_manager(actor, database, reference['company_id'])
+        document, version = version_service.read_candidate(
+            database, reference['document_id'], version_id, lock=True)
+        job, reports = version_service.read_job(database, version_id, lock=True)
+        check_retry_allowed(document, version, reports)
+        version_service.ensure_no_pending_publication(database, document['id'])
+        root = Path(reports.get('_upload_root', ''))
+        source = Path(version['storage_path'])
+        if '_upload_root' not in reports:
+            raise DbError('INVALID_STATE')
+
+        history = reports.get('_attempts', [])
+        previous = {}
+        for key, value in reports.items():
+            if key != '_attempts':
+                previous[key] = value
+        reset = {'_upload_root': str(root), '_attempts': history + [previous]}
+        database.execute(
+            text("UPDATE document_versions SET version_status='processing' WHERE id=:id"),
+            {'id': version_id},
+        )
+        database.execute(text('''
+            UPDATE index_jobs SET stage='received', attempts=attempts+1, report=:report,
+                                  error_code=NULL, error_message=NULL
+            WHERE id=:id
+        '''), {'id': job['id'], 'report': json.dumps(reset, ensure_ascii=False)})
+        ids = {'document_id': document['id'], 'version_id': version_id, 'job_id': job['id']}
+    return {
+        'ids': ids,
+        'expected_active_id': document['active_version_id'],
+        'root': root,
+        'source': source,
+        'sha256': version['sha256'],
+        'file_size': version['file_size'],
+    }
 
 
 def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):
-    """저장된 원본으로 같은 문서·버전·작업 ID를 재시도한다. 새 중복 후보를 만들지 않는다.
+    """재시도 준비 → 경로 확인 → 이전 벡터 정리 → 처리 순서로 실행하고 결과 dict를 반환한다.
 
-    실패 또는 중단된 processing 후보만 허용하고 게시 복구가 남은 작업은 먼저 복구한다.
-    과거 보고서를 _attempts에 보존하며 시도 횟수를 증가시킨다. 저장 원본이 없을 때만
-    source_path로 같은 해시·크기의 원본을 다시 제공할 수 있다. 기존 파일은 덮지 않는다.
+    실패 또는 중단된 후보의 문서·버전·작업 ID를 그대로 쓴다. 게시 복구가 남으면 거부한다.
+    source_path는 저장 원본이 없을 때 같은 파일을 다시 제공하는 선택 인자다.
+    기존 파일은 덮지 않으며 원본이 있으면 저장된 파일로 run_attempt를 실행한다.
     """
     require_id(version_id)
     with WORKFLOW_LOCK:
         ingest_function = get_ingest_function(ingest_document)
         backend = version_service.get_embedding_backend(embedding)
-        with transaction() as database:
-            reference = database.execute(text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
-                                         {'id': version_id}).mappings().one_or_none()
-            if not reference:
-                raise DbError('INVALID_STATE')
-            version_service.require_manager(actor, database, reference['company_id'])
-            document, version = version_service.read_candidate(database, reference['document_id'], version_id, lock=True)
-            job, reports = version_service.read_job(database, version_id, lock=True)
-            if (version['version_status'] not in ('failed', 'processing') or document['active_version_id'] == version_id
-                    or document['deleted_at'] is not None or document['publication_status'] == 'blocked'
-                    or reports.get('_publication', {}).get('phase') in version_service.PENDING_PHASES):
-                raise DbError('INVALID_STATE')
-            version_service.ensure_no_pending_publication(database, document['id'])
-            root = Path(reports.get('_upload_root', ''))
-            source = Path(version['storage_path'])
-            if '_upload_root' not in reports:
-                raise DbError('INVALID_STATE')
-            history = reports.get('_attempts', [])
-            previous = {key: value for key, value in reports.items() if key != '_attempts'}
-            reset = {'_upload_root': str(root), '_attempts': history + [previous]}
-            database.execute(text("UPDATE document_versions SET version_status='processing' WHERE id=:id"), {'id': version_id})
-            database.execute(text("UPDATE index_jobs SET stage='received',attempts=attempts+1,report=:report,error_code=NULL,error_message=NULL WHERE id=:id"),
-                             {'id': job['id'], 'report': json.dumps(reset, ensure_ascii=False)})
-            ids = {'document_id': document['id'], 'version_id': version_id, 'job_id': job['id']}
-            expected = document['active_version_id']
+        retry = prepare_retry(actor, version_id)
+        ids = retry['ids']
+
+        # prepare_retry의 DB 변경이 확정된 뒤 파일과 외부 벡터 저장소에 접근한다.
         try:
-            root, source = root.resolve(), source.resolve()
+            root = retry['root'].resolve()
+            source = retry['source'].resolve()
             if not source.is_relative_to(root):
                 raise DbError('INVALID_STATE')
         except (DbError, OSError) as error:
@@ -267,7 +403,8 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
             return record_upload_failure(ids, 'received', error, backend)
         if source_path is not None:
             try:
-                copy_original(Path(source_path).resolve(strict=True), source, version['sha256'], version['file_size'])
+                replacement = Path(source_path).resolve(strict=True)
+                copy_original(replacement, source, retry['sha256'], retry['file_size'])
             except (DbError, OSError) as error:
                 return record_upload_failure(ids, 'received', error, backend)
-        return run_attempt(actor, ids, expected, ingest_function, backend)
+        return run_attempt(actor, ids, retry['expected_active_id'], ingest_function, backend)
