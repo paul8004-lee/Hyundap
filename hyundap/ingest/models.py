@@ -3,7 +3,7 @@
 담당: 김혜리
 기준 명세: AI_문서검색_통합_기능명세서
 
-구현 예정 자료형:
+자료형:
     CLS-040 IngestError
     CLS-041 IngestResult
 """

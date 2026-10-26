@@ -96,7 +96,7 @@ flowchart LR
 
 | 형식 | 섹션 나누는 기준 | 출처 위치 문구 | 제외·한계 |
 |---|---|---|---|
-| PDF | 쪽 1개 = 섹션 1개 | `p. 3` | 스캔본(이미지)은 글자가 없어 OCR 없이는 못 읽음 → 전체가 비면 `EMPTY_DOCUMENT`. 표는 일반 글자로 나옴. 2단 편집은 줄이 섞일 수 있음 |
+| PDF | 쪽 1개 = 섹션 1개 | `p.3` | 스캔본(이미지)은 글자가 없어 OCR 없이는 못 읽음 → 전체가 비면 `EMPTY_DOCUMENT`. 표는 일반 글자로 나옴. 2단 편집은 줄이 섞일 수 있음 |
 | DOCX | 제목(Heading) 스타일마다 새 섹션. 제목이 없으면 문서 전체가 1개 | `섹션 2 (제목)` | 페이지 번호가 파일에 저장되지 않아 정확한 쪽수는 알 수 없음. 머리글·바닥글·각주·텍스트상자·이미지 제외 |
 | PPTX | 슬라이드 1장 = 섹션 1개. 도형을 위→아래, 왼→오른쪽 순서로 읽고 그룹 도형 안까지 들어감 | `슬라이드 5` | 발표자 노트·이미지·차트 속 글자 제외 |
 
@@ -179,7 +179,7 @@ IngestResult         status("success"|"failed"), chunks(list[Chunk]), report(dic
 |---|---|---|
 | 1 | `models.py` — `IngestError`, `IngestResult` | 오류 코드 6개로 오류를 만들고 `code`/`message`를 꺼낼 수 있다 |
 | 2 | `validator.py` — 형식·용량 → 암호화·손상 → 해시·중복 | 정상 파일은 통과하고, 잘못된 파일마다 정해진 오류 코드가 나온다 |
-| 3 | `loaders/base.py` — `build_location_label`, `table_to_text` | `p. 3`, `슬라이드 5`, `섹션 2 (제목)` 문구, 표 조각마다 머리글 복제 |
+| 3 | `loaders/base.py` — `build_location_label`, `table_to_text` | `p.3`, `슬라이드 5`, `섹션 2 (제목)` 문구, 표 조각마다 머리글 복제 |
 | 4 | `pdf_loader.py` → `docx_loader.py` → `pptx_loader.py`, `loaders/__init__.py` | 샘플 파일 → `CommonDocument`, 섹션 수·위치 문구가 맞다 |
 | 5 | `normalizer.py` | 정규화 전후 비교, 기호·숫자는 그대로 |
 | 6 | `chunker.py` | 청크가 섹션 경계를 넘지 않고, 위치 정보가 청크마다 붙는다 |
