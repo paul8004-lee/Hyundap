@@ -1,12 +1,14 @@
 """tests/test_common.py — 공통 데이터 형식과 설정의 기본 동작 검증.
 
 테스트 실행 명령은 hyundap 폴더에서 python -m unittest tests.test_common -v이다."""
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from common import config
-from common.schemas import CommonDocument, Section, make_chunk_id
+from common.schemas import (DEFAULT_DOC_TYPE, DOC_TYPE_CODES, DOC_TYPES, CommonDocument,
+                            Section, make_chunk_id)
 
 HEADER = {'document_id': 'd1', 'version_id': 'v1', 'company_id': 'c1',
           'company_name': '현대', 'doc_type': 'report', 'file_name': 'a.pdf'}
@@ -35,6 +37,22 @@ class SchemaTests(unittest.TestCase):
     def test_chunk_id_format(self):
         """순번 3이 버전 ID 뒤의 5자리 청크 번호 00003으로 표시되는지 확인한다."""
         self.assertEqual(make_chunk_id('v1', 3), 'v1:00003')
+
+
+class DocTypeTests(unittest.TestCase):
+    """문서 유형 목록이 화면·검색·DB가 함께 쓰는 약속을 지키는지 확인한다."""
+    def test_codes_are_unique_and_include_default(self):
+        """코드가 겹치지 않고 기본값 other가 목록에 있는지 확인한다."""
+        codes = [code for code, _ in DOC_TYPES]
+        self.assertEqual(len(codes), len(set(codes)))
+        self.assertEqual(DOC_TYPE_CODES, set(codes))
+        self.assertIn(DEFAULT_DOC_TYPE, DOC_TYPE_CODES)
+
+    def test_codes_match_db_check_constraint(self):
+        """공통 목록과 DB documents.doc_type CHECK 제약의 허용 값이 같은지 확인한다."""
+        from db.schema import CHECKS
+        allowed = set(re.findall(r"'([^']+)'", CHECKS['documents']['ck_v4_doc_type']))
+        self.assertEqual(DOC_TYPE_CODES, allowed)
 
 
 class SettingsTests(unittest.TestCase):
