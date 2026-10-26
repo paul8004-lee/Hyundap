@@ -1,0 +1,197 @@
+/* B01/B08/B16/B17: 로그인 전용 화면. 두 역할은 강조색만 교체합니다. */
+#hd-login {
+  --accent: #2f56c9;
+  --accent-hover: #2649b0;
+  --accent-soft: rgba(47, 86, 201, .14);
+  position: relative;
+  min-width: 0 !important;
+  min-height: 100vh;
+  min-height: 100dvh;
+  gap: 0 !important;
+  background: #f2f3f5 !important;
+  color: #121826;
+  font-family: var(--hd-font);
+  letter-spacing: -.012em;
+}
+#hd-login:has(.hd-login-tabs[data-mode="admin"]) {
+  --accent: #1d7350;
+  --accent-hover: #175f42;
+  --accent-soft: rgba(29, 115, 80, .14);
+}
+#hd-login .block.hd-login-header {
+  position: absolute;
+  top: 32px;
+  left: 48px;
+  width: calc(100% - 96px) !important;
+  flex: none !important;
+}
+#hd-login .hd-login-brand {display: flex; align-items: center;}
+#hd-login .hd-brand {gap: 10px; color: #121826;}
+#hd-login .hd-brand-symbol {width: 28px; height: 28px; background: #121826; font-size: 20px; line-height: 28px; border-radius: 5px;}
+#hd-login .hd-brand-name {font-size: 18px; line-height: 28px; font-weight: 700;}
+#hd-login .hd-login-main {
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  padding: 88px 24px !important;
+  box-sizing: border-box;
+  gap: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 1 0 auto !important;
+}
+#hd-login .hd-login-stack {position: relative; width: 420px !important; max-width: 100% !important; min-width: 0 !important; padding: 0 !important; gap: 0 !important; flex: none !important;}
+#hd-login-card {
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 36px !important;
+  margin: 0 !important;
+  gap: 0 !important;
+  flex: none !important;
+  box-sizing: border-box;
+  border: 1px solid #e2e5e9 !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: 0 1px 2px rgba(18, 24, 38, .04), 0 18px 40px -28px rgba(18, 24, 38, .28) !important;
+}
+#hd-login-role {flex: none !important; width: 100%;}
+.hd-login-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px;
+  height: 44px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: #f2f3f5;
+}
+.hd-login-tab-indicator {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  height: 36px;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(18, 24, 38, .09);
+  pointer-events: none;
+  transform: translateX(0);
+  transition: transform .45s cubic-bezier(.16, 1, .3, 1);
+}
+.hd-login-tabs[data-mode="admin"] .hd-login-tab-indicator {transform: translateX(100%);}
+#hd-login .hd-login-tabs [role="tab"] {
+  position: relative;
+  z-index: 1;
+  height: 36px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: #5f6773;
+  font: 500 14px/20px var(--hd-font);
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition: color .15s ease;
+}
+#hd-login .hd-login-tabs [role="tab"]:hover {color: #121826;}
+#hd-login .hd-login-tabs [role="tab"][aria-selected="true"] {color: var(--accent); font-weight: 600;}
+#hd-login .hd-login-heading {margin-top: 32px;}
+#hd-login .hd-login-heading h1 {margin: 0 !important; color: #121826; font-size: 26px !important; line-height: 34px !important; font-weight: 700; letter-spacing: -.025em;}
+#hd-login .hd-login-heading p {margin: 6px 0 0 !important; color: #4a5260; font-size: 15px !important; line-height: 22px !important; font-weight: 400;}
+#hd-login-form {width: 100%; min-width: 0 !important; margin-top: 28px !important; padding: 0 !important; gap: 0 !important; flex: none !important; background: transparent !important;}
+#hd-login .hd-login-field {flex: none !important; overflow: visible !important;}
+#hd-login .hd-login-field > label {gap: 0 !important;}
+#hd-login .hd-login-field label > span {display: block; margin: 0 0 8px !important; font-size: 14px !important; line-height: 20px !important; font-weight: 600 !important; color: #121826 !important;}
+#hd-login .hd-login-field .input-container {padding: 0 !important; overflow: visible !important;}
+#hd-login .hd-login-field input, #hd-login .hd-login-field textarea {
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  box-sizing: border-box;
+  margin: 0 !important;
+  padding: 12px 14px !important;
+  border: 1px solid #cfd4da !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  color: #121826 !important;
+  font-size: 15px !important;
+  line-height: 22px !important;
+  letter-spacing: inherit;
+  caret-color: var(--accent);
+  box-shadow: none !important;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+#hd-login .hd-login-field input::placeholder, #hd-login .hd-login-field textarea::placeholder {color: #5f6773 !important; opacity: 1;}
+#hd-login .hd-login-field input:focus, #hd-login .hd-login-field textarea:focus {border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-soft) !important; outline: none !important;}
+#hd-login .hd-password-wrap {position: relative; min-width: 0 !important; margin-top: 20px !important; padding: 0 !important; gap: 0 !important; flex: none !important;}
+#hd-login #hd-login-password input {padding-right: 48px !important;}
+#hd-password-toggle {position: absolute !important; z-index: 2; bottom: 6px; right: 6px; width: 36px !important; min-width: 36px !important; height: 36px !important; min-height: 36px !important; padding: 9px !important; border: 0 !important; border-radius: 7px !important; background: transparent !important; box-shadow: none !important; font-size: 0 !important; gap: 0 !important;}
+#hd-password-toggle img {width: 18px !important; height: 18px !important; margin: 0 !important;}
+#hd-password-toggle:hover {background: #f2f3f5 !important;}
+#hd-login-feedback {margin: 0 !important;}
+#hd-login-feedback:has(.hd-notice), #hd-login-feedback:has([data-login-invalid]) {margin-top: 8px !important;}
+#hd-login-feedback .hd-notice {padding: 0; border: 0; border-radius: 0; background: transparent; color: #5f6773; font-size: 13px; line-height: 20px;}
+#hd-login-feedback .hd-notice-dot {display: none;}
+#hd-login-feedback .hd-spinner {border-color: #e2e5e9; border-top-color: #5f6773;}
+#hd-login-feedback .hd-notice--error, #hd-login-feedback [data-login-invalid] {margin: 0; color: #b42f2f; font-size: 13px; line-height: 20px;}
+#hd-login:has([data-login-invalid="credentials"]) .hd-login-field input {border-color: #c93a3a !important;}
+#hd-login-submit {width: 100% !important; height: 48px !important; min-height: 48px !important; margin-top: 28px !important; padding: 12px 16px !important; border: 1px solid var(--accent) !important; border-radius: 10px !important; background: var(--accent) !important; color: #fff !important; font: 600 15px/22px var(--hd-font) !important; letter-spacing: inherit; box-shadow: none !important; transition: background-color .15s ease, border-color .15s ease, transform .1s ease;}
+#hd-login-submit:hover:not(:disabled) {border-color: var(--accent-hover) !important; background: var(--accent-hover) !important;}
+#hd-login-submit:active:not(:disabled) {transform: translateY(1px);}
+#hd-login-submit:disabled {cursor: wait; opacity: .65;}
+#hd-login button:focus-visible {outline: 2px solid var(--accent) !important; outline-offset: 3px;}
+#hd-login .hd-login-field input:focus-visible, #hd-login .hd-login-field textarea:focus-visible {outline: 2px solid var(--accent) !important; outline-offset: 2px;}
+#hd-demo-login {
+  position: absolute;
+  top: calc(100% + 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content !important;
+  max-width: calc(100vw - 32px);
+  min-width: 0 !important;
+  padding: 0 !important;
+  gap: 0 4px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  flex: none !important;
+  color: #5f6773;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+#hd-demo-login > .block {width: auto !important; min-width: 0 !important; flex: none !important;}
+#hd-demo-login .html-container, #hd-demo-login .html-container p {margin: 0; color: #5f6773; font-size: 13px; line-height: 20px;}
+#hd-demo-login .hd-demo-account {width: auto !important; min-width: 0 !important; height: 20px !important; min-height: 20px !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 2px !important; background: transparent !important; box-shadow: none !important; color: #5f6773 !important; font: 400 13px/20px var(--hd-font) !important; letter-spacing: inherit; text-decoration: underline; text-underline-offset: 3px; flex: none !important;}
+#hd-demo-login .hd-demo-account:hover {color: #121826 !important;}
+#hd-login .block.hd-login-footer {position: absolute; left: 48px; bottom: 32px; width: calc(100% - 96px) !important; padding: 0 !important; margin: 0 !important; flex: none !important;}
+#hd-login .hd-login-footer .html-container {width: 100%;}
+#hd-login .hd-footer-inner {flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; color: #5f6773; font-size: 13px; line-height: 20px;}
+#hd-login .hd-footer-inner > :first-child {color: #5f6773;}
+
+/* 낮은 창에서도 입력 크기를 유지하며 카드만 조금 위로 옮깁니다. */
+@media (max-height: 660px) and (min-width: 561px) {
+  #hd-login .block.hd-login-header {top: 16px;}
+  #hd-login .hd-login-main {padding-top: 16px !important; padding-bottom: 52px !important;}
+  #hd-login .block.hd-login-footer {bottom: 8px;}
+  #hd-login .hd-login-main:has(#hd-login-feedback .hd-notice),
+  #hd-login .hd-login-main:has(#hd-login-feedback [data-login-invalid]) {padding-bottom: 80px !important;}
+}
+/* 좁은 화면은 콘텐츠 순서를 유지해 키보드·오류가 화면을 가리지 않게 합니다. */
+@media (max-width: 560px) {
+  #hd-login .block.hd-login-header {position: static; width: 100% !important; padding: 24px 16px !important; box-sizing: border-box;}
+  #hd-login .hd-login-main {min-height: 0; padding: 0 16px 24px !important; justify-content: flex-start !important;}
+  #hd-login-card {padding: 28px 22px !important;}
+  #hd-demo-login {position: static; left: auto; top: auto; transform: none; max-width: 100%; margin: 24px auto 0 !important; flex-wrap: wrap !important; row-gap: 4px !important;}
+  #hd-login .block.hd-login-footer {position: static; width: 100% !important; margin: auto 0 0 !important; padding: 0 16px 24px !important; box-sizing: border-box;}
+  #hd-login .hd-footer-inner {flex-direction: column; justify-content: center; align-items: center; gap: 6px; text-align: center;}
+}
+@media (max-width: 360px) {
+  #hd-login .hd-login-heading p {min-height: 44px;}
+}
+@media (prefers-reduced-motion: reduce) {
+  #hd-login *, #hd-login *::before, #hd-login *::after {transition: none !important; animation: none !important;}
+  #hd-login-submit:active:not(:disabled) {transform: none;}
+}

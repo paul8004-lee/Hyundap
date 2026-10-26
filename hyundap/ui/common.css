@@ -82,58 +82,7 @@ html, body {margin: 0; background: var(--hd-bg);}
 .hd-upload {max-width: 880px; width: 100%; margin: 0 auto !important;}
 .hd-upload .file-wrap {border-color: var(--hd-input-line) !important; border-radius: 12px !important; background: #f8fafc !important;}
 
-/* B08/B16/B17 — 로그인 화면: 카드 480×560, 오류 안내가 생기면 높이 자동 확장. */
-.hd-login {min-width: 0 !important;}
-.hd-login-brand {max-width: 1172px; margin: 0 auto; height: 104px; display: flex; align-items: center; padding: 0;}
-.hd-login-main {position: relative; min-height: 668px; width: 100%; padding: 54px 24px !important; box-sizing: border-box; gap: 16px !important; align-items: center !important; justify-content: center !important; flex-grow: 0 !important;}
-.hd-login-card {width: 480px !important; max-width: 100% !important; min-width: 0 !important; min-height: 560px; flex: none !important; margin: 0 auto !important; padding: 0 !important; gap: 0 !important; border: 1px solid var(--hd-line) !important; border-radius: 20px !important; background: #fff !important; overflow: hidden;}
-.hd-login-band {height: 56px; background: var(--hd-navy); color: #fff; position: relative; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 14px; line-height: 21px; box-sizing: border-box;}
-.hd-login-band--admin {background: var(--hd-green);}
-.hd-login-band strong {font-size: 14px; font-weight: 700;}
-.hd-login-band > strong, .hd-login-band > span {color: #fff !important;}
-.hd-login-band i {position: absolute; top: 12px; left: calc(50% - 22px); width: 44px; height: 8px; border-radius: 3px; background: var(--hd-bg);}
-.hd-login-form {width: 100%; min-height: 502px; padding: 38px 32px !important; gap: 0 !important; box-sizing: border-box; flex: none !important; background: #fff;}
-.hd-login-form:has(.hd-login-permission) {padding-top: 38px !important; padding-bottom: 24px !important;}
-.hd-role-tabs {padding: 0 !important; border: 0 !important; background: transparent !important; min-height: 48px !important;}
-.hd-role-tabs > .wrap {display: flex !important; flex-wrap: nowrap !important; gap: 0 !important; padding: 4px !important; min-height: 48px; border-radius: 999px; background: var(--hd-soft); box-sizing: border-box;}
-.hd-role-tabs label {display: flex !important; flex: 1 1 0 !important; align-items: center !important; justify-content: center !important; height: 40px !important; padding: 0 12px !important; border: 0 !important; border-radius: 999px !important; background: transparent !important; color: #637084 !important; box-shadow: none !important; font-size: 14px !important; line-height: 21px !important;}
-.hd-role-tabs label > span {color: inherit !important; font-size: 14px !important;}
-.hd-role-tabs label:has(input:checked) {background: #fff !important; color: var(--hd-ink) !important; font-weight: 700 !important;}
-.hd-role-tabs input[type="radio"] {position: absolute; opacity: 0; width: 1px; height: 1px;}
-.hd-role-tabs label:focus-within {outline: 2px solid var(--hd-blue); outline-offset: 1px;}
-.block.hd-login-heading-wrap {margin-top: 24px !important; margin-bottom: 20px !important;}
-.hd-login-heading h1 {font-size: 24px !important; line-height: 36px !important; margin: 0 0 3px !important; font-weight: 700; letter-spacing: -.45px; color: var(--hd-ink);}
-.hd-login-heading p {font-size: 13px !important; line-height: 20px !important; margin: 0 !important; color: var(--hd-muted);}
-.hd-login-field label > span {font-size: 14px !important; font-weight: 700 !important; line-height: 21px !important; margin-bottom: 8px !important;}
-.hd-login-field input, .hd-login-field textarea {height: 48px !important; min-height: 48px !important; max-height: 48px !important; padding: 12px 14px !important;}
-.hd-login-field .input-container {padding: 0 !important;}
-.hd-password-wrap {position: relative; gap: 0 !important; margin-top: 16px !important; flex: none !important;}
-#hd-login-password input {padding-right: 48px !important;}
-.hd-password-toggle {position: absolute !important; z-index: 2; bottom: 6px; right: 6px; padding: 9px !important; width: 36px !important; min-width: 36px !important; height: 36px !important; min-height: 36px !important; border: none !important; border-radius: 8px !important; background: transparent !important; box-shadow: none !important; font-size: 0 !important; gap: 0 !important;}
-.hd-password-toggle img {width: 18px !important; height: 18px !important; margin: 0 !important;}
-.hd-password-toggle:hover {background: var(--hd-soft) !important;}
-.hd-password-toggle:focus-visible {outline: 2px solid var(--hd-blue); outline-offset: 1px;}
-.hd-login-submit {width: 100%; height: 50px !important; min-height: 50px !important; margin-top: 20px !important; font-size: 14px !important;}
-.hd-login-permission {padding: 8px 12px; height: 36px; box-sizing: border-box; border-radius: 10px; background: var(--hd-success-bg); color: #253b32; font-size: 13px; line-height: 20px;}
-.block.hd-permission-wrap {margin-top: 8px !important;}
-.hd-login-form:has(.hd-login-permission) .hd-login-submit {margin-top: 4px !important;}
-.hd-login-form:has(.hd-login-permission) .block.hd-login-heading-wrap {margin-top: 16px !important; margin-bottom: 12px !important;}
-.hd-login-form:has(.hd-login-permission) .hd-password-wrap {margin-top: 12px !important;}
-.hd-login-destination {font-size: 12px !important; line-height: 18px !important; margin: 18px 0 0 !important; color: var(--hd-muted);}
-.hd-login-form:has(.hd-login-permission) .hd-login-destination {margin-top: 12px !important;}
-#hd-login-feedback:has(.hd-notice) {margin-top: 14px !important;}
-.hd-demo-login-wrap {max-width: 480px; width: 100%;}
-.block.hd-demo-login-wrap {position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%);}
-.hd-demo-login-note {font-size: 11px; line-height: 18px; color: var(--hd-muted); text-align: center;}
-.hd-demo-login-note strong {font-size: 11px; font-weight: 600;}
-.hd-demo-login-note code {font-size: 11px; color: #41516a; padding: 1px 4px; border-radius: 3px; background: #e5eaf2;}
-.block.hd-login-footer {width: calc(100% - 48px) !important; max-width: 1176px; margin: auto auto 0 !important; min-height: 88px; display: flex; align-items: center;}
-.hd-login-footer .html-container {width: 100%;}
-
-@media (max-width: 1280px) {
-  .hd-login-brand {margin: 0 48px;}
-  .block.hd-login-footer {width: calc(100% - 96px) !important;}
-}
+/* 로그인 전용 반응형 스타일은 login.css에서 관리합니다. */
 @media (max-width: 760px) {
   .hd-content {width: calc(100% - 32px) !important; padding-top: 24px !important;}
   .hd-card {padding: 18px !important;}
@@ -142,20 +91,7 @@ html, body {margin: 0; background: var(--hd-bg);}
   .hd-brand-name {font-size: 16px;}
   .hd-role {font-size: 10px;}
   .hd-footer-inner {align-items: flex-start; flex-direction: column; gap: 8px;}
-  .hd-login-brand {height: 80px; margin: 0 24px;}
-  .hd-login-main {min-height: 0; padding: 20px 20px 36px !important;}
-  .block.hd-demo-login-wrap {position: static; transform: none;}
-  .hd-login-card {width: 480px !important; min-height: 560px;}
-  .block.hd-login-footer {width: calc(100% - 48px) !important; min-height: 88px; padding: 16px 0 !important;}
   .hd-search-bar {max-width: 100%; width: 100%;}
-}
-@media (max-width: 420px) {
-  .hd-login-main {padding-left: 16px !important; padding-right: 16px !important;}
-  .hd-login-form {padding: 32px 24px !important;}
-  .hd-login-card {min-height: 560px;}
-  .hd-login-band {padding: 0 18px;}
-  .hd-login-band strong, .hd-login-band > span {font-size: 12px;}
-  .hd-login-form:has(.hd-login-permission) {padding-top: 32px !important;}
 }
 @media (prefers-reduced-motion: reduce) {
   .hd-button {transition: none !important;}

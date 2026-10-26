@@ -16,7 +16,7 @@ import gradio as gr
 
 from .chat_page import render_answer, render_citation, render_scope_hint
 from .admin_page import render_upload_result
-from .components import show_feedback, render_header
+from .components import show_feedback, render_header, render_login_error
 from .search_page import document_rows, render_document, render_evidence, render_coverage
 from .services import COMPANIES, UIServiceError
 
@@ -152,7 +152,8 @@ class UIController:
                 ctx.user, ctx.results, ctx.selected, ctx.citations = None, [], None, []
                 yield self.signed_out("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.")
             else:
-                yield {**self.busy_patch(action, False), self.feedback_target(action): show_feedback(error.message, "error")}
+                feedback = render_login_error(error.message, error.code) if action == "login" else show_feedback(error.message, "error")
+                yield {**self.busy_patch(action, False), self.feedback_target(action): feedback}
 
     async def checked(self, ctx, ticket):
         checked = await self.wait(ctx, ticket, self.service.validate_session(ctx.user))
