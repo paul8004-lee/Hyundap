@@ -1,0 +1,68 @@
+﻿문서검색 통합 기능명세서 — DB 준비 목록 v1
+기준: 2026-10-26 11:10 기능명세서 / 사용자 채택일 2026-10-26
+관련 이슈: #118 계약, #119 구조 준비, #120 인증, #121 저장 함수, #122 처리 연계.
+현재 계약의 기준 문서는 DB_contract.md, 스키마는 DB_schema.md, 적용 절차는 MIGRATION_v4.md다.
+문서의 원래 지시는 분석 자료로 취급하며, 이번 채택은 사용자의 명시적 요청에 따른다.
+
+1. 채택한 책임과 정책
+DB/auth는 전재경, ingest는 김혜리, embedding은 박영준, search는 이준영,
+chatbot은 소용우, UI는 박경환, 공통 설정·Chunk는 이성민 책임이다.
+기존 WBS #71~#73의 소용우 배정은 기록을 유지하고 구현 분담은 현재 계약을 따른다.
+다른 담당자에게 별도 메시지를 보내거나 WBS를 자동 변경하지 않는다.
+
+ID: id VARCHAR(36) 유지, DTO에서 document_id로 alias. UUID를 자르지 않는다.
+역할: 앱 소문자 3종, 기존 대문자 역할은 경계에서 매핑. 알 수 없는 역할 거부.
+로그인: 정규화 이메일, Argon2id. 기존 해시 없는 계정의 비밀번호 로그인 거부.
+UserContext: user_id/company_id/role/session_id/auth_version.
+세션: 8시간, 토큰은 SHA-256으로 저장, 만료·폐기·현재 auth_version 검증.
+유형: manual/policy/guide/other, MIME과 분리. 기존 미분류는 other.
+중복: 같은 회사+파일 해시, 삭제·실패 포함. 실패는 같은 후보로 재시도.
+청크: version_id:00000 형식, 0부터 연속, 최대 100,000개. 최종 text UTF-8 해시 저장.
+관리 F40/F41은 P3 채택. P0는 처리 결과 저장만 포함한다.
+
+2. 명세 근거
+F39 / 기능명세 A8:N8: 상세 조회·원본 저장·버전 관리는 DB.
+F63 / 기능명세 A15:N15 / FUN-206: 김혜리가 계산한 해시를 DB 함수로 조회.
+F81 / 기능명세 A26:N26: auth가 허용 회사 판정, search가 선택 회사 검증.
+CLS-050 / 클래스정의 A9:M9 / 데이터정의 A6:I16: 문서·활성 버전 11필드.
+FUN-247 / 참고_처리순서 A13:D13: DB 행 조회 후 search가 DTO 변환.
+F112 / 기능명세 A50:N50: DB 예상 목록과 Chroma 실제 목록 비교·판정은 DB.
+FUN-157 / 함수메서드 A7:N7 / 제약_운영 A8:G8: 인증·세션·Argon2id는 auth.
+FUN-407 / 함수메서드 A90:N90: auth가 재검증, chatbot이 반환 중단·오류 변환.
+F110/F111: DB가 게시/실패 연계를 호출, Chroma 내부 활성화·삭제는 embedding.
+개요 A8:B8: 기존 docsearch 시제품은 팀 명세 범위에서 제외.
+
+3. 저장 구조
+기존 companies/users/documents/sessions/index_jobs와 보조 테이블 보존.
+documents: doc_type/publication_status/deleted_at/active_version_id.
+users: password_hash/auth_version/정규화 이메일 생성 컬럼.
+sessions: token_hash/auth_version/expires_at/revoked_at.
+document_versions: 문서·회사·버전 번호·파일 정보·상태·운영/평가·예상 청크 수.
+document_chunks: 청크 ID/버전/순번/내용 해시. 본문·벡터는 Chroma.
+index_jobs: version_id/stage/report/error_code/error_message/attempts 추가.
+광범위한 별도 감사 체계는 만들지 않는다. 기존 audit_logs 등은 유지한다.
+회사·문서·활성 버전 복합 FK, 버전 번호/청크 순번/회사 해시 UNIQUE.
+외부 적재 완전성은 CHECK로 보장하지 않고 서비스에서 검증한다.
+
+4. 함수 계약과 게시
+정확한 인자·반환·오류는 DB_contract.md의 공개 함수 표를 따른다.
+DB 일괄 조회는 11필드 원시 행이며 활성 버전이 없으면 버전 필드는 None.
+없는 ID는 누락, 빈 입력은 [], DB 장애는 DB_UNAVAILABLE. 빈 결과로 숨기지 않는다.
+선택 회사 교집합과 is_visible은 search 책임, 최종 답변 제어는 chatbot 책임.
+
+게시: 외부 완전성 확인 → 짧은 DB TX에서 조건부 활성 포인터 전환
+→ 커밋 → embedding.activate_version → 작업 성공 기록.
+기존 명세 순서를 유지한다. ON/OFF 단계 분리안은 채택하지 않는다.
+실패하면 현재 포인터를 다시 확인한 뒤 조건부 복구·재시도하고 최신 게시를 덮지 않는다.
+외부 파일·API·Chroma 호출 동안 SQL 잠금을 유지하지 않는다.
+P0는 단일 순차 작업자다. 범용 분산 실행·소유권 프레임워크는 추가하지 않는다.
+
+5. 준비 결과와 검증 한계
+schema.py는 실제 메타데이터를 읽어 검토용 SQL만 생성하며 DB 쓰기를 하지 않는다.
+기존 타입·collation·데이터가 맞지 않으면 중단한다. 실제 DB 연결 설정은 현재 없다.
+공유 DB의 실제 구조·데이터는 미점검이며 마이그레이션도 미적용이다.
+격리 MySQL의 대표 v3 fixture와 실제 공유 DB를 동일하다고 가정하지 않는다.
+레거시 문서는 draft/활성 버전 NULL로 격리하며 파일·벡터를 자동 이행하지 않는다.
+명시적 가져오기 전 해당 회사 신규 업로드는 막는다. 가져오기·실제 서비스는 #122.
+마이그레이션 버전 표시는 DDL·DB 검증 성공 후 관리자만 3에서 4로 바꾼다.
+MySQL DDL의 암시적 커밋 때문에 전체 ROLLBACK을 보장하지 않는다.
