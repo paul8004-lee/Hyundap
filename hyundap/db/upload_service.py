@@ -12,7 +12,7 @@ from uuid import uuid4
 from pathlib import Path
 from threading import RLock
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from hyundap.common.config import get_settings
 from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
@@ -296,7 +296,7 @@ def prepare_upload_source(source_path, metadata, upload_dir):
     values['file_name'] = metadata.get('file_name', source.name)
     values['sha256'] = digest
     values['file_size'] = size
-    values['storage_path'] = 'pending'
+    values['storage_path'] = 'pending/' + uuid4().hex
     values['data_category'] = metadata.get('data_category', 'operational')
     return source, root, values
 
@@ -323,6 +323,11 @@ def create_upload_candidate(actor, company_id, values, source, root):
             text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
             {'path': str(destination), 'id': ids['version_id']},
         )
+        # 기존 문서의 첫 원본 포인터는 보존하고 새 문서만 최종 경로로 확정한다.
+        if not values.get('document_id') and 'storage_key' in {
+                column['name'] for column in inspect(database).get_columns('documents')}:
+            database.execute(text('UPDATE documents SET storage_key=:path WHERE id=:id'),
+                             {'path': str(destination), 'id': ids['document_id']})
         database.execute(
             text('UPDATE index_jobs SET attempts=1,report=:report WHERE id=:id'),
             {'id': ids['job_id'], 'report': json.dumps({'_upload_root': str(root)})},

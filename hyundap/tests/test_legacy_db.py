@@ -1,6 +1,7 @@
 """실제 v3 DDL과 합성 자료만 사용하는 로컬 MySQL 호환성 회귀 검증."""
 
 import hashlib
+from functools import partial
 import os
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -140,7 +141,7 @@ class LegacyDatabaseTests(unittest.TestCase):
                 if index:
                     metadata['document_id'] = result['document_id']
                 result = upload_service.upload_document(self.actor, source, metadata,
-                    ingest_document=lambda path, info: workflow_fixture.UploadWorkflowTests.ingest(self, path, info),
+                    ingest_document=partial(workflow_fixture.UploadWorkflowTests.ingest, self),
                     embedding=backend, upload_dir=Path(directory) / 'uploads')
                 self.assertEqual(result['status'], 'success')
                 with self.engine.connect() as database:
@@ -161,6 +162,23 @@ class LegacyDatabaseTests(unittest.TestCase):
                                      {'id': self.session, 'expiry': now - 1})
                     with self.assertRaises(AccessError):
                         sessions_repo.current_actor(self.actor, connection=database)
+
+    def test_separate_documents_keep_distinct_final_storage_keys(self):
+        backend = workflow_fixture.FakeEmbedding()
+        with TemporaryDirectory() as directory, patch.object(runtime, 'get_engine', return_value=self.engine):
+            for index in range(2):
+                source = Path(directory) / f'document-{index}.txt'
+                source.write_text('distinct source ' + uuid4().hex, encoding='utf-8')
+                result = upload_service.upload_document(self.actor, source,
+                    {'company_id': self.company, 'doc_type': 'manual'},
+                    ingest_document=partial(workflow_fixture.UploadWorkflowTests.ingest, self),
+                    embedding=backend, upload_dir=Path(directory) / 'uploads')
+                self.assertEqual(result['status'], 'success', result)
+                with self.engine.connect() as database:
+                    row = database.execute(text('''SELECT d.storage_key,v.storage_path FROM documents d
+                        JOIN document_versions v ON v.document_id=d.id WHERE v.id=:id'''),
+                        {'id': result['version_id']}).mappings().one()
+                    self.assertEqual(row['storage_key'], row['storage_path'])
 
     def test_prepare_refuses_data_bearing_tables(self):
         with self.engine.connect() as database:
