@@ -1,0 +1,22 @@
+# Hyundap - Python packages
+# Source: 문서검색_통합_기능명세서 (only libraries the spec names; undecided ones are left out)
+# Python 3.11.9
+# Install: pip install -r requirements.txt
+# Owner: 이성민 - ask before adding or changing a version
+
+# ui/, app.py (박경환)
+gradio==6.30.0
+
+# ingest/ (김혜리)
+pypdf==6.21.2
+langchain-community==0.4.2
+python-docx==1.2.0
+python-pptx==1.0.2
+langchain-core==1.7.0
+langchain-text-splitters==1.1.3
+
+# embedding/ (박영준), chatbot/ (소용우)
+langchain-openai==1.7.2
+openai==3.37.0
+tiktoken==0.14.0
+chromadb==1.5.9
