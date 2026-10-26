@@ -30,6 +30,7 @@
 | 정의 범위 | 팀원 설계 행만 포함. 기존 시제품(docsearch/) 행은 제외 |
 | ID 구간 | UI F37~F42·FUN-156~177 / ingest F60~F72·FUN-200~219 / 임베딩 F100~·FUN-300~·CLS-100~ / search F80~·FUN-240~ / chatbot F120~·FUN-400~·CLS-120~ |
 | 미정 처리 | 미정·협의·제안·이름 가정으로 표기된 문장은 해당 칸에서 빼고 미정_목록에 원문을 남김 |
+| 모듈 경로 표기 | 이 문서의 `common.config`·`auth.permissions` 같은 모듈 이름은 실제 import 시 `hyundap.` 을 붙인다 (예: `from hyundap.common.config import get_settings`). 같은 폴더 안은 상대 경로. 실행은 저장소 맨 위에서 (#127~#133) |
 
 | 시트 | 용도 | 항목 수 |
 |---|---|---|
@@ -1370,7 +1371,7 @@
 
 | 모듈 ID | 파일 | 주 책임 | 적용 모드 | 설명 | 내부 의존 모듈 | 주요 외부 가져오기 |
 |---|---|---|---|---|---|---|
-| MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
+| MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from hyundap.embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
 | MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai, tiktoken, concurrent.futures, math, time |
 | MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | ChromaDB 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | chromadb, re, time |
 | MOD-103 | embedding/models.py | 결과 형식·오류 | 팀 P1(필수) | embedding이 주고받는 결과 데이터(dataclass)와 오류 클래스를 정의한다. | common.schemas | dataclasses |
@@ -2821,7 +2822,7 @@
 | MOD-122 | chatbot/prompts.py | 프롬프트·LLM 체인 | 팀 P1(필수) | 근거 밖 생성 금지·인용 필수·문서 속 지시문 무시 규칙을 담은 답변·요약 프롬프트와 LCEL 체인. / 함수: get_chat_model [08], build_answer_chain [09], build_summary_chain [10]<br>ANSWER_SYSTEM_PROMPT: 근거만 사용·문장마다 [E번호] 인용·근거 없으면 유보·문서 속 지시문 무시·한국어·기업별 구분<br>SUMMARY_PARTIAL_PROMPT: 주어진 근거만 요약·문장마다 [E번호] 인용<br>SUMMARY_MERGE_PROMPT: 부분 요약 병합·기존 [E번호] 유지·새 내용 추가 금지<br>의존: chatbot.constants, common.config(이성민) | chatbot.constants, common.config(이성민) |  |
 | MOD-123 | chatbot/citations.py | 근거 별칭·인용 검증·출처 | 팀 P1(필수) | E번호 별칭 부여, 인용 검증, Citation 생성, 화면 순번 변환, 회사별 묶음. / 함수: assign_aliases [11], format_evidence [12], extract_cited_aliases [13], validate_citations [14], build_citation [15], make_excerpt [16], format_source_label [17], render_answer [18], group_citations_by_company [19]<br>의존: chatbot.models, chatbot.constants, common.schemas(이성민) | chatbot.models, chatbot.constants, common.schemas(이성민) |  |
 | MOD-124 | chatbot/summary.py | 선택 문서 계층 요약 | 팀 P2(상용화) | 문서 접근 확인 → 공개 청크 조회 → 8개씩 부분 요약·병합 → 포함 범위 → 재검증. / 함수: summarize_document [20], summarize_batch [21], merge_summaries [22], compute_coverage [23], limit_summary_chunks [24]<br>의존: chatbot.prompts, chatbot.citations, chatbot.ask(recheck_before_return), chatbot.models / embedding·auth 호출 | chatbot.prompts, chatbot.citations, chatbot.ask(recheck_before_return), chatbot.models |  |
-| MOD-125 | chatbot/models.py | 오류·내부 데이터 형식 | 팀 P1(필수) | ChatbotError, ChatFilters, 오류 변환 함수. 공용 스키마(Citation 등)는 common.schemas에 둔다. / 함수: ChatbotError.__init__ [25], to_feedback [26], map_dependency_error [27]<br>클래스: ChatbotError, ChatFilters<br>의존: chatbot.constants | chatbot.constants |  |
+| MOD-125 | chatbot/models.py | 오류·내부 데이터 형식 | 팀 P1(필수) | ChatbotError, ChatFilters, 오류 변환 함수, 챗봇 결과 형식(Citation·ChatResponse·SummaryResponse). 결과 형식은 chatbot만 만들므로 common이 아닌 이 파일에 둔다(10/26 결정). / 함수: ChatbotError.__init__ [25], to_feedback [26], map_dependency_error [27]<br>클래스: ChatbotError, ChatFilters, Citation, ChatResponse, SummaryResponse<br>의존: chatbot.constants | chatbot.constants |  |
 | MOD-126 | chatbot/constants.py | 상수·안내 문구 | 팀 P1(필수) | 최소 유사도·근거 수·길이 제한·요약 단위·오류 코드·안내 문구. / MIN_SCORE = 0.3 (참고 L12·L40, 확정 D07)<br>MAX_PER_DOCUMENT = 4 (참고 L11 문서당 4, 확정 D07)<br>MAX_QUESTION_CHARS = 2000 (L32와 동일)<br>MAX_ANSWER_CHARS = 20000 (참고 L13)<br>SUMMARY_BATCH_SIZE = 8 (참고 L15)<br>NO_EVIDENCE_MESSAGE = '제공된 문서에서 확인할 수 없습니다.'<br>ERROR_CODES = EMPTY_QUESTION, QUESTION_TOO_LONG, RETRIEVAL_FAILED, NO_EVIDENCE, LLM_FAILED, INVALID_ANSWER, INVALID_CITATION, ACCESS_DENIED, STATE_CHANGED, CONFIG_MISSING (공유 D11)<br>의존: 없음 | 없음 |  |
 
 #### 클래스
@@ -3582,16 +3583,16 @@
 | 36 | chatbot_기능명세서_소용우_초안 | 기능명세 | F128 | 조건·범위 | 청크 64개 · 요약 1,500자 | 미정 항목(D03,D10) |
 | 37 | chatbot_기능명세서_소용우_초안 | 모듈구조 | MOD-126 | 설명 | TOP_K = 8 (제안, 확정 D07) / EXCERPT_MAX_CHARS = 300 (제안) / MAX_SUMMARY_CHUNKS = 64 (제안, 확정 D10) / LLM_TEMPERATURE = 0 (제안, 확정 D09) / LLM_TIMEOUT_SECONDS = 30 (제안, 확정 D09) | 미정·협의·제안 표기 |
 | 38 | chatbot_기능명세서_소용우_초안 | 모듈구조 | - | 파일 | tests/test_chatbot.py | 미정 항목(D16 테스트 작성 주체) · tests/는 이성민 담당 폴더 |
-| 39 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-121 | 모듈·소스 위치 | chatbot/models.py 또는 common/schemas.py | 미정 항목(D02) · 둘 위치 미정 |
+| 39 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-121 | 모듈·소스 위치 | chatbot/models.py 또는 common/schemas.py | 결정(10/26): chatbot/models.py |
 | 40 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-121 | 역할 | (데이터 스키마(협의)) | 미정·협의·제안 표기 |
 | 41 | chatbot_기능명세서_소용우_초안 | 데이터정의 | FLD-401 | 기본값·검증·매핑 선언 | 유형 목록은 미정(POL-13) | 미정·협의·제안 표기 |
 | 42 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-122 | 모듈·소스 위치 | auth/ (전재경) | 미정 항목(D02) · 둘 위치 미정 |
 | 43 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-122 | 역할 | (데이터 스키마(협의)) | 미정·협의·제안 표기 |
-| 44 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-123 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 미정 항목(D04) · 둘 위치 미정 |
+| 44 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-123 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 결정(10/26): chatbot/models.py |
 | 45 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-123 | 역할 | (데이터 스키마(확장 제안)) | 미정·협의·제안 표기 |
-| 46 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-124 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 미정 항목(D04) · 둘 위치 미정 |
+| 46 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-124 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 결정(10/26): chatbot/models.py |
 | 47 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-124 | 역할 | (데이터 스키마(확장 제안)) | 미정·협의·제안 표기 |
-| 48 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-125 | 모듈·소스 위치 | common/schemas.py 또는 chatbot/models.py | 미정 항목(D10) · 둘 위치 미정 |
+| 48 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-125 | 모듈·소스 위치 | common/schemas.py 또는 chatbot/models.py | 결정(10/26): chatbot/models.py |
 | 49 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-125 | 역할 | (데이터 스키마(제안)) | 미정·협의·제안 표기 |
 | 50 | chatbot_기능명세서_소용우_초안 | 제약_운영 | chatbot.constants | 상수 | MIN_SCORE = 0.3 (참고 L12·L40, 확정 D07)<br>TOP_K = 8 (제안, 확정 D07)<br>MAX_PER_DOCUMENT = 4 (참고 L11 문서당 4, 확정 D07)<br>MAX_QUESTION_CHARS = 2000 (L32와 동일)<br>MAX_ANSWER_CHARS = 20000 (참고 L13)<br>EXCERPT_MAX_CHARS = 300 (제안)<br>SUMMARY_BATCH_SIZE = 8 (참고 L15)<br>MAX_SUMMARY_CHUNKS = 64 (제안, 확정 D10)<br>LLM_TEMPERATURE = 0 (제안, 확정 D09)<br>LLM_TIMEOUT_SECONDS = 30 (제안, 확정 D09)<br>NO_EVIDENCE_MESSAGE = '제공된 문서에서 확인할 수 없습니다.'<br>ERROR_CODES = EMPTY_QUESTION, QUESTION_TOO_LONG, RETRIEVAL_FAILED, NO_EVIDENCE, LLM_FAILED, INVALID_ANSWER, INVALID_CITATION, ACCESS_DENIED, STATE_CHANGED, CONFIG_MISSING (공유 D11)<br>의존: 없음 | 미정 항목(값 확정 전) |
 | 51 | AI_문서검색_P2_기능명세서 | 기능명세 | F40 | 조건·범위 | 연계 함수명 협의 | 미정·협의·제안 표기 |
