@@ -554,5 +554,3 @@ python -m unittest hyundap.tests.test_db_connection hyundap.tests.test_schema_mi
 실제 DB 접속 또는 외부 계약이 없으면 해당 항목만 대기로 표시하고 DB 구현·실제 구조 점검·외부 연계 상태를 구분한다. 기존 이슈/WBS를 자동 종료·재배정하지 않는다.
 
 근거: 사용자 제공 DB 담당 범위 한정 계획(2026-10-26), docs/db-design/P1_DEVELOPMENT_READY.md. 준비 문서는 현재 로컬 미커밋 상태다.
-
-

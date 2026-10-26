@@ -83,3 +83,8 @@ DOCX/PPTX 파서 설치와 Chroma 전체 통합은 DB 준비의 선행 조건으
 MySQL 잠금·동시성·원자성은 미검증이며 관련 이슈는 완료 처리하지 않는다.
 기능별 묶음과 증거는 P1_IMPLEMENTATION_STEPS.md 첫 표에 기록했다.
 다음 구현 대상은 청크·보고서 저장 정합성(#157~#159)이다.
+
+문서 저장 묶음은 `e7ec32b`로 커밋하고 origin/db01에 push했다.
+같은 브랜치에서 다음 묶음의 기획을
+[P1_CHUNK_REPORT_PLAN.md](P1_CHUNK_REPORT_PLAN.md)에 작성했다.
+새 보고서 필드·청크 수 비교·잠금 순서·개별 저장소 TX의 완료 조건을 구분한다.
