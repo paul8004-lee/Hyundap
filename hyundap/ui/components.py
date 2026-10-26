@@ -19,11 +19,12 @@ from typing import Any, Mapping
 import gradio as gr
 
 UI_DIR = Path(__file__).resolve().parent
+FONT_HEAD = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">'
 
 
 def get_css() -> str:
     """Figma 디자인 토큰과 공통 스타일을 Gradio launch(css=...)에 전달합니다."""
-    return "\n".join((UI_DIR / name).read_text(encoding="utf-8") for name in ("tokens.css", "common.css"))
+    return "\n".join((UI_DIR / name).read_text(encoding="utf-8") for name in ("tokens.css", "common.css", "login.css"))
 
 
 def apply_common_style() -> str:
@@ -42,10 +43,10 @@ def get_theme() -> gr.themes.Base:
         "button_secondary_background_fill": "#ffffff", "button_secondary_background_fill_hover": "#edf0f5",
         "button_secondary_text_color": "#101820", "button_secondary_border_color": "#c9d2df",
     }
-    # 기존 shared 데모의 Font 객체 사용 방식을 유지합니다. 외부 폰트 다운로드가 없습니다.
+    # Pretendard는 FONT_HEAD의 버전 고정 CDN에서, 연결 불가 시 로컬 글꼴로 표시합니다.
     theme = gr.themes.Base(
         primary_hue="blue", secondary_hue="blue", neutral_hue="slate",
-        font=[gr.themes.Font("Noto Sans KR"), gr.themes.Font("Malgun Gothic"), gr.themes.Font("Arial"), gr.themes.Font("sans-serif")],
+        font=[gr.themes.Font("Pretendard"), gr.themes.Font("Malgun Gothic"), gr.themes.Font("Arial"), gr.themes.Font("sans-serif")],
     ).set(**values)
     palette = theme.to_dict()["theme"]
     return theme.set(**{key: palette[key[:-5]] for key in palette if key.endswith("_dark") and key[:-5] in palette})
@@ -61,6 +62,15 @@ def show_feedback(message: str | None = "", status: str = "info") -> str:
     icon = "hd-spinner" if status == "loading" else "hd-notice-dot"
     role = "alert" if status == "error" else "status"
     return f'<div class="hd-notice hd-notice--{status}" role="{role}" aria-live="polite"><span class="{icon}" aria-hidden="true"></span><span>{escape(str(message))}</span></div>'
+
+
+def render_login_error(message: str, code: str) -> str:
+    """B17: 인증 결과는 그대로 두고 자격 증명 오류의 화면 표현만 통일."""
+    if code == "INVALID_CREDENTIALS":
+        return ('<p id="hd-login-error" class="hd-login-error" '
+                'data-login-invalid="credentials" role="alert">'
+                '아이디 또는 비밀번호가 맞지 않아요.</p>')
+    return show_feedback(message, "error")
 
 
 def set_loading(message: str = "처리 중입니다. 잠시만 기다려 주세요.") -> str:
