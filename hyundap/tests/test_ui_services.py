@@ -1,8 +1,10 @@
-import sys
+"""tests/test_ui_services.py — UI 서비스 연결 규격 검사 (hyundap/ui/tests에서 이동).
+
+실행: 저장소 맨 위에서 python -m unittest hyundap.tests.test_ui_services -v"""
 import tempfile
 import unittest
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
 from hyundap.ui.services import BackendBindings, BackendServices, UIServiceError, MAX_UPLOAD_BYTES, validate_upload_file
 from hyundap.ui.mock_services import MockServices
 

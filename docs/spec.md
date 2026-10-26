@@ -2730,7 +2730,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(chatbot)
 - **화면·진입점**: ask
-- **주요 입력**: question: str / evidence_text: str — format_evidence 결과 / chain: Runnable | None = None — 테스트용 가짜 체인 자리
+- **주요 입력**: question: str / evidence_text: str — format_evidence 결과
 - **처리 흐름**: 질문과 근거 문자열로 LLM을 호출해 인용이 달린 답변 원문을 받는다.
 - **출력·상태**: str — 예: '교육은 11월 3일에 시작합니다 [E1].'
 - **연결 상태**: 설계(미구현)
@@ -2774,7 +2774,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(chatbot)
 - **화면·진입점**: ask, summarize_document
-- **주요 입력**: user: UserContext / cited: list[VectorHit] — 답변에 실제 쓰인 근거 / checker: 함수 | None = None — 개발 중 가짜 자리
+- **주요 입력**: user: UserContext / cited: list[ChunkHit] — 답변에 실제 쓰인 근거
 - **처리 흐름**: 답변을 돌려주기 직전에, 인용한 문서를 이 사용자가 지금도 볼 수 있는지 auth에 다시 확인한다.
 - **출력·상태**: None (통과)
 - **조건·범위**: ask·요약 모두, 인용 문서·버전 기준
@@ -2804,7 +2804,7 @@
 - **적용 모드**: P2
 - **사용 주체**: 로그인 사용자
 - **화면·진입점**: 박경환 ui.chat_page.on_summary_request
-- **주요 입력**: document_id: str / user: UserContext / checker: 함수 | None = None — 개발 중 가짜 자리
+- **주요 입력**: document_id: str / user: UserContext
 - **처리 흐름**: 선택한 문서를 요약하고 포함 범위와 출처를 함께 돌려주는 요약 입구 함수.
 - **출력·상태**: SummaryResponse(summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks)
 - **연결 상태**: 설계(미구현)
@@ -2949,7 +2949,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 사용자 권한과 필터가 적용된 범위에서 질문과 가까운 근거 청크를 받아 온다.
-- **입력 인자·기본값**: question: str, filters: ChatFilters, user: UserContext / retriever: 함수 | None = None — 개발 중 가짜 검색을 넣는 자리
+- **입력 인자·기본값**: question: str, filters: ChatFilters, user: UserContext
 - **반환 형식·구조**: list[ChunkHit] — search_chunks 결과 (CLS-051)
 - **진입점·연결 방식**: ask
 - **직접 호출 대상**: search.search_chunks, map_dependency_error
@@ -2959,8 +2959,7 @@
 - **소스 위치**: chatbot/ask.py (구현 예정)
 - **담당자**: 소용우
 - **처리 순서**:
-  - retriever가 없으면 search.search_chunks를 사용 (filters의 company_ids·doc_types·document_ids를 나눠 전달)
-  - 1. 2. retriever(question, filters, user, top_k=top_k×2) 호출 (다음 단계에서 줄이므로 넉넉히)
+  - 1. 2. search.search_chunks(user, query, company_ids, doc_types, document_ids, top_k=TOP_K×2) 호출 — filters 값을 나눠 전달 (다음 단계에서 줄이므로 넉넉히)
   - 3. 검색·임베딩 오류는 map_dependency_error로 RETRIEVAL_FAILED 변환
   - 4. 받은 목록을 그대로 반환 (정렬·제한은 select_evidence)
 
@@ -2990,7 +2989,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 질문과 근거 문자열로 LLM을 호출해 인용이 달린 답변 원문을 받는다.
-- **입력 인자·기본값**: question: str / evidence_text: str — format_evidence 결과 / chain: Runnable | None = None — 테스트용 가짜 체인 자리
+- **입력 인자·기본값**: question: str / evidence_text: str — format_evidence 결과
 - **반환 형식·구조**: str — 예: '교육은 11월 3일에 시작합니다 [E1].'
 - **진입점·연결 방식**: ask
 - **직접 호출 대상**: build_answer_chain → OpenAI, map_dependency_error
@@ -3028,7 +3027,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 답변을 돌려주기 직전에, 인용한 문서를 이 사용자가 지금도 볼 수 있는지 auth에 다시 확인한다.
-- **입력 인자·기본값**: user: UserContext / cited: list[VectorHit] — 답변에 실제 쓰인 근거 / checker: 함수 | None = None — 개발 중 가짜 자리
+- **입력 인자·기본값**: user: UserContext / cited: list[ChunkHit] — 답변에 실제 쓰인 근거
 - **반환 형식·구조**: None (통과)
 - **진입점·연결 방식**: ask, summarize_document
 - **직접 호출 대상**: auth.permissions.verify_documents_access
@@ -3039,11 +3038,10 @@
 - **담당자**: 소용우
 - **처리 순서**:
   - 1. 인용 근거에서 (document_id, version_id)를 중복 없이 추림
-  - 2. 3. checker(user, refs) 호출
+  - 2. 3. auth.permissions.verify_documents_access(user, refs) 호출
   - 4. 권한 없음 → AccessError 그대로
   - 삭제·버전 변경 → ChatbotError(STATE_CHANGED)
   - 5. 통과면 None
-  - checker가 없으면 auth.permissions.verify_documents_access 사용
 
 ##### FUN-408 `get_chat_model`
 
@@ -3274,7 +3272,7 @@
 - **모듈**: chatbot.summary
 - **구분**: 모듈 함수
 - **역할**: 선택한 문서를 요약하고 포함 범위와 출처를 함께 돌려주는 요약 입구 함수.
-- **입력 인자·기본값**: document_id: str / user: UserContext / checker: 함수 | None = None — 개발 중 가짜 자리
+- **입력 인자·기본값**: document_id: str / user: UserContext
 - **반환 형식·구조**: SummaryResponse(summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks)
 - **진입점·연결 방식**: 박경환 ui.chat_page.on_summary_request
 - **직접 호출 대상**: auth.permissions.verify_documents_access, [박영준] get_document_chunks, recheck_before_return, build_summary_chain, assign_aliases, build_citation, render_answer, summarize_batch, merge_summaries, compute_coverage, limit_summary_chunks
