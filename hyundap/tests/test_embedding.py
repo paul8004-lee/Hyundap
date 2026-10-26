@@ -17,12 +17,8 @@ from hyundap.embedding import (
     upsert_chunks, validate_embeddings,
 )
 
-try:  # 이성민의 hyundap.common이 있으면 그 설정·Chunk도 함께 검증한다.
-    from hyundap.common import config as team_config
-    from hyundap.common.schemas import Chunk, make_chunk_id
-except Exception:  # noqa: BLE001 - common이 없거나 python-dotenv가 없는 환경
-    team_config = None
-    Chunk = make_chunk_id = None
+from hyundap.common import config as team_config
+from hyundap.common.schemas import Chunk, make_chunk_id
 
 DIM = 8
 REAL_GET_MODEL = embedder.get_embedding_model  # 가짜로 바꾸기 전의 진짜 함수
@@ -88,19 +84,17 @@ class EmbeddingTestCase(unittest.TestCase):
         })
         env.start()
         self.addCleanup(env.stop)
-        if team_config is not None:
-            # get_settings()는 한 번 읽은 값을 저장해 두므로, 테스트 환경변수가 반영되도록 비우고
-            # 진짜 .env를 읽지 않게 한다(실제 data/chroma_db를 건드리지 않기 위해 꼭 필요).
-            no_dotenv = patch.object(team_config, "load_dotenv", lambda *a, **k: None)
-            no_dotenv.start()
-            self.addCleanup(no_dotenv.stop)
-            team_config.get_settings.cache_clear()
-            self.addCleanup(team_config.get_settings.cache_clear)
+        # get_settings()는 한 번 읽은 값을 저장해 두므로, 테스트 환경변수가 반영되도록 비우고
+        # 진짜 .env를 읽지 않게 한다(실제 data/chroma_db를 건드리지 않기 위해 꼭 필요).
+        no_dotenv = patch.object(team_config, "load_dotenv", lambda *a, **k: None)
+        no_dotenv.start()
+        self.addCleanup(no_dotenv.stop)
+        team_config.get_settings.cache_clear()
+        self.addCleanup(team_config.get_settings.cache_clear)
         self.model = FakeModel()
         for target, value in (
             (embedder, patch.object(embedder, "get_embedding_model", lambda *a, **k: self.model)),
             (embedder, patch.object(embedder.time, "sleep", lambda s: self.sleeps.append(s))),
-            (models, patch.object(models, "_dotenv_loaded", True)),
         ):
             value.start()
             self.addCleanup(value.stop)
@@ -120,31 +114,51 @@ class EmbeddingTestCase(unittest.TestCase):
 # --- 설정·이름 --------------------------------------------------------------
 
 class SettingsAndNames(EmbeddingTestCase):
-    def test_settings_from_env_and_relative_path_resolved_against_repo_root(self):
-        with patch.dict(os.environ, {"CHROMA_DB_PATH": "data/chroma_db"}):
-            s = models.load_embedding_settings()
+    def test_settings_come_from_get_settings(self):
+        s = models.load_embedding_settings()
         self.assertEqual(s.model_name, "fake-model")
         self.assertEqual(s.openai_api_key, "sk-test-key-123456")
+        self.assertEqual(s.chroma_path, os.path.join(self._tmp.name, "chroma"))
+
+    def test_relative_chroma_path_is_made_absolute_by_common_config(self):
+        with patch.dict(os.environ, {"CHROMA_DB_PATH": "data/chroma_db"}):
+            team_config.get_settings.cache_clear()
+            s = models.load_embedding_settings()
         self.assertTrue(os.path.isabs(s.chroma_path))
         self.assertTrue(s.chroma_path.replace("\\", "/").endswith("data/chroma_db"))
 
     def test_settings_defaults(self):
-        keys = ("OPENAI_EMBEDDING_MODEL", "CHROMA_DB_PATH", "OPENAI_API_KEY")
         with patch.dict(os.environ, {}, clear=False):
-            for k in keys:
+            for k in ("OPENAI_EMBEDDING_MODEL", "CHROMA_DB_PATH", "OPENAI_API_KEY"):
                 os.environ.pop(k, None)
+            team_config.get_settings.cache_clear()
             s = models.load_embedding_settings()
         self.assertEqual(s.model_name, "text-embedding-3-small")
-        self.assertEqual(s.openai_api_key, "")
+        self.assertEqual(s.openai_api_key, "")  # 키가 없으면(None) 빈 문자열
 
-    def test_team_settings_object_is_used_when_available(self):
-        class Team:
-            OPENAI_EMBEDDING_MODEL = "team-model"
+    def test_get_settings_object_is_used_as_is(self):
+        """가짜 설정 객체를 models.get_settings 자리에 넣어도 같은 값이 EmbeddingSettings로 나온다."""
+        from pathlib import Path
+        from types import SimpleNamespace
 
-        fake_config = type("m", (), {"get_settings": staticmethod(lambda: Team())})
-        fake_modules = {"hyundap.common": type("p", (), {"config": fake_config}), "hyundap.common.config": fake_config}
-        with patch.dict("sys.modules", fake_modules):
-            self.assertEqual(models.load_embedding_settings().model_name, "team-model")
+        fake = SimpleNamespace(openai_api_key="  sk-x  ", openai_embedding_model="team-model",
+                               chroma_db_path=Path(self._tmp.name) / "team-chroma")
+        with patch.object(models, "get_settings", lambda: fake):
+            s = models.load_embedding_settings()
+        self.assertEqual(s, models.EmbeddingSettings("sk-x", "team-model", str(Path(self._tmp.name) / "team-chroma")))
+
+    def test_get_settings_failure_is_not_hidden(self):
+        """common/config.py가 실패하면 환경변수로 몰래 대체하지 않고 오류를 그대로 올린다(이슈 #141)."""
+        def broken():
+            raise RuntimeError("config 오류")
+
+        with patch.object(models, "get_settings", broken):
+            with self.assertRaises(RuntimeError):
+                models.load_embedding_settings()
+
+    def test_fallback_code_is_gone(self):
+        for name in ("DEFAULT_EMBEDDING_MODEL", "DEFAULT_CHROMA_DB_PATH", "_warned_fallback", "_load_dotenv_once"):
+            self.assertFalse(hasattr(models, name), name)
 
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
@@ -152,17 +166,6 @@ class SettingsAndNames(EmbeddingTestCase):
                 REAL_GET_MODEL()
         self.assertEqual(caught.exception.code, "NO_API_KEY")
         self.assertFalse(caught.exception.retryable)
-
-    def test_falls_back_to_env_with_a_warning_when_common_config_cannot_be_imported(self):
-        """import가 실패해도 멈추지는 않지만, 조용히 넘어가지 않고 경고를 한 번 남긴다."""
-        with patch.dict("sys.modules", {"hyundap.common.config": None}), patch.object(models, "_warned_fallback", False):
-            with self.assertLogs(models.__name__, level="WARNING") as logs:
-                first = models.load_embedding_settings()
-                second = models.load_embedding_settings()
-        self.assertEqual(first.model_name, "fake-model")  # 환경변수 값
-        self.assertEqual(second.model_name, "fake-model")
-        self.assertEqual(len(logs.records), 1)  # 반복해서 남기지 않는다
-        self.assertIn("저장소 맨 위", logs.output[0])
 
     def test_collection_name(self):
         self.assertEqual(collection_name_for_model("text-embedding-3-small"), "chunks__text-embedding-3-small")
@@ -717,7 +720,6 @@ class QueryAndHealth(EmbeddingTestCase):
         self.assertIn("STORE_UNAVAILABLE", result["detail"])
 
 
-@unittest.skipIf(team_config is None, "common(이성민)이 없는 환경")
 class TeamCommonIntegration(EmbeddingTestCase):
     """이성민의 common.config·common.schemas와 맞물려 동작하는지 확인한다."""
 
@@ -735,19 +737,6 @@ class TeamCommonIntegration(EmbeddingTestCase):
         self.assertEqual(settings.openai_api_key, "sk-test-key-123456")
         self.assertEqual(settings.chroma_path, os.path.join(self._tmp.name, "chroma"))
         self.assertIs(team_config.get_settings().chroma_db_path.is_absolute(), True)
-
-    def test_values_really_come_from_hyundap_common_config_not_the_env_fallback(self):
-        """import 경로가 틀리면 조용히 환경변수로 대체되어 알아채기 어렵다. 환경변수와 다른 값을 줘서 구분한다."""
-        from pathlib import Path
-        from types import SimpleNamespace
-
-        fake = SimpleNamespace(openai_api_key="sk-from-team-config", openai_embedding_model="team-config-model",
-                               chroma_db_path=Path(self._tmp.name) / "team-chroma")
-        with patch.object(team_config, "get_settings", lambda: fake):
-            settings = models.load_embedding_settings()
-        self.assertEqual(settings.model_name, "team-config-model")        # 환경변수(fake-model)가 아님
-        self.assertEqual(settings.openai_api_key, "sk-from-team-config")  # 환경변수(sk-test-key-...)가 아님
-        self.assertEqual(settings.chroma_path, str(Path(self._tmp.name) / "team-chroma"))
 
     def test_only_one_copy_of_config_module_is_used(self):
         """common.config와 hyundap.common.config가 둘 다 로드되면 설정 저장소가 둘로 갈라진다(이슈 #131의 원인)."""

@@ -3,8 +3,60 @@
 담당: 김혜리
 기준 명세: AI_문서검색_통합_기능명세서
 
-구현 예정 함수:
+함수:
     FUN-213 normalize_text — 문자 표현·제어 문자·불필요한 공백을 정리한다.
-    FUN-214 normalize_document — 각 섹션의 텍스트를 정리하고 빈 섹션을 제외한다.
+    FUN-214 normalize_document — 각 섹션의 텍스트를 정리하고 빈 섹션을 제외한다."""
 
-현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""
+
+import re
+import unicodedata
+
+from hyundap.common.schemas import CommonDocument, Section
+
+INVISIBLE_CHARS = ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad"]
+SPECIAL_SPACES = ["\u00a0", "\u202f", "\u3000", "\t"]
+
+
+def normalize_text(text):
+    """글자를 청킹 전에 정리한다."""
+    text = unicodedata.normalize("NFC", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    for ch in INVISIBLE_CHARS:
+        text = text.replace(ch, "")
+    result = ""
+    for ch in text:
+        if unicodedata.category(ch) == "Cc" and ch not in ("\n", "\t"):
+            continue
+        result += ch
+    text = result
+
+    for ch in SPECIAL_SPACES:
+        text = text.replace(ch, " ")
+
+    text = re.sub(" {2,}", " ", text)
+    text = re.sub(" +\n", "\n", text)
+    text = re.sub("\n{3,}", "\n\n", text)
+
+    return text
+
+
+def normalize_document(doc):
+    """모든 섹션의 글자를 정규화하고 비어 버린 섹션은 뺀다."""
+    new_sections = []
+    for section in doc.sections:
+        text = normalize_text(section.text)
+        if text.strip() == "":
+            continue
+        new_sections.append(
+            Section(
+                section_no=section.section_no,
+                location_label=section.location_label,
+                text=text,
+            )
+        )
+    return CommonDocument(
+        header=doc.header,
+        sections=new_sections,
+        warnings=list(doc.warnings),
+    )

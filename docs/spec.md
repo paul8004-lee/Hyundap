@@ -690,7 +690,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(ingest)
 - **화면·진입점**: 업로드 처리 흐름 (관리자 업로드 화면 → ingest)
-- **주요 입력**: 정규화된 공통 문서 형식, chunk_size(기본 1000), chunk_overlap(기본 150)
+- **주요 입력**: 정규화된 공통 문서 형식, chunk_size(기본 1000), chunk_overlap(기본 150). 값은 common.config.get_settings()의 CHUNK_SIZE·CHUNK_OVERLAP 설정
 - **처리 흐름**: 섹션 1개를 LangChain Document 1개로 바꾼 뒤 RecursiveCharacterTextSplitter.split_documents로 자른다. Document마다 따로 자르므로 청크가 페이지·슬라이드 경계를 넘지 않는다. 자르는 순서는 문단(빈 줄) → 줄 → 공백 → 글자.
 - **출력·상태**: Chunk 목록
 - **조건·범위**: 기본 1000자/150자 겹침은 박영준 명세의 '청크 1000자 기준'과 맞춘 값. 설정으로 바꿀 수 있게 하고, 질문셋으로 성능을 재서 확정. 섹션 사이에는 겹침이 없다.
@@ -1042,7 +1042,7 @@
 - **모듈**: ingest.chunker
 - **구분**: 모듈 함수
 - **역할**: 정규화된 문서를 섹션마다 따로 잘라 Chunk 목록으로 돌려준다. 섹션 경계를 넘는 청크가 없다.
-- **입력 인자·기본값**: doc: CommonDocument, chunk_size: int = 1000, chunk_overlap: int = 150
+- **입력 인자·기본값**: doc: CommonDocument, chunk_size: int | None = None, chunk_overlap: int | None = None (None이면 get_settings()의 chunk_size 1000·chunk_overlap 150)
 - **반환 형식·구조**: list[Chunk]
 - **진입점·연결 방식**: 내부 처리 (ingest_document)
 - **직접 호출 대상**: to_langchain_documents, RecursiveCharacterTextSplitter, split_documents, build_chunk

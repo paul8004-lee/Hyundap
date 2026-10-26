@@ -15,13 +15,15 @@ DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
 DEFAULT_CHAT_MODEL = 'gpt-5'
 DEFAULT_MIN_SCORE = 0.3
 DEFAULT_TOP_K_MAX = 80
+DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_OVERLAP = 150
 
 
 @dataclass(frozen=True)
 class Settings:
     """여러 모듈이 함께 읽는 변경 불가능한 설정 묶음.
 
-    모델명·저장 경로·검색 제한값을 보관한다. API 키는 없을 수 있으며,
+    모델명·저장 경로·검색 제한값·청크 크기를 보관한다. API 키는 없을 수 있으며,
     실제 API를 호출하는 모듈이 필요 여부를 검사한다. 필드 값을 직접 수정할 수 없다."""
     openai_api_key: str | None
     openai_embedding_model: str
@@ -30,6 +32,8 @@ class Settings:
     upload_dir: Path
     search_min_score: float
     search_top_k_max: int
+    chunk_size: int
+    chunk_overlap: int
 
 
 def _read(name: str) -> str | None:
@@ -72,9 +76,13 @@ def get_settings() -> Settings:
 
     반환값은 Settings다. 이미 설정된 환경변수가 .env보다 우선하고,
     잘못된 숫자·누락된 일반 설정에는 기본값을 사용한다. API 키가 없으면 None이다.
+    청크 겹침은 청크 크기보다 작아야 하며, 그렇지 않으면 겹침 기본값을 쓴다.
     최초 결과를 캐시하므로 설정을 다시 읽으려면 get_settings.cache_clear()를 호출한다.
     이 함수는 모델 생성·외부 API 호출·폴더 생성을 수행하지 않는다."""
     load_dotenv(PROJECT_ROOT / '.env', override=False)
+    chunk_size = _read_number('CHUNK_SIZE', DEFAULT_CHUNK_SIZE, int, lambda v: v >= 1)
+    # 겹침이 청크 크기 이상이면 텍스트 분할기가 오류를 내므로 청크 크기보다 작은 값만 받는다.
+    overlap_default = DEFAULT_CHUNK_OVERLAP if DEFAULT_CHUNK_OVERLAP < chunk_size else 0
     return Settings(
         openai_api_key=_read('OPENAI_API_KEY'),
         openai_embedding_model=_read('OPENAI_EMBEDDING_MODEL') or DEFAULT_EMBEDDING_MODEL,
@@ -83,4 +91,6 @@ def get_settings() -> Settings:
         upload_dir=_read_path('UPLOAD_DIR', 'data/uploads'),
         search_min_score=_read_number('SEARCH_MIN_SCORE', DEFAULT_MIN_SCORE, float, lambda v: 0 <= v <= 1),
         search_top_k_max=_read_number('SEARCH_TOP_K_MAX', DEFAULT_TOP_K_MAX, int, lambda v: v >= 1),
+        chunk_size=chunk_size,
+        chunk_overlap=_read_number('CHUNK_OVERLAP', overlap_default, int, lambda v: 0 <= v < chunk_size),
     )
