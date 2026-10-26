@@ -7,7 +7,7 @@
 | 기준 문서 | 통합 기능명세서 `docs/spec.md` 3.5절 (드라이브 `문서검색_통합_기능명세서.xlsm.xlsx`, 10/26 11:26) · DB·인증 연동 계약 `docs/db-design/DB_contract.md` · 드라이브 `chatbot_기능명세서_소용우_초안.xlsx` |
 | 번호 | 통합본 번호를 쓴다. 기능 F120~F128, 함수 FUN-401~427, 클래스 CLS-120~125, 모듈 MOD-120~126 |
 | import | 이슈 #133 기준. 다른 폴더는 `from hyundap.<폴더>...`, chatbot 안은 상대 경로(`from .models ...`). 실행은 저장소 맨 위에서 |
-| 상태 | P1(질문 답변)·P2(요약) 1차 구현, 코드 리뷰 반영 완료 · `common.config` 연결 완료 · DB 계약(재검증 예외) 반영 완료 · search·auth·embedding은 상대 쪽 구현 전이라 실제 연결 전 |
+| 상태 | P1(질문 답변)·P2(요약) 구현, 코드 리뷰 반영 완료 · 큰 함수 7개를 하위 함수로 나눔 · `common.config` 연결 완료 · search(#143)·auth·embedding이 develop에 구현돼 실제 함수와 연결됨 (실제 OpenAI·MySQL·Chroma로 끝까지 실행은 통합 테스트에서 확인) |
 
 ## 1. 한 줄 요약
 
@@ -71,35 +71,56 @@
 
 ### 호출 트리
 
+보조 함수(이름이 `모함수_`로 시작)는 모함수 기능을 단계별로 나눈 것이다. 새 기능은 없다.
+
 ```
-ui.chat_page.on_question_submit (박경환)
+ui.services.BackendServices.ask (박경환)
 └─ ask(question, filters, user)                       FUN-401
    ├─ validate_question                               FUN-402
+   ├─ ask_normalize_filters                           FUN-401 보조  dict·None → ChatFilters
    ├─ retrieve_evidence                               FUN-403
    │   └─ search.search_chunks(user, query, company_ids, doc_types, document_ids, top_k)   (이준영)
    ├─ select_evidence                                 FUN-404
+   │   ├─ select_evidence_dedupe                      FUN-404 보조  같은 청크 1개
+   │   └─ select_evidence_limit                       FUN-404 보조  문서당 4·전체 8
    ├─ build_no_evidence_response                      FUN-406  (근거 0개일 때)
    ├─ assign_aliases → format_evidence                FUN-411, 412 (format_source_label 417)
    ├─ generate_answer                                 FUN-405
    │   └─ build_answer_chain → get_chat_model         FUN-409, 408 → common.config.get_settings (이성민)
-   ├─ validate_citations                              FUN-414 (extract_cited_aliases 413)
+   ├─ ask_check_answer                                FUN-401 보조  유보 답변이면 None
+   │   └─ validate_citations                          FUN-414
+   │       ├─ validate_citations_answer               FUN-414 보조  빈 답·길이
+   │       ├─ validate_citations_aliases              FUN-414 보조  이름표 유무·없는 이름표 (extract_cited_aliases 413)
+   │       └─ validate_citations_line × 줄            FUN-414 보조  문장마다 이름표
+   │           ├─ validate_citations_split            FUN-414 보조  문장 나누기
+   │           └─ validate_citations_exempt           FUN-414 보조  제목 줄·유보 문장
    ├─ build_citation × n                              FUN-415 (make_excerpt 416)
    ├─ recheck_before_return                           FUN-407
    │   └─ auth.permissions.verify_documents_access(user, refs)                           (전재경)
-   └─ render_answer, group_citations_by_company       FUN-418, 419
+   └─ ask_build_response                              FUN-401 보조
+       └─ render_answer, group_citations_by_company   FUN-418, 419
    오류: map_dependency_error(427) → ChatbotError(425) → to_feedback(426)
+         map_dependency_error_access · _search · _llm (427 보조)
+         to_feedback_access · to_feedback_status (426 보조)
 
-ui.chat_page.on_summary_request (박경환)
+ui.services.BackendServices.summarize (박경환)
 └─ summarize_document(document_id, user)              FUN-420
-   ├─ embedding.get_document_chunks                   (박영준)
-   ├─ VectorHit → ChunkHit (함수 안에서)
+   ├─ summarize_document_load                         FUN-420 보조  청크 조회 (오류 → RETRIEVAL_FAILED)
+   │   ├─ embedding.get_document_chunks               (박영준)
+   │   └─ summarize_document_to_hit × n               FUN-420 보조  VectorHit → ChunkHit
    ├─ recheck_before_return (사전 확인)               FUN-407 → verify_documents_access (전재경)
    ├─ limit_summary_chunks → assign_aliases           FUN-424, 411
-   ├─ summarize_batch × 반복 → build_summary_chain    FUN-421, 410
+   ├─ summarize_document_partials                     FUN-420 보조  8개씩 부분 요약
+   ├─ summarize_document_empty_error                  FUN-420 보조  부분 요약이 없을 때 원인별 오류
+   │   └─ summarize_batch × 묶음 → build_summary_chain  FUN-421, 410
    ├─ merge_summaries                                 FUN-422
-   ├─ compute_coverage                                FUN-423
-   ├─ build_citation, render_answer                   FUN-415, 418
-   └─ recheck_before_return                           FUN-407
+   │   └─ merge_summaries_group × 묶음                FUN-422 보조
+   │       └─ merge_summaries_allowed                 FUN-422 보조  묶음에 나온 이름표만
+   ├─ build_citation × n                              FUN-415
+   ├─ recheck_before_return                           FUN-407
+   └─ summarize_document_response                     FUN-420 보조
+       ├─ compute_coverage                            FUN-423
+       └─ render_answer                               FUN-418
 ```
 
 ## 4. 함수 명세
@@ -108,10 +129,15 @@ ui.chat_page.on_summary_request (박경환)
 
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
-| FUN-401 | `ask` | `question`, `filters`(ChatFilters, None이면 허용 범위 전체), `user` | ChatResponse | 흐름 A 전체 |
+| FUN-401 | `ask` | `question`, `filters`(ChatFilters·dict, None이면 허용 범위 전체), `user` | ChatResponse | 흐름 A 전체 |
+| 401 보조 | `ask_normalize_filters` | `filters` | ChatFilters | dict는 `ChatFilters(**dict)`, None은 빈 ChatFilters. 모르는 키 → RETRIEVAL_FAILED('검색 조건 형식이 올바르지 않습니다.') |
+| 401 보조 | `ask_check_answer` | `answer`, `aliases` | 쓰인 이름표 또는 None | `validate_citations`가 NO_EVIDENCE면 None(→ 유보 응답), 그 밖의 오류는 그대로 |
+| 401 보조 | `ask_build_response` | `answer`, `used`, `citations` | ChatResponse(`ANSWERED`) | `render_answer`·`group_citations_by_company`, 답변에 쓰인 문서 ID |
 | FUN-402 | `validate_question` | `question`, `max_chars=2000` | 공백 정리된 질문 | 문자열 아님·공백뿐 → EMPTY_QUESTION, 2000자 초과 → QUESTION_TOO_LONG |
-| FUN-403 | `retrieve_evidence` | `question`, `ChatFilters`, `user` | `list[ChunkHit]` | `search_chunks(user=, query=, company_ids=, doc_types=, document_ids=, top_k=TOP_K×2)`. min_score는 넘기지 않음(search 설정 0.3). 오류는 FUN-427로 변환 |
+| FUN-403 | `retrieve_evidence` | `question`, `ChatFilters`, `user` | `list[ChunkHit]` | `search_chunks(user=, query=, company_ids=, doc_types=, document_ids=, top_k=TOP_K×2)`. min_score는 넘기지 않음(search 설정 0.3). import도 try 안에서 해 search가 없을 때(ImportError)도 FUN-427로 RETRIEVAL_FAILED |
 | FUN-404 | `select_evidence` | `hits` | `list[ChunkHit]` | 같은 chunk_id는 점수 높은 것 하나 → 점수순 → 문서당 4개 → 전체 8개 |
+| 404 보조 | `select_evidence_dedupe` | `hits` | `list[ChunkHit]` | chunk_id마다 점수가 가장 높은 것 1개 |
+| 404 보조 | `select_evidence_limit` | 점수순 `hits` | `list[ChunkHit]` | 문서당 MAX_PER_DOCUMENT(4), 전체 TOP_K(8) |
 | FUN-405 | `generate_answer` | `question`, `evidence_text` | 답변 원문(str) | 체인 실행. 시간 초과·속도 제한 → LLM_FAILED(재시도 가능), 인증 오류 → CONFIG_MISSING |
 | FUN-406 | `build_no_evidence_response` | `filters` | ChatResponse(`NO_EVIDENCE`) | LLM 미호출. 문서·유형 필터가 걸려 있으면 "필터를 넓혀 보세요" 안내 |
 | FUN-407 | `recheck_before_return` | `user`, `cited`(ChunkHit) | 없음 | `(document_id, version_id)` 중복 제거 → `verify_documents_access(user, refs)` (성공 = None, 실패 = 예외. DB 계약 3절). 빈 목록이면 부르지 않음(auth가 INVALID_INPUT으로 거부). 예외는 FUN-427로: `AccessError(STATE_CHANGED)` → ChatbotError(STATE_CHANGED), 다른 AccessError는 그대로, `DbError` → RETRIEVAL_FAILED, 그 밖의 오류는 감추지 않고 그대로 |
@@ -131,7 +157,12 @@ ui.chat_page.on_summary_request (박경환)
 | FUN-411 | `assign_aliases` | `hits` | `{'E1': hit, …}` | 1부터 순서대로 |
 | FUN-412 | `format_evidence` | `aliases` | 근거 문자열 | `[E1] 회사 · 파일 · 위치` 다음 줄에 본문, 블록 사이 빈 줄 |
 | FUN-413 | `extract_cited_aliases` | `answer` | `['E3', 'E1']` | `\[(E\d+)\]`, 처음 나온 순서·중복 제거 |
-| FUN-414 | `validate_citations` | `answer`, `aliases`, `max_chars=20000` | 쓰인 이름표 | ① 빈 답·초과 → INVALID_ANSWER ② 인용이 하나도 없고 유보 표현(`NO_EVIDENCE_HINTS`)이 있으면 NO_EVIDENCE, 없으면 INVALID_CITATION ③ 준 적 없는 이름표 → INVALID_CITATION ④ **문장마다 이름표 확인**: 줄·문장(`. ! ?` 뒤 공백)으로 나눠 이름표 없는 문장이 있으면 INVALID_CITATION. 단 제목 줄(`:`로 끝남)과 유보 문장은 예외 |
+| FUN-414 | `validate_citations` | `answer`, `aliases`, `max_chars=20000` | 쓰인 이름표 | ① 빈 답·초과 → INVALID_ANSWER ② 인용이 하나도 없고 유보 표현(`NO_EVIDENCE_HINTS`)이 있으면 NO_EVIDENCE, 없으면 INVALID_CITATION ③ 준 적 없는 이름표 → INVALID_CITATION ④ **문장마다 이름표 확인**: 줄·문장(숫자 바로 뒤가 아닌 `. ! ?` 뒤 공백)으로 나눠 이름표 없는 문장이 있으면 INVALID_CITATION. 제목 줄(`:`로 끝남)과 유보 문장은 예외. 번호 목록(`1. …`)·날짜(`2026. 11. 3.`) 마침표에서는 자르지 않음. 마침표 뒤에 온 이름표(`…합니다. [E1]`, `…합니다. [E1] 다음 문장 [E2].`)는 같은 줄 바로 앞 문장의 근거로 인정. 다음 줄 이름표는 인정 안 함 |
+| 414 보조 | `validate_citations_answer` | `answer`, `max_chars` | 공백 정리된 답변 | 빈 답·초과 → INVALID_ANSWER (①) |
+| 414 보조 | `validate_citations_aliases` | `answer`, `aliases` | 쓰인 이름표 | ②·③ |
+| 414 보조 | `validate_citations_line` | 답변 1줄 | 없음 | ④. 문장 앞 이름표(`LEADING_ALIASES`)는 앞에 무인용 문장이 있으면 그 문장의 근거 |
+| 414 보조 | `validate_citations_split` | 답변 1줄 | 문장 목록 | `SENTENCE_END`로 나누고 목록 기호 `-*#`·공백 제거 |
+| 414 보조 | `validate_citations_exempt` | 문장 1개 | bool | 이름표 있음·빈 문장·`:` 제목 줄·유보 표현이면 True |
 | FUN-415 | `build_citation` | `hit`, `number` | Citation | 필수 필드(company_name, file_name, document_id, location_label)가 비면 INVALID_CITATION. **version_id는 필수 아님**(실제 DB에 버전이 없어 빈 값 가능) |
 | FUN-416 | `make_excerpt` | `text`, `max_chars=300` | 발췌문 | 공백 정리, 넘으면 마지막 공백에서 자르고 `…` |
 | FUN-417 | `format_source_label` | `hit` | `A사 · 교육안내.pdf · p.2` | 빈 값은 건너뜀. 위치는 ingest의 location_label 그대로. 통합본은 입력을 metadata로 적었지만 ChunkHit 결정에 따라 hit을 받음 |
@@ -142,9 +173,16 @@ ui.chat_page.on_summary_request (박경환)
 
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
-| FUN-420 | `summarize_document` | `document_id`, `user` | SummaryResponse | 흐름 B 전체. 청크를 받은 뒤 실제 버전으로 접근 확인(B3). 내용 없는 묶음은 건너뜀. 청크 조회 오류만 RETRIEVAL_FAILED로 바꾸고 형식 오류는 그대로 올림. 함수 이름은 미정(D10)이라 제안 이름으로 구현 |
+| FUN-420 | `summarize_document` | `document_id`, `user` | SummaryResponse | 흐름 B 전체. 청크를 받은 뒤 실제 버전으로 접근 확인(B3). 함수 이름은 미정(D10)이라 제안 이름으로 구현 |
+| 420 보조 | `summarize_document_load` | `document_id` | `list[ChunkHit]` | embedding·search import와 청크 조회를 try 안에서 → 실패·ImportError는 RETRIEVAL_FAILED. metadata 형식 오류는 그대로 올림 |
+| 420 보조 | `summarize_document_to_hit` | VectorHit, ChunkHit 클래스 | ChunkHit | metadata 키로 변환, version_no·score는 None |
+| 420 보조 | `summarize_document_partials` | 이름표 사전 | (부분 요약 목록, 뺀 묶음 목록) | 8개씩 `summarize_batch`. NO_EVIDENCE 묶음은 건너뜀, INVALID_CITATION 묶음은 빼고 기록 |
+| 420 보조 | `summarize_document_empty_error` | 뺀 묶음 목록 | ChatbotError | 부분 요약이 하나도 없을 때: 뺀 묶음이 있으면 INVALID_CITATION('문서 근거를 확인할 수 있는 요약을 만들지 못했습니다. 다시 시도해 주세요.'), 없으면 NO_EVIDENCE('요약할 내용이 없습니다.') |
+| 420 보조 | `summarize_document_response` | 문서 ID, 전체·사용 청크, 뺀 묶음, 요약, 쓰인 이름표, 출처 | SummaryResponse | `compute_coverage` + 뺀 묶음이 있으면 제외 범위에 `근거 확인 실패로 제외 p.9~p.16`, is_full=False |
 | FUN-421 | `summarize_batch` | 이름표 최대 8개, `chain=None` | (부분 요약, 쓰인 이름표) | partial 체인 + 인용 검사 |
 | FUN-422 | `merge_summaries` | 부분 요약 목록, 전체 이름표, `batch_size=8` | 최종 요약 | 8개씩 병합 반복. 병합 결과는 **입력 부분 요약에 나온 이름표만** 허용 |
+| 422 보조 | `merge_summaries_group` | 부분 요약 묶음, 전체 이름표, 체인 | 합친 요약 | 병합 체인 실행 + 인용 검사 |
+| 422 보조 | `merge_summaries_allowed` | 부분 요약 묶음, 전체 이름표 | 이름표 사전 | 묶음에 실제로 나온 이름표만 |
 | FUN-423 | `compute_coverage` | 전체 청크, 사용 청크 | (포함 범위, 제외 범위, is_full) | 일부만 쓰면 is_full=False (WF-12) |
 | FUN-424 | `limit_summary_chunks` | `hits` | (사용, 제외) | 앞에서부터 MAX_SUMMARY_CHUNKS(64)개 |
 
@@ -153,8 +191,13 @@ ui.chat_page.on_summary_request (박경환)
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
 | FUN-425 | `ChatbotError.__init__` | `code`, `message=None`, `retryable=False` | 예외 | code는 ERROR_CODES 중 하나, 문구 없으면 기본 문구 |
-| FUN-426 | `to_feedback` | 예외 | `{status, message, error_code}` | 8절 표. auth `AccessError`는 STATE_CHANGED면 상태 변경 안내, 나머지(ACCESS_DENIED·SESSION_EXPIRED 등)는 권한 없음 안내. 내부 예외 원문은 넣지 않음 |
+| FUN-426 | `to_feedback` | 예외 | `{status, message, error_code}` | 8절 표. auth `AccessError`는 STATE_CHANGED면 상태 변경 안내, SESSION_EXPIRED면 재로그인 안내(session_expired), 나머지는 권한 없음 안내. 내부 예외 원문은 넣지 않음 |
 | FUN-427 | `map_dependency_error` | 예외, `stage`('retrieve'·'llm'·'summary'·'recheck') | ChatbotError(또는 원래 권한 예외) | AccessError(STATE_CHANGED) → STATE_CHANGED, 다른 AccessError → 그대로, DbError → RETRIEVAL_FAILED(DB_UNAVAILABLE이면 재시도 가능), 'recheck' 단계의 그 밖의 오류 → 그대로, SearchError 권한 계열 → ACCESS_DENIED, 'retrieve'·'summary' 단계 → RETRIEVAL_FAILED, 'llm' 단계 → 8절 규칙 |
+| 426 보조 | `to_feedback_access` | AccessError | 화면 안내 dict | STATE_CHANGED → failed, SESSION_EXPIRED → session_expired(재로그인), 나머지 → ACCESS_DENIED(denied) |
+| 426 보조 | `to_feedback_status` | 오류 코드 | 화면 상태 | `FEEDBACK_STATUS` 표, 없으면 failed |
+| 427 보조 | `map_dependency_error_access` | AccessError | ChatbotError 또는 원래 예외 | STATE_CHANGED만 ChatbotError로 |
+| 427 보조 | `map_dependency_error_search` | SearchError | ChatbotError | SESSION_EXPIRED → SESSION_EXPIRED(재로그인), 권한 코드 → ACCESS_DENIED, 나머지 → RETRIEVAL_FAILED |
+| 427 보조 | `map_dependency_error_llm` | 예외 클래스 이름 | ChatbotError | 인증 → CONFIG_MISSING, 시간 초과·속도 제한·연결 → LLM_FAILED(재시도), 그 밖 → LLM_FAILED |
 
 ## 5. 데이터 형식
 
@@ -187,12 +230,12 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | 함수 | 담당 | 현재 상태 | 지금 코드의 처리 |
 |---|---|---|---|
 | `common.config.get_settings` | 이성민 | **구현됨** (`Settings` 반환, `.env` 읽음, 기본 모델 gpt-5) | 그대로 사용 |
-| `hyundap.search.search.search_chunks` (FUN-244) | 이준영 | 이름·인자 확정, 구현 전 (파일만 있음) | 호출할 때 import. 구현 전에는 ImportError |
-| `hyundap.search.models.ChunkHit` (CLS-051) | 이준영 | 확정, 구현 전 | 질문 경로는 속성 이름으로만 읽음. 요약 경로(FUN-420)는 이 클래스로 만듦 |
-| `search.errors.SearchError` (CLS-055) | 이준영 | 설계 | 클래스 이름과 `code`·`retryable` 속성으로 구분 |
-| `hyundap.auth.permissions.verify_documents_access` | 전재경 | **DB 계약으로 확정** (`(actor, list[(document_id, version_id)])` → None, 실패는 `AccessError(code)`·`DbError(code)`), 구현 전 (#120) | 호출할 때 import. 예외 코드별 처리는 FUN-407·427 |
-| `hyundap.embedding.vector_store.get_document_chunks` (FUN-319) | 박영준 | 설계 (파일만 있음) | 호출할 때 import. 구현 전에는 ImportError |
-| ui `on_question_submit`·`on_summary_request`·`show_feedback` | 박경환 | 설계 | `ask`, `summarize_document`, `to_feedback`을 제공 |
+| `hyundap.search.search.search_chunks` (FUN-244) | 이준영 | **구현됨** (#143) | 호출할 때 try 안에서 import. 오류는 FUN-427로 변환 |
+| `hyundap.search.models.ChunkHit` (CLS-051) | 이준영 | **구현됨** (#143) | 질문 경로는 속성 이름으로만 읽음. 요약 경로(`summarize_document_load`)는 이 클래스로 만듦 |
+| `search.errors.SearchError` (CLS-055) | 이준영 | **구현됨** (#143) | 클래스 이름과 `code`·`retryable` 속성으로 구분. `SESSION_EXPIRED`는 재로그인 안내, 권한 코드는 ACCESS_DENIED, 나머지는 RETRIEVAL_FAILED |
+| `hyundap.auth.permissions.verify_documents_access` | 전재경 | **구현됨** (`(actor, list[(document_id, version_id)])` → None, 실패는 `auth.errors.AccessError(code)`·`db.errors.DbError(code)`. 빈 version_id는 DbError(INVALID_INPUT)) | 호출할 때 import. 예외 코드별 처리는 FUN-407·427 |
+| `hyundap.embedding.vector_store.get_document_chunks` (FUN-319) | 박영준 | **구현됨** (metadata 키에 요약이 읽는 9개 모두 있음) | `summarize_document_load`에서 try 안에서 import |
+| ui `BackendServices.ask`·`summarize`·`_call` | 박경환 | 구현됨, `create_bindings()`는 아직 비어 있음 | `ask`, `summarize_document`, `to_feedback`을 제공. filters는 dict 그대로 받으므로 `filters_factory`는 선택 |
 
 ## 7. 기본값·규칙
 
@@ -215,12 +258,12 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | EMPTY_QUESTION / QUESTION_TOO_LONG | 질문 검사 | `input_error` |
 | NO_EVIDENCE | 요약할 청크 없음 (질문은 예외 대신 NO_EVIDENCE 응답) | `empty` |
 | RETRIEVAL_FAILED | search·embedding 오류, 요약 청크 조회 오류, 재검증 중 `DbError`(DB_UNAVAILABLE은 재시도 가능) | `failed` |
-| ACCESS_DENIED | SearchError ACCESS_DENIED·COMPANY_FORBIDDEN·NO_COMPANY_SCOPE, auth `AccessError` | `denied` |
+| ACCESS_DENIED | SearchError ACCESS_DENIED·COMPANY_FORBIDDEN·NO_COMPANY_SCOPE, auth `AccessError`(SESSION_EXPIRED·STATE_CHANGED 제외) | `denied` |
 | LLM_FAILED | LLM 호출 실패 (시간 초과·속도 제한은 재시도 가능) | `failed` |
 | CONFIG_MISSING | API 키 없음·인증 오류 | `failed` |
 | INVALID_ANSWER / INVALID_CITATION | 빈·너무 긴 답변 / 인용 없는 문장·없는 이름표·출처 정보 부족 | `failed` |
 | STATE_CHANGED | 재검증에서 auth가 `AccessError(code='STATE_CHANGED')`를 던짐 (삭제·버전 변경) | `failed` |
-| (ACCESS_DENIED에 포함) | auth `AccessError(code='SESSION_EXPIRED')` (로그인 만료). 통합본 오류 코드 10개에 없어 "권한 없음"으로 안내. 재로그인 안내가 필요하면 D11에서 코드 추가 결정 | `denied` |
+| SESSION_EXPIRED | 로그인 만료: search `SearchError(SESSION_EXPIRED)` 또는 auth `AccessError(SESSION_EXPIRED)`. 통합본 10개 밖 코드로, search와 같은 코드·문구('로그인 시간이 만료되었습니다. 다시 로그인해 주세요.')를 써서 UI가 로그인 화면으로 이동 (#143·#144 리뷰) | `session_expired` |
 
 화면 문구는 `constants.ERROR_MESSAGES`에 있다 (박경환과 확정 필요, D11).
 
@@ -232,13 +275,16 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 |---|---|---|---|---|
 | `NO_EVIDENCE_HINTS` | 상수 | constants.py | LLM이 유보 문구를 바꿔 말해도 근거 없음으로 처리 (리뷰 반영) | 선택 |
 | `ERROR_MESSAGES`, `ERROR_CODES` | 상수 | constants.py | 오류 코드별 화면 문구 (D11) | 요청 |
-| `ACCESS_ERROR_NAMES`, `SEARCH_ACCESS_CODES` | 상수 | constants.py | 이름(AccessError·DbError)은 DB 계약으로 확정됐지만 클래스가 아직 없어 이름·코드로 구분 | 클래스 생기면 import로 정리 |
-| `SENTENCE_END`, `REQUIRED_FIELDS`, `ALIAS_PATTERN` | 상수 | citations.py | 문장 나누기·필수 출처 필드·이름표 정규식 | 내부용 |
+| `ACCESS_ERROR_NAMES`, `SEARCH_ACCESS_CODES` | 상수 | constants.py | 다른 폴더 오류를 이름·코드로 구분 (auth·db 클래스는 생겼고 이 방식으로 동작, SearchError는 아직 없음) | 선택 |
+| `FEEDBACK_STATUS` | 상수 | constants.py | 오류 코드 → 화면 상태 표 (`to_feedback_status`) | 내부용 |
+| `SENTENCE_END`, `LEADING_ALIASES`, `REQUIRED_FIELDS`, `ALIAS_PATTERN` | 상수 | citations.py | 문장 나누기(숫자 뒤 마침표 제외)·문장 앞 이름표·필수 출처 필드·이름표 정규식 | 내부용 |
+| ask의 dict 필터 받기 | 입력 형태 | ask.py `ask_normalize_filters` | UI가 dict를 넘김 (be58de7, 이성민) | 요청 |
+| 보조 함수 22개 (`모함수_…`) | 함수 | 각 파일 | 큰 함수를 단계별로 나눔. 새 기능 없음 | 선택 (통합본에 하위 항목으로) |
 | `LLM_TIMEOUT_SECONDS` | 상수 | constants.py | LLM 호출 30초 제한 | 선택 |
 | Citation `version_no`, ChatResponse `citations_by_company`·`document_ids` | 클래스 필드 | models.py | WF-15 버전 표시, FR-06 회사별 출처(D08), ui 화면 섞임 방지(L29) | 요청 (D08) |
 | `map_dependency_error`의 stage 값 `'recheck'` | 인자 값 | models.py | 재검증 중 auth·DB 오류를 계약대로 바꾸고, 예상 못 한 오류는 감추지 않으려고 | 요청 |
 
-**함수는 통합본 FUN-401~427 외에 하나도 없다.** 명세 밖 함수·인자는 모두 뺐다(아래).
+**기능은 통합본 FUN-401~427 그대로다.** 큰 함수 7개는 모함수 이름으로 시작하는 보조 함수 22개로 나눴다(10/26, 3절 호출 트리). 명세 밖 기능은 없다.
 **삭제한 것:**
 
 - 리뷰 반영 중 `_setting`(설정 읽기 보조 함수)과 `DEFAULT_CHAT_MODEL`·`LLM_TEMPERATURE` 상수를 지웠다. `common.config.get_settings()`가 생겨 필요 없어졌다.
@@ -268,26 +314,40 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | 15 | 가짜 함수 자리가 제출 코드에 남음 | 고침 — 주입 인자·임시 객체 삭제 (9절) |
 | 16 | 명세 밖 함수·인자가 남음 (`vector_to_chunk_hit`, `_to_filters`, 개수 인자) | 고침 — 통합본 FUN-401~427 함수·인자만 남김 (9절) |
 | 17 | import가 팀 기준과 다름 (이슈 #133) | 고침 — 다른 폴더는 `hyundap.` 경로, chatbot 안은 상대 경로. 저장소 맨 위에서 `python -c "import hyundap.chatbot.ask"` 통과 |
+| 18 | 번호 목록·날짜 마침표에서 문장이 잘려 정상 답변 거부 | 고침 (be58de7, 이성민) — 숫자 바로 뒤 마침표에서는 자르지 않음 (FUN-414) |
+| 19 | 마침표 뒤에 따로 붙은 이름표(`…합니다. [E1]`) 미인정 | 고침 (be58de7, 이성민) — 같은 줄 앞 문장의 근거로 인정 (FUN-414) |
+| 20 | UI dict 필터가 RETRIEVAL_FAILED | 고침 (be58de7, 이성민) — ask가 dict를 ChatFilters로 바꿈 (FUN-401) |
+| 21 | 한 줄 `문장. [E1] 문장. [E2]` 거부 | 고침 — 문장 앞 이름표를 앞 무인용 문장의 근거로 봄 (`validate_citations_line`) |
+| 22 | search 미구현 ImportError가 변환 밖이라 화면에 일반 오류 | 고침 — import를 try 안으로, RETRIEVAL_FAILED (`retrieve_evidence`·`summarize_document_load`) |
+| 23 | dict 필터 키 오타가 TypeError → 화면에 일반 오류 | 고침 — RETRIEVAL_FAILED('검색 조건 형식이 올바르지 않습니다.') (`ask_normalize_filters`) |
+| 24 | 부분 요약 하나가 인용 검사에 걸리면 요약 전체 실패 | 고침 — 그 묶음만 빼고 제외 범위에 표시, is_full=False (`summarize_document_partials`·`_response`) |
+| 25 | 큰 함수 7개 | 고침 — 모함수 이름의 보조 함수 22개로 나눔 |
+| 26 | 숫자로 끝난 무인용 문장이 다음 문장과 묶여 통과 | 남김 — 날짜 규칙(18)과 겹쳐 고치면 날짜가 거부됨. 한국어 답변에선 드묾 |
+| 27 | (#144 리뷰 1) 세션 만료가 재로그인 안내로 가지 않음 — SearchError(SESSION_EXPIRED)는 RETRIEVAL_FAILED, AccessError(SESSION_EXPIRED)는 ACCESS_DENIED로 바뀜 | 고침 — 오류 코드 SESSION_EXPIRED 추가, status `session_expired`로 전달 (`map_dependency_error_search`·`to_feedback_access`, `FEEDBACK_STATUS`) |
+| 28 | (#144 리뷰 2) 요약 묶음이 모두 인용 검사에 걸리면 '요약할 내용이 없습니다'(NO_EVIDENCE)로 안내 | 고침 — 근거 확인 실패(INVALID_CITATION)로 구분 (`summarize_document_empty_error`) |
+| 29 | (#144 리뷰 3) 명세 상태 문구가 #143 병합 전 내용 | 고침 — 0절 상태·6절 search 연결 상태 갱신 |
 
 ## 11. 미정 사항과 지금 코드의 가정
 
 | 번호 | 내용 | 지금 코드 | 확인할 사람 |
 |---|---|---|---|
-| D19 | 요약 경로 근거 형식(VectorHit) | `summarize_document` 안에서 ChunkHit로 변환 (별도 함수 없음) | 박영준 공유 |
+| D19 | 요약 경로 근거 형식(VectorHit) | `summarize_document_to_hit`에서 ChunkHit로 변환 | 박영준 공유 |
 | D10 | 요약 함수 이름·길이 | `summarize_document`, 청크 64개 | 박경환 |
 | D04 | 결과·필터 클래스 위치 | **확정 (10/26)** — 네 개 모두 `chatbot/models.py` | 이성민 결정, 통합본 반영은 이성민 |
 | D07 | 근거 개수 | 문서당 4·전체 8 | 이준영·이성민 (정확도 테스트 후) |
 | D08 | 여러 회사 질문 | 필터 범위 전체에서 8개, 회사별 답변·출처 | 팀 |
 | D11 | 오류 문구 | `ERROR_MESSAGES` 초안 | 박경환 |
-| - | 버전 정보 | 공유 DB는 아직 스키마 v3라 `document_versions`·`version_no`가 없다. DB 계약의 v4(버전·청크 표)가 적용되면 version_id가 늘 채워진다. 그 전까지 version_id 빈 값도 허용 | 전재경 (#119) |
+| - | 버전 정보 | db 코드는 v4(`document_versions`) 기준이고 embedding도 version_id를 필수로 저장한다. 공유 DB에 v4가 적용됐는지는 확인 필요. 빈 version_id는 출처는 만들지만 재검증에서 RETRIEVAL_FAILED | 전재경 (#119) |
 | - | 문장 단위 인용 검사 | 실제 gpt-5 답변이 문장마다 이름표를 붙이는지 확인 필요. 너무 자주 거부되면 프롬프트 예시 보강 | 통합 테스트 |
 
 ## 12. 테스트
 
-`tests/`는 이성민 담당 폴더라 작성 주체가 정해지면(D16) `tests/test_chatbot.py`로 옮긴다. chatbot 코드에는 가짜 자리가 없으므로, 아직 없는 `hyundap.search.search`·`hyundap.search.models`·`hyundap.auth.permissions`·`hyundap.embedding.vector_store`를 시험 쪽에서 `sys.modules`에 가짜 모듈로 끼우고, LLM은 `hyundap.chatbot.prompts.get_chat_model`을 가짜 모델(`FakeListChatModel`)로 바꿔 저장소 맨 위 기준으로 **58개**를 확인했다 (58/58 통과).
+저장소: `python -m unittest hyundap.tests.test_chatbot` — 인용 검사·필터 12개 (이성민 작성, 12/12 통과).
+
+저장소 밖 (`tests/`는 이성민 담당이라 이관은 D16에서 협의): 함수 나누기·오류 수정 후 아래 58개 58/58, 오류 수정·보조 함수 검사 16개 16/16 통과. chatbot 코드에는 가짜 자리가 없으므로, 아직 없는 `hyundap.search.search`·`hyundap.search.models`·`hyundap.auth.permissions`·`hyundap.embedding.vector_store`를 시험 쪽에서 `sys.modules`에 가짜 모듈로 끼우고, LLM은 `hyundap.chatbot.prompts.get_chat_model`을 가짜 모델(`FakeListChatModel`)로 바꿔 저장소 맨 위 기준으로 **58개**를 확인했다 (58/58 통과).
 
 - 질문 흐름: 정상 답변·출처·회사별 묶음, search_chunks 인자, 재검증 인자, 근거 없음·유보, 지어낸 이름표·인용 없음·빈 답변 거부, SearchError 변환, 질문 길이, E1·E10 치환, 문서당 4개
-- DB 계약: AccessError STATE_CHANGED·ACCESS_DENIED·SESSION_EXPIRED(→ 권한 없음), DbError, 예상 못 한 오류 노출, 요약 사전 확인이 실제 버전으로·권한 없으면 LLM 호출 전 중단
+- DB 계약: AccessError STATE_CHANGED·ACCESS_DENIED·SESSION_EXPIRED(→ 재로그인 안내), DbError, 예상 못 한 오류 노출, 요약 사전 확인이 실제 버전으로·권한 없으면 LLM 호출 전 중단
 - 요약: 64/70 범위, 이름표 번호, 빈 묶음 건너뛰기, 청크 조회 오류, 형식 오류 노출
 - 모듈마다 통합본 함수만 있는지·인자 모양이 통합본과 같은지, `__all__`
 - 리뷰 수정: 문장별 인용, 바꿔 말한 유보, version_id 빈 값, 병합 이름표 제한, `get_settings`로 gpt-5 모델 생성, 키 없음 CONFIG_MISSING

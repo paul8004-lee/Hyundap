@@ -6,7 +6,12 @@
 함수:
     FUN-425 ChatbotError.__init__ — 오류 코드·안내 문구·재시도 여부를 담는다.
     FUN-426 to_feedback — 내부 오류를 사용자 안내로 바꾼다.
+        to_feedback_access — auth AccessError를 화면 안내로 바꾼다.
+        to_feedback_status — 오류 코드를 화면 상태로 바꾼다.
     FUN-427 map_dependency_error — 외부 모듈 오류를 챗봇 오류로 변환한다.
+        map_dependency_error_access — AccessError(STATE_CHANGED)만 챗봇 오류로 바꾼다.
+        map_dependency_error_search — SearchError를 ACCESS_DENIED·RETRIEVAL_FAILED로 바꾼다.
+        map_dependency_error_llm — LLM 오류를 CONFIG_MISSING·LLM_FAILED로 바꾼다.
 
 자료형:
     CLS-120 ChatbotError
@@ -20,7 +25,7 @@
 """
 from dataclasses import dataclass, field
 
-from .constants import ACCESS_ERROR_NAMES, ERROR_CODES, ERROR_MESSAGES, SEARCH_ACCESS_CODES
+from .constants import ACCESS_ERROR_NAMES, ERROR_CODES, ERROR_MESSAGES, FEEDBACK_STATUS, SEARCH_ACCESS_CODES
 
 
 class ChatbotError(Exception):
@@ -89,22 +94,26 @@ class SummaryResponse:
 
 def to_feedback(error):
     """받는 것: 예외 / 돌려주는 것: 화면 안내용 {status, message, error_code}. 내부 예외 원문은 넣지 않는다.
-    auth AccessError는 STATE_CHANGED면 다시 질문 안내, 나머지(ACCESS_DENIED·SESSION_EXPIRED 등)는 권한 없음 안내."""
+    auth AccessError는 STATE_CHANGED면 다시 질문 안내, SESSION_EXPIRED면 재로그인 안내, 나머지는 권한 없음 안내."""
     if type(error).__name__ in ACCESS_ERROR_NAMES:
-        if getattr(error, 'code', None) == 'STATE_CHANGED':
-            return {'status': 'failed', 'message': ERROR_MESSAGES['STATE_CHANGED'], 'error_code': 'STATE_CHANGED'}
-        return {'status': 'denied', 'message': ERROR_MESSAGES['ACCESS_DENIED'], 'error_code': 'ACCESS_DENIED'}
+        return to_feedback_access(error)
     if isinstance(error, ChatbotError):
-        if error.code in ('EMPTY_QUESTION', 'QUESTION_TOO_LONG'):
-            status = 'input_error'
-        elif error.code == 'NO_EVIDENCE':
-            status = 'empty'
-        elif error.code == 'ACCESS_DENIED':
-            status = 'denied'
-        else:
-            status = 'failed'
-        return {'status': status, 'message': error.message, 'error_code': error.code}
+        return {'status': to_feedback_status(error.code), 'message': error.message, 'error_code': error.code}
     return {'status': 'failed', 'message': '요청을 처리하지 못했습니다.', 'error_code': None}
+
+
+def to_feedback_access(error):
+    """받는 것: auth AccessError / 돌려주는 것: 화면 안내 dict
+    STATE_CHANGED면 다시 질문 안내(failed), SESSION_EXPIRED면 재로그인 안내(session_expired),
+    나머지(ACCESS_DENIED 등)는 권한 없음 안내(denied)."""
+    code = getattr(error, 'code', None)
+    code = code if code in ('STATE_CHANGED', 'SESSION_EXPIRED') else 'ACCESS_DENIED'
+    return {'status': to_feedback_status(code), 'message': ERROR_MESSAGES[code], 'error_code': code}
+
+
+def to_feedback_status(code):
+    """받는 것: 오류 코드 / 돌려주는 것: 화면 상태 (input_error·empty·denied·failed)"""
+    return FEEDBACK_STATUS.get(code, 'failed')
 
 
 def map_dependency_error(error, stage):
@@ -115,18 +124,34 @@ def map_dependency_error(error, stage):
     if isinstance(error, ChatbotError):
         return error
     if name in ACCESS_ERROR_NAMES:
-        return ChatbotError('STATE_CHANGED') if getattr(error, 'code', None) == 'STATE_CHANGED' else error
+        return map_dependency_error_access(error)
     if name == 'DbError':  # 재검증 중 DB 장애 등. 원시 DB 오류는 화면에 내보내지 않는다
         return ChatbotError('RETRIEVAL_FAILED', retryable=getattr(error, 'code', None) == 'DB_UNAVAILABLE')
     if stage == 'recheck':  # 재검증 중 예상 못 한 오류는 감추지 않고 그대로 올린다
         return error
-    retryable = bool(getattr(error, 'retryable', False))
     if name == 'SearchError':
-        if getattr(error, 'code', None) in SEARCH_ACCESS_CODES:
-            return ChatbotError('ACCESS_DENIED')
-        return ChatbotError('RETRIEVAL_FAILED', retryable=retryable)
+        return map_dependency_error_search(error)
     if stage in ('retrieve', 'summary') or name in ('EmbeddingError', 'VectorStoreError'):
-        return ChatbotError('RETRIEVAL_FAILED', retryable=retryable)
+        return ChatbotError('RETRIEVAL_FAILED', retryable=bool(getattr(error, 'retryable', False)))
+    return map_dependency_error_llm(name)
+
+
+def map_dependency_error_access(error):
+    """받는 것: auth AccessError / 돌려주는 것: STATE_CHANGED면 ChatbotError(STATE_CHANGED), 나머지는 그대로"""
+    return ChatbotError('STATE_CHANGED') if getattr(error, 'code', None) == 'STATE_CHANGED' else error
+
+
+def map_dependency_error_search(error):
+    """받는 것: search SearchError / 돌려주는 것: 세션 만료면 SESSION_EXPIRED, 권한 코드면 ACCESS_DENIED, 나머지는 RETRIEVAL_FAILED"""
+    if getattr(error, 'code', None) == 'SESSION_EXPIRED':
+        return ChatbotError('SESSION_EXPIRED')
+    if getattr(error, 'code', None) in SEARCH_ACCESS_CODES:
+        return ChatbotError('ACCESS_DENIED')
+    return ChatbotError('RETRIEVAL_FAILED', retryable=bool(getattr(error, 'retryable', False)))
+
+
+def map_dependency_error_llm(name):
+    """받는 것: LLM 단계 예외 클래스 이름 / 돌려주는 것: CONFIG_MISSING(키 오류) 또는 LLM_FAILED(시간 초과 등은 재시도 가능)"""
     if 'Authentication' in name or 'PermissionDenied' in name:
         return ChatbotError('CONFIG_MISSING')
     if any(key in name for key in ('Timeout', 'RateLimit', 'APIConnection')):

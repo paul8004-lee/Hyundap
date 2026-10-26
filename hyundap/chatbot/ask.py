@@ -5,9 +5,14 @@
 
 함수:
     FUN-401 ask — 질문·검색·답변·인용 검증 흐름을 연결한다.
+        ask_normalize_filters — 필터(ChatFilters·dict·None)를 ChatFilters로 맞춘다.
+        ask_check_answer — 답변 인용을 검사하고 유보 답변이면 None을 준다.
+        ask_build_response — 화면용 ChatResponse를 만든다.
     FUN-402 validate_question — 질문 공백과 길이 제한을 검사한다.
     FUN-403 retrieve_evidence — 권한과 필터가 적용된 근거 청크를 받는다.
     FUN-404 select_evidence — 답변에 사용할 근거를 고른다.
+        select_evidence_dedupe — 같은 청크는 점수가 가장 높은 것 하나만 남긴다.
+        select_evidence_limit — 문서당·전체 근거 개수를 제한한다.
     FUN-405 generate_answer — 질문과 근거를 LLM 체인에 전달한다.
     FUN-406 build_no_evidence_response — 근거가 없을 때 답변 유보 결과를 만든다.
     FUN-407 recheck_before_return — 반환 직전 auth에 문서·버전 접근을 다시 확인한다.
@@ -25,23 +30,44 @@ def ask(question, filters, user):
     """받는 것: 질문, 필터(ChatFilters·dict·None), 로그인 사용자 / 돌려주는 것: ChatResponse
     질문 검사 → 근거 받기·고르기 → 답변 생성 → 인용 검사 → 출처 → 반환 직전 재검증 → 화면용 정리."""
     question = validate_question(question)
-    if isinstance(filters, dict):  # UI는 필터를 dict로 넘길 수 있다
-        filters = ChatFilters(**filters)
-    filters = filters or ChatFilters()  # 필터가 없으면 허용 범위 전체
+    filters = ask_normalize_filters(filters)
     hits = select_evidence(retrieve_evidence(question, filters, user))
     if not hits:
         return build_no_evidence_response(filters)
     aliases = cit.assign_aliases(hits)
     answer = generate_answer(question, cit.format_evidence(aliases))
-    try:
-        used = cit.validate_citations(answer, aliases)
-    except ChatbotError as error:
-        if error.code == 'NO_EVIDENCE':
-            return build_no_evidence_response(filters)
-        raise
+    used = ask_check_answer(answer, aliases)
+    if used is None:
+        return build_no_evidence_response(filters)
     cited_hits = [aliases[alias] for alias in used]
     citations = [cit.build_citation(hit, number) for number, hit in enumerate(cited_hits, 1)]
     recheck_before_return(user, cited_hits)
+    return ask_build_response(answer, used, citations)
+
+
+def ask_normalize_filters(filters):
+    """받는 것: ChatFilters·dict·None / 돌려주는 것: ChatFilters (None이면 허용 범위 전체)
+    UI는 필터를 dict로 넘길 수 있다. 모르는 키가 있으면 화면에 일반 오류가 아니라 검색 실패 안내가 가도록 바꾼다."""
+    if isinstance(filters, dict):
+        try:
+            filters = ChatFilters(**filters)
+        except TypeError as error:
+            raise ChatbotError('RETRIEVAL_FAILED', '검색 조건 형식이 올바르지 않습니다.') from error
+    return filters or ChatFilters()
+
+
+def ask_check_answer(answer, aliases):
+    """받는 것: LLM 답변, 이름표 사전 / 돌려주는 것: 쓰인 이름표 목록 (LLM이 유보만 답했으면 None)"""
+    try:
+        return cit.validate_citations(answer, aliases)
+    except ChatbotError as error:
+        if error.code == 'NO_EVIDENCE':
+            return None
+        raise
+
+
+def ask_build_response(answer, used, citations):
+    """받는 것: 답변, 쓰인 이름표, 출처 목록 / 돌려주는 것: 화면용 ChatResponse(status='ANSWERED')"""
     display, _ = cit.render_answer(answer, used)
     return ChatResponse(
         status='ANSWERED', answer=display, citations=citations,
@@ -62,9 +88,10 @@ def validate_question(question, max_chars=MAX_QUESTION_CHARS):
 
 def retrieve_evidence(question, filters, user):
     """받는 것: 질문, ChatFilters, 사용자 / 돌려주는 것: ChunkHit 목록 (점수 내림차순)
-    회사 범위·최소 점수·공개 조건·평가 자료 제외는 search.search_chunks가 처리한다."""
-    from hyundap.search.search import search_chunks
+    회사 범위·최소 점수·공개 조건·평가 자료 제외는 search.search_chunks가 처리한다.
+    search가 아직 없을 때의 ImportError도 RETRIEVAL_FAILED로 바뀌도록 가져오기를 try 안에 둔다."""
     try:
+        from hyundap.search.search import search_chunks
         return list(search_chunks(
             user=user, query=question, company_ids=filters.company_ids, doc_types=filters.doc_types,
             document_ids=filters.document_ids, top_k=TOP_K * 2,  # 다음 단계에서 줄이므로 넉넉히
@@ -75,13 +102,24 @@ def retrieve_evidence(question, filters, user):
 
 def select_evidence(hits):
     """받는 것: ChunkHit 목록 / 돌려주는 것: 같은 청크는 하나만, 문서당·전체 개수를 줄인 목록 (점수 높은 순)"""
+    best = select_evidence_dedupe(hits)
+    return select_evidence_limit(sorted(best, key=lambda h: h.score or 0, reverse=True))
+
+
+def select_evidence_dedupe(hits):
+    """받는 것: ChunkHit 목록 / 돌려주는 것: chunk_id마다 점수가 가장 높은 근거 1개씩"""
     best = {}
     for hit in hits:
         kept = best.get(hit.chunk_id)
         if kept is None or (hit.score or 0) > (kept.score or 0):
             best[hit.chunk_id] = hit
+    return list(best.values())
+
+
+def select_evidence_limit(hits):
+    """받는 것: 점수 높은 순 ChunkHit 목록 / 돌려주는 것: 문서당 MAX_PER_DOCUMENT(4)개, 전체 TOP_K(8)개까지"""
     picked, per_document = [], {}
-    for hit in sorted(best.values(), key=lambda h: h.score or 0, reverse=True):
+    for hit in hits:
         count = per_document.get(hit.document_id, 0)
         if count < MAX_PER_DOCUMENT:
             per_document[hit.document_id] = count + 1
