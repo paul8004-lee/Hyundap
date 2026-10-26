@@ -1,2 +1,0 @@
-# UI 담당 범위의 실행 패키지. 팀 공용 requirements.txt는 변경하지 않습니다.
-gradio==6.30.0

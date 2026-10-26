@@ -94,9 +94,10 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             query: str
             results: list
             total_hits: int = 2
-        def search(**kwargs):
-            observed['search'] = kwargs
-            return Result(kwargs['query'], [{'document_id': 'd', 'citations': [{'location_label': 'p. 3', 'excerpt': 'text'}]}])
+        # 통합 명세의 user=를 엄격히 받는다. actor=로 회귀하면 호출 단계에서 실패한다.
+        def search(*, user, query, company_ids, doc_types, limit):
+            observed['search'] = dict(user=user, query=query, company_ids=company_ids, doc_types=doc_types, limit=limit)
+            return Result(query, [{'document_id': 'd', 'citations': [{'location_label': 'p. 3', 'excerpt': 'text'}]}])
         async def ask(**kwargs):
             observed['ask'] = kwargs
             return {'status': 'ANSWERED', 'answer': 'a', 'citations': []}
@@ -104,7 +105,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         service = BackendServices(bindings)
         result = await service.search(self.e, 'hello', ['hri'])
         self.assertEqual(result['results'][0]['excerpt'], 'text')
-        self.assertEqual(observed['search']['actor'], ('user', 'demo-employee'))
+        self.assertEqual(observed['search']['user'], ('user', 'demo-employee'))
         self.assertEqual(observed['search']['limit'], 10)
         await service.ask(self.e, 'q', document_ids=['d'])
         self.assertEqual(observed['ask']['filters'][1]['document_ids'], ['d'])

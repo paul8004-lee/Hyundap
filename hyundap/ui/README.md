@@ -10,21 +10,17 @@ Figma의 색상·배치·카드를 실제 Gradio 입력창과 버튼으로 재�
 저장소 최상위 폴더(`C:\workspace\Hyundap`, `hyundap` 폴더와 팀 README가 있는 위치)에서 실행합니다.
 
 ```powershell
-uv run hyundap/app.py
-```
-
-또는 현재 Python 환경에 UI 패키지를 설치합니다.
-
-```powershell
-python -m pip install -r hyundap/ui/requirements.txt
-python -m hyundap.app
+python -m pip install -r requirements.txt
+python hyundap/app.py
 ```
 
 VS Code에서 `hyundap/app.py`를 열어 **Python 파일 실행**을 눌러도 됩니다. 직접 실행(`python hyundap/app.py`)과 모듈 실행은 동일한 `hyundap.ui` 코드를 사용합니다. `hyundap` 폴더로 들어간 상태에서는 `python app.py`로 실행할 수 있습니다.
 
+설치 목록은 저장소 최상위의 `requirements.txt`를 사용합니다. 앱 상단의 별도 실행 의존성 블록과 UI 전용 설치 목록은 제거했습니다. 현재 `hyundap.ui` import는 팀의 공통 import 기준 확정 전까지 유지합니다. 이 실행 안내는 현재 UI에 대한 것이며, 기존 `common.config`·`db` 방식의 백엔드 import와의 통합은 아직 검증되지 않았습니다. 이를 우회하는 새 경로 설정은 추가하지 않았습니다.
+
 루트에 예전 `app.py`를 새로 만들 필요는 없습니다. 이전 `ui/`에 남은 `__pycache__`는 실행 대상이 아닙니다. CSS·아이콘도 현재 UI 파일을 기준으로 읽으므로 작업 폴더에 따라 경로가 달라지지 않습니다.
 
-브라우저에서 `http://127.0.0.1:7860`을 엽니다. 포트가 사용 중이면 `python -m hyundap.app --port 7861`로 실행합니다.
+브라우저에서 `http://127.0.0.1:7860`을 엽니다. 포트가 사용 중이면 `python hyundap/app.py --port 7861`로 실행합니다.
 기본 실행은 **예시 데이터 모드**이며 외부 공유 링크를 만들지 않습니다.
 
 | 로그인 화면 선택 | 아이디 | 역할·범위 |
@@ -69,7 +65,7 @@ P3인 권한 변경·별도 로그/이력 관리·삭제·재색인·저장 원�
 `hyundap/ui/backend_bindings.py`의 `create_bindings()`에서 `BackendBindings`에 실제 담당 함수를 지정합니다. 입력·반환값이 다르면 이 연결부의 래퍼/normalizer에서 맞춥니다. 화면 이벤트 이름과 백엔드 함수 이름이 같을 필요는 없습니다.
 
 ```powershell
-python -m hyundap.app --mode backend
+python hyundap/app.py --mode backend
 ```
 
 실제 모드는 연결되지 않은 기능에 오류 안내를 표시합니다. 실패를 예시 데이터로 자동 대체하지 않습니다.
@@ -87,6 +83,10 @@ python -m hyundap.app --mode backend
 `hyundap/ui/services.py`는 동기 함수를 작업 스레드에서 호출하고 async 함수를 기다립니다. 인증·권한 판정은 실제 백엔드가 수행해야 합니다. 메뉴 숨김만으로 권한을 보장하지 않습니다.
 검색의 `total_hits`는 문서 전체 개수가 아닌 청크 수이므로 현재 받은 문서 목록 길이를 표시합니다. 작업 성공과 검색 가능 여부도 구분합니다.
 
+검색 어댑터는 `search(user=검증 사용자, query=, company_ids=, doc_types=, limit=10)`으로 호출합니다. 문서 유형 선택값은 DB CHECK 제약에 맞춘 `manual`(매뉴얼), `policy`(규정), `guide`(안내), `other`(기타)입니다. 예시 문서의 유형도 이 네 값으로 정리했으며, 실제 백엔드의 알 수 없는 유형을 임의로 `other`로 바꾸지는 않습니다.
+
+회사 목록 `hri`·`gte`·`bpa`는 여전히 화면 개발용 예시입니다. `common`의 회사·문서 유형 목록은 아직 제공되지 않았습니다. 목록의 실제 export 경로·형식과 팀 import 기준이 확정되면 `services.py`의 임시 목록을 공통 목록 import로 교체합니다.
+
 ## 검증 기록
 
 - 서비스 검사 6건, 화면 컨트롤러 검사 10건 통과.
@@ -95,3 +95,18 @@ python -m hyundap.app --mode backend
 - 브라우저에서 로그인→검색→부분 요약→질문/출처→해당 문서 이동·출처 모달/Esc·예시 파일 준비 확인.
 - 관리자 업로드 폼·입력 누락 안내·회사 변경 후 검색 범위 적용 확인.
 - 실제 백엔드·DB·LLM 통합 검수는 담당 함수 연결 후 별도로 수행해야 합니다.
+
+현재 `hyundap/ui/tests/`의 16개 검사는 인계용 원본으로 임시 유지합니다. 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성할 예정이며, 아직 이전된 UI 검사가 없어 기존 검사를 삭제하지 않았습니다. 검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구해 예전 `actor` 호출이 다시 들어오면 실패하도록 했습니다. 테스트 폴더 이전과 import 기준 변경은 담당자 작업에 맞춰 진행합니다.
+
+## 리뷰 후속 반영
+
+[DB·인증 계약 PR #125](https://github.com/paul8004-lee/Hyundap/pull/125)와 UI 리뷰를 기준으로 반영한 범위입니다.
+
+- [x] 문서 유형을 DB 허용 코드 네 개로 맞추고 예시 문서 유형을 정리했습니다.
+- [x] 검색 호출 인자를 `user=`로 맞추고 연결 검사를 갱신했습니다.
+- [x] UI 전용 의존성 파일·앱의 uv script 블록을 제거하고 루트 설치 명령으로 통일했습니다.
+- [ ] `common`의 회사·문서 유형 목록 공개 후 실제 export에서 가져옵니다.
+- [ ] 팀 import 기준 확정 후 UI와 백엔드의 모듈 경로를 통합 검수합니다.
+- [ ] 리뷰 담당자의 `hyundap/tests/` 이전 완료 후 UI 테스트 원본을 정리합니다.
+
+로컬 `common/config.py`·`common/schemas.py`는 현재 뼈대이며, PR #125의 해당 파일에도 UI가 가져올 목록 export가 없습니다. 이 후속 반영은 실제 DB·인증·검색·LLM 연결 완료를 뜻하지 않습니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.

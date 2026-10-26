@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | 0.1 — 현재 UI 구현 기준 |
+| 문서 버전 | 0.2 — UI 리뷰 후속 반영 기준 |
 | 작성일 | 2026-10-26 |
 | UI 담당 | 박경환 |
 | 대상 | `hyundap/app.py`, `hyundap/ui/` |
@@ -68,17 +68,18 @@ hyundap/
    ├─ common.css            # 공통·로그인 스타일
    ├─ assets/
    │  └─ password-visibility.svg
-   ├─ tests/
+   ├─ tests/                # 담당자 이전 전 인계용 원본 임시 유지
    │  ├─ test_services.py
    │  └─ test_controller.py
-   ├─ requirements.txt      # UI 단독 실행 의존성
    ├─ README.md             # 실행·연결 안내
    └─ docs/spec.md          # 이 문서
 ```
 
 호출 흐름은 `Gradio 이벤트 → UIController → UIServices 규격 → 예시 서비스 또는 실제 담당 함수`다. 페이지 모듈은 컴포넌트와 표시용 HTML/Markdown을 만들고, 이벤트 연결은 `app.py`, 처리와 상태 변경은 `controller.py`가 담당한다.
 
-`app.py`는 `hyundap.ui` 경로로 불러오며, UI 내부 모듈은 상대 import를 사용한다. CSS와 아이콘은 `components.UI_DIR`을 기준으로 읽는다.
+`app.py`는 `hyundap.ui` 경로로 불러오며, UI 내부 모듈은 상대 import를 사용한다. CSS와 아이콘은 `components.UI_DIR`을 기준으로 읽는다. 설치 목록은 저장소 최상위 `requirements.txt` 하나를 사용한다.
+
+현재 UI import 기준과 기존 백엔드의 `common.config`·`db` import 기준은 다르다. 팀의 기준 확정 전까지 UI의 `hyundap.ui` import를 유지하며, 이번 수정에서 경로 우회 코드를 추가하지 않는다. 실제 담당 함수를 등록하기 전에 통합 실행 경로를 확정하고 검증해야 한다.
 
 ## 3. 역할과 회사 범위
 
@@ -90,7 +91,11 @@ hyundap/
 
 로그인 화면의 역할 선택은 접속할 화면 유형이다. 실제 권한은 인증 함수가 반환한 역할을 따른다. 선택한 유형과 계정 역할이 다르면 로그인 진행을 거부하고 안내한다. 현재 세 역할 모두 로그인 성공 후 문서 검색 화면으로 이동한다.
 
-회사·유형 목록은 현재 `services.py`의 정적 예시 옵션이다. 회사는 `hri`·`gte`·`bpa`, 문서 유형은 `manual`·`education`·`form`·`contract`·`report`·`policy`·`other`다. 실제 식별자·표시명·허용 목록은 백엔드와 합의해 교체해야 한다. 동적 옵션 조회 기능은 아직 없다.
+회사·유형 목록은 현재 `services.py`의 임시 정적 옵션이다. 회사 `hri`·`gte`·`bpa`는 화면 개발용 예시다. 문서 유형은 [DB·인증 계약 PR #125](https://github.com/paul8004-lee/Hyundap/pull/125)의 DB CHECK 제약에 맞춘 `manual`(매뉴얼), `policy`(규정), `guide`(안내), `other`(기타)다.
+
+`common` 담당자가 회사·문서 유형 목록을 제공하면 실제 export 경로와 자료형에 맞춰 import로 교체한다. 현재 로컬 공통 모듈은 뼈대이며 PR #125의 `common/config.py`·`common/schemas.py`에도 해당 목록 export가 없어 아직 연결하지 않았다. 동적 옵션 조회 기능도 아직 없다.
+
+예시 문서의 기존 유형은 위 네 값으로 정리했다. 이는 데모 데이터만의 변경이며 실제 백엔드가 반환한 알 수 없는 유형을 임의로 `other`로 바꾸는 정책이 아니다.
 
 메뉴와 입력창 제한은 사용 편의 기능이다. 실제 조회·업로드·다운로드의 권한과 회사 범위는 백엔드에서 다시 검증해야 한다. 예시 서비스는 메모리의 세션 기록을 기준으로 이를 검사한다.
 
@@ -176,7 +181,7 @@ UI가 의존하는 `UIServices` 메서드는 모두 async 규격이다. 실제 �
 | `login(username, password)` | `login(username=, password=)` | 세션 dict |
 | `logout(session)` | `logout(session=)` | UI에서 반환값 미사용 |
 | `validate_session(session)` | `validate_session(session=)` | 검증된 사용자/세션 dict |
-| `search(session, query, company_ids, doc_types)` | `search(actor=검증 사용자, query=, company_ids=, doc_types=, limit=10)` | 검색 응답 dict |
+| `search(session, query, company_ids, doc_types)` | `search(user=검증 사용자, query=, company_ids=, doc_types=, limit=10)` | 검색 응답 dict |
 | `detail(session, document_id, version_id)` | `detail(user=검증 사용자, document_id=, version_id=)` | 문서 dict |
 | `ask(session, question, company_ids, doc_types, document_ids)` | `ask(question=, filters=, user=검증 사용자)` | 답변 dict |
 | `summarize(session, document_id, version_id)` | `summarize_document(document_id=, user=검증 사용자)` | 요약 dict; 결과 버전 비교 |
@@ -305,13 +310,13 @@ Gradio 화면 상태 TTL과 예시 세션 기본 유효시간은 각각 3,600초
 저장소 최상위에서 실행한다.
 
 ```powershell
-uv run hyundap/app.py
+python -m pip install -r requirements.txt
+python hyundap/app.py
 ```
 
-이미 Gradio가 설치된 Python 환경에서는 다음 명령을 사용할 수 있다.
+같은 환경에서 현재 인계용 UI 검사를 실행할 수 있다.
 
 ```powershell
-python -m hyundap.app
 python -m unittest discover -s hyundap/ui/tests -v
 ```
 
@@ -330,6 +335,8 @@ python -m unittest discover -s hyundap/ui/tests -v
 
 현재 `test_services.py` 6개, `test_controller.py` 10개로 총 16개의 자동 검사가 있다. 새 폴더 구조로 이전한 뒤 모두 통과했고 로그인·검색 화면을 브라우저에서도 확인했다. 테스트는 예시 서비스와 가짜 연결 함수 기반이며 실제 DB·인증·LLM·문서 저장 통합 결과를 의미하지 않는다.
 
+검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구한다. 따라서 `actor`로 호출하는 실수가 다시 들어오면 실패한다. `hyundap/ui/tests/`는 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성하기 전까지 인계용 원본으로 임시 보존한다. 아직 이전된 UI 검사가 없으므로 기존 16개 검사를 삭제하지 않으며, 이번 UI 수정에서 담당자의 `hyundap/tests/`는 변경하지 않는다.
+
 ## 10. 실제 연결 전 받아야 할 정보
 
 1. 담당 함수의 실제 파일/import 경로, 이름, 동기/async 여부, 의존 모듈과 실행 설정.
@@ -340,3 +347,19 @@ python -m unittest discover -s hyundap/ui/tests -v
 6. 업로드 임시 파일의 인수·보관·정리 책임과 동기 완료/비동기 접수 여부, 검색 가능 상태 정의.
 
 이 내용을 확정한 뒤 `backend_bindings.py`에 함수를 등록하고, 필요한 응답 변환을 `services.py` 또는 등록한 normalizer에 적용한다. 실제 모드에서 인증·회사 범위·문서 버전·업로드 후 검색 반영까지 통합 검수한 뒤 연결 완료로 표시한다.
+
+## 11. 리뷰 후속 반영 상태
+
+[DB·인증 계약 PR #125](https://github.com/paul8004-lee/Hyundap/pull/125)와 UI 리뷰에 대한 현재 처리 범위다.
+
+| 항목 | 상태 |
+|---|---|
+| 문서 유형 코드 충돌 | UI 선택값·데모 문서 유형을 `manual/policy/guide/other`로 수정 |
+| 검색 호출 인자 | `user=`로 수정하고 keyword-only 가짜 함수로 계약 검사 |
+| 설치·실행 방식 | UI 전용 의존성 파일과 앱의 uv script 블록 제거, 루트 `requirements.txt` 설치 방식으로 안내 |
+| 공통 코드 목록 | `common`의 실제 목록 export 제공 대기; 현재 임시 목록 사용 |
+| import 기준 | 팀 기준 확정 대기; UI의 현재 import를 유지하며 새 경로 우회 없음 |
+| 테스트 담당 | 기존 UI 검사 16개를 인계용으로 보존; 담당자가 `hyundap/tests/`로 이전한 뒤 정리 |
+| PR 본문·화면 | 사용자 검토용 초안·캡처를 준비하며 PR 생성·수정은 사용자가 진행 |
+
+완료로 표시한 항목은 UI 코드와 문서의 수정 상태다. 실제 백엔드 함수 등록과 DB·인증·검색·LLM 통합 검수는 계속 대기 상태이며, 공통 목록·import 기준 확정 전에 연결 완료로 표시하지 않는다.

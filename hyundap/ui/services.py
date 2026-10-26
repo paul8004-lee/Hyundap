@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
-# 화면 개발용 옵션. 실제 코드/허용 회사 목록은 담당자가 제공한 값으로 바꾼다.
+# 회사 목록은 화면 개발용이다. common 담당자가 목록과 import 경로를 제공하면 교체한다.
+# DOC_TYPES는 DB PR #125의 CHECK 제약과 동일한 임시 목록이며 common 제공 후 가져온다.
 COMPANIES = [
     ("현대경제연구원", "hri"),
     ("그린테크에너지", "gte"),
@@ -25,11 +26,8 @@ COMPANIES = [
 ]
 DOC_TYPES = [
     ("매뉴얼", "manual"),
-    ("교육 자료", "education"),
-    ("서식", "form"),
-    ("계약서", "contract"),
-    ("보고서", "report"),
     ("규정", "policy"),
+    ("안내", "guide"),
     ("기타", "other"),
 ]
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
@@ -118,7 +116,8 @@ class BackendBindings:
     upload(user=, file_path=, company_id=, doc_type=)
     download(user=, document_id=, version_id=) -> 실제 로컬 파일 경로
 
-    search/ask/summarize_document는 현재 팀 명세의 인자 이름을 따른다.
+    search(user=, query=, company_ids=, doc_types=, limit=)는 통합 명세 5장을 따른다.
+    ask/summarize_document도 user=로 검증된 사용자 정보를 전달한다.
     user_factory는 검증된 세션을 공통 UserContext로, filters_factory는 dict를
     실제 ChatFilters로 바꾼다. 계약이 확정되면 해당 생성자를 지정한다.
     normalizers에는 기능 이름별 응답 변환 함수를 지정할 수 있다.
@@ -217,7 +216,7 @@ class BackendServices:
     async def search(self, session: dict, query: str, company_ids=None, doc_types=None) -> dict:
         if not query or not query.strip():
             raise UIServiceError("QUERY_REQUIRED", "검색어를 입력해 주세요.", "input_error")
-        response = self._dict(await self._call("search", actor=await self._user(session), query=query.strip(), company_ids=company_ids or None, doc_types=doc_types or None, limit=10), "검색")
+        response = self._dict(await self._call("search", user=await self._user(session), query=query.strip(), company_ids=company_ids or None, doc_types=doc_types or None, limit=10), "검색")
         results = response.get("results")
         if not isinstance(results, list):
             raise UIServiceError("INVALID_RESPONSE", "검색 결과 목록 형식을 확인해 주세요.")

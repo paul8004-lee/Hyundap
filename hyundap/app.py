@@ -1,11 +1,8 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["gradio==6.30.0"]
-# ///
 """FUN-176/177 · B02/B16/B24~B32: 현답 UI 조립·실행.
 
-저장소 최상위에서 실행: uv run hyundap/app.py
-Gradio 설치 환경에서는 python -m hyundap.app 또는 python hyundap/app.py.
+저장소 최상위에서 설치: python -m pip install -r requirements.txt
+설치한 Python 환경으로 실행: python hyundap/app.py
+현재 python -m hyundap.app도 지원하며, 팀 import 기준 확정 후 함께 통일한다.
 기본은 예시 모드. 실제 함수는 hyundap/ui/backend_bindings.py에 연결한다.
 백엔드/DB/수집 모듈은 이 파일에서 구현하거나 변경하지 않는다.
 """
