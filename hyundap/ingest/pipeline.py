@@ -1,9 +1,10 @@
-"""ingest/pipeline.py
+"""ingest/pipeline.py — 파일 검증부터 청크 생성까지 실행하는 수집 흐름.
 
-Owner: 김혜리
-Spec: AI_문서검색_통합_기능명세서
+담당: 김혜리
+기준 명세: AI_문서검색_통합_기능명세서
 
-Functions:
-    FUN-218 ingest_document
-    FUN-219 build_ingest_report
-"""
+구현 예정 함수:
+    FUN-218 ingest_document — 검증·로딩·정규화·청킹을 순서대로 실행한다.
+    FUN-219 build_ingest_report — 수집 처리 결과와 경고를 보고서로 구성한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

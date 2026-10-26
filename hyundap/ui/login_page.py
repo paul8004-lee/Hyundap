@@ -1,9 +1,10 @@
-"""ui/login_page.py - 통합 로그인 화면
+"""ui/login_page.py — 인증 담당 함수에 연결하는 로그인 화면.
 
-Owner: 박경환
-Spec: AI_문서검색_통합_기능명세서 (MOD-032)
+담당: 박경환
+기준 명세: AI_문서검색_통합_기능명세서 (MOD-032)
 
-Functions:
-    FUN-156 build_login_page
-    FUN-157 on_login_submit
-"""
+구현 예정 함수:
+    FUN-156 build_login_page — 로그인 입력과 실행 이벤트를 구성한다.
+    FUN-157 on_login_submit — 아이디·비밀번호를 인증 함수에 전달하고 결과를 표시한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

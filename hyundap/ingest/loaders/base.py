@@ -1,9 +1,10 @@
-"""ingest/loaders/base.py
+"""ingest/loaders/base.py — 로더 공통 표 변환·출처 위치 표시.
 
-Owner: 김혜리
-Spec: AI_문서검색_통합_기능명세서
+담당: 김혜리
+기준 명세: AI_문서검색_통합_기능명세서
 
-Functions:
-    FUN-211 table_to_text
-    FUN-212 build_location_label
-"""
+구현 예정 함수:
+    FUN-211 table_to_text — 표를 머리글 문맥이 유지되는 텍스트로 바꾼다.
+    FUN-212 build_location_label — 페이지·섹션·슬라이드 출처 위치를 표시한다.
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""

@@ -1,9 +1,10 @@
-"""ingest/models.py
+"""ingest/models.py — 업로드 처리 결과와 수집 오류 형식.
 
-Owner: 김혜리
-Spec: AI_문서검색_통합_기능명세서
+담당: 김혜리
+기준 명세: AI_문서검색_통합_기능명세서
 
-Classes:
+구현 예정 자료형:
     CLS-040 IngestError
     CLS-041 IngestResult
-"""
+
+현재 파일은 설계 뼈대다. 위 설명과 명세 목록은 담당 역할을 안내하며 실제 기능 구현을 뜻하지 않는다."""
