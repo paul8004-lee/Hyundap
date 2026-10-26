@@ -317,10 +317,10 @@ python -m pip install -r requirements.txt
 python hyundap/app.py
 ```
 
-같은 환경에서 현재 인계용 UI 검사를 실행할 수 있다.
+같은 환경에서 UI 검사를 실행할 수 있다.
 
 ```powershell
-python -m unittest discover -s hyundap/ui/tests -v
+python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v
 ```
 
 예시 로그인은 일반 사용자 `employee`, 관리자 `manager` 또는 `admin`, 공통 비밀번호 `demo1234`다. `점검`을 검색하면 결과·상세·요약·질문·출처 흐름을 확인할 수 있다. 상세 실행 방법은 [UI README](../README.md)를 따른다.
@@ -338,7 +338,7 @@ python -m unittest discover -s hyundap/ui/tests -v
 
 현재 `test_services.py` 6개, `test_controller.py` 10개로 총 16개의 자동 검사가 있다. 새 폴더 구조로 이전한 뒤 모두 통과했고 로그인·검색 화면을 브라우저에서도 확인했다. 테스트는 예시 서비스와 가짜 연결 함수 기반이며 실제 DB·인증·LLM·문서 저장 통합 결과를 의미하지 않는다.
 
-검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구한다. 따라서 `actor`로 호출하는 실수가 다시 들어오면 실패한다. `hyundap/ui/tests/`는 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성하기 전까지 인계용 원본으로 임시 보존한다. 아직 이전된 UI 검사가 없으므로 기존 16개 검사를 삭제하지 않으며, 이번 UI 수정에서 담당자의 `hyundap/tests/`는 변경하지 않는다.
+검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구한다. 따라서 `actor`로 호출하는 실수가 다시 들어오면 실패한다. UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전했다(#127).
 
 ## 10. 실제 연결 전 받아야 할 정보
 

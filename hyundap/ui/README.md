@@ -92,13 +92,13 @@ python hyundap/app.py --mode backend
 ## 검증 기록
 
 - 서비스 검사 6건, 화면 컨트롤러 검사 10건 통과.
-- 재실행: 프로젝트 폴더에서 `python -m unittest discover -s hyundap/ui/tests -v` (Gradio 설치 환경).
+- 재실행: 저장소 맨 위에서 `python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v` (Gradio 설치 환경).
 - Gradio 6.30.0 전체 화면 구성 검사: 101개 컴포넌트 생성 확인.
 - 브라우저에서 로그인→검색→부분 요약→질문/출처→해당 문서 이동·출처 모달/Esc·예시 파일 준비 확인.
 - 관리자 업로드 폼·입력 누락 안내·회사 변경 후 검색 범위 적용 확인.
 - 실제 백엔드·DB·LLM 통합 검수는 담당 함수 연결 후 별도로 수행해야 합니다.
 
-현재 `hyundap/ui/tests/`의 16개 검사는 인계용 원본으로 임시 유지합니다. 리뷰 담당자가 `hyundap/tests/`로 옮겨 작성할 예정이며, 아직 이전된 UI 검사가 없어 기존 검사를 삭제하지 않았습니다. 검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구해 예전 `actor` 호출이 다시 들어오면 실패하도록 했습니다. 테스트 폴더 이전과 import 기준 변경은 담당자 작업에 맞춰 진행합니다.
+UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전했습니다(#127). 검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구해 예전 `actor` 호출이 다시 들어오면 실패하도록 했습니다. 테스트 폴더 이전과 import 기준 변경은 담당자 작업에 맞춰 진행합니다.
 
 ## 리뷰 후속 반영
 

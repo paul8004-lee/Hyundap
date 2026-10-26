@@ -41,7 +41,7 @@ def create_db_engine() -> Engine:
 def main() -> int:
     """현재 DB의 연결과 지원 스키마 구조를 읽기 전용으로 확인한다.
 
-    명령: hyundap 폴더에서 python -m db.connection.
+    명령: 저장소 맨 위에서 python -m hyundap.db.connection.
     v3는 기존 구조로, v4는 추가 구조 검증 후 성공으로 판정한다.
     표준 출력에 접속 URL·DB 예외 원문을 노출하지 않고 성공 시 0, 실패 시 1을 반환한다.
     생성한 Engine은 성공·실패와 관계없이 닫으며 스키마 변경은 실행하지 않는다."""
@@ -50,12 +50,12 @@ def main() -> int:
         engine=create_db_engine()
         with engine.connect() as connection:
             version=connection.execute(text('SELECT version FROM schema_migrations')).scalar_one()
-            from db.schema import SUPPORTED_SCHEMA_VERSIONS, snapshot, validate_v4
+            from .schema import SUPPORTED_SCHEMA_VERSIONS, snapshot, validate_v4
             if version not in SUPPORTED_SCHEMA_VERSIONS:
                 print('DB_CHECK_FAILED: schema version mismatch')
                 return 1
             if version==4 and validate_v4(snapshot(connection)):
-                print('DB_CHECK_FAILED: incomplete schema v4; run python -m db.schema --check')
+                print('DB_CHECK_FAILED: incomplete schema v4; run python -m hyundap.db.schema --check')
                 return 1
             count=connection.execute(text('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()')).scalar_one()
         print(f'DB_CONNECTION_OK: schema_version={version}, tables={count}, '
