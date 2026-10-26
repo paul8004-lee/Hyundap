@@ -25,7 +25,7 @@ def load_pdf(file_path, upload_info):
         section_no = page.metadata["page"] + 1
         text = page.page_content
         if text.strip() == "":
-            doc.warnings.append(f"p. {section_no}: 글자가 없어 건너뜀")
+            doc.warnings.append(f"p.{section_no}: 글자가 없어 건너뜀")
             continue
         doc.sections.append(
             Section(

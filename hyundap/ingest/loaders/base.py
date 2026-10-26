@@ -9,9 +9,9 @@
 
 
 def build_location_label(kind, section_no, title=None):
-    """출처 표시용 위치 문구를 만든다. 예: 'p. 3' / '슬라이드 5' / '섹션 2 (제목)'"""
+    """출처 표시용 위치 문구를 만든다. 예: 'p.3' / '슬라이드 5' / '섹션 2 (제목)'"""
     if kind == "page":
-        return f"p. {section_no}"
+        return f"p.{section_no}"
     if kind == "slide":
         return f"슬라이드 {section_no}"
     if kind == "section":
