@@ -38,19 +38,19 @@ login·validate_session 반환 dict는 같은 형태다.
 
 | 필드 | 값 |
 |---|---|
-| user_id, role, company_id | DB 값. 역할은 소문자 3종으로 매핑. platform_admin의 company_id는 None |
+| user_id, role, company_id | DB 값 그대로. 역할은 소문자 3종으로 매핑. company_id는 DB 값이 NULL일 때만 None |
 | display_name | 컬럼이 없으므로 email의 `@` 앞부분 |
-| company_name | `companies.name`. 소속 회사가 없으면 None |
+| company_name | 소속 회사의 `companies.name`. company_id가 NULL이면 None |
 | allowed_company_ids | `allowed_companies` 결과를 정렬한 목록 |
 | token, session_id | 발급 토큰과 세션 ID. UI가 다시 넘기는 값이며 화면·로그에 출력하지 않는다 |
 
-비밀번호는 `scrypt$<n>$<r>$<p>$<salt>$<hash>` 문자열(base64, 255자 이하)로 `users.password_hash`에 저장한다. 기본값은 n=2^15, r=8, p=1, salt 16바이트, 결과 32바이트다. 비교는 상수 시간으로 한다. 로그인 시 재해시는 하지 않는다.
+비밀번호는 `scrypt$<n>$<r>$<p>$<salt>$<hash>` 문자열(base64, 255자 이하)로 `users.password_hash`에 저장한다. 기본값은 n=2^15, r=8, p=1, salt 16바이트, 결과 32바이트다. scrypt 호출마다 `maxmem = 128*r*(n+2) + 128*r*p + 32 MiB`(기본값에서 약 64 MiB)를 넘긴다. 저장값은 n이 2^14~2^16의 2 거듭제곱, r 1~8, p 1~2일 때만 쓰며, 범위 밖·형식 오류·NULL·scrypt `ValueError`는 메모리를 잡기 전에 실패로 보고 더미 검증 1회 뒤 False를 반환한다. 검증 함수는 예외를 내지 않는다. 더미 해시는 같은 파라미터로 미리 만든 상수 문자열이다. 비교는 상수 시간으로 한다. 로그인 시 재해시는 하지 않는다.
 
-없는 아이디, 틀린 비밀번호, 비활성 사용자·회사, 알 수 없는 역할, password_hash NULL은 모두 INVALID_CREDENTIALS 하나로 응답한다. 안내는 「아이디 또는 비밀번호가 올바르지 않습니다.」로 고정하고, 없는 아이디도 더미 해시 검증을 1회 수행해 응답 시간을 맞춘다. DB 장애는 실패 응답으로 바꾸지 않는다.
+없는 아이디, 틀린 비밀번호, 비활성 사용자, password_hash NULL, 알 수 없는 역할, 회사 없는 비 platform_admin, 회사가 지정됐지만 없거나 비활성인 사용자(역할 무관), 활성 회사가 하나도 없을 때의 platform_admin은 모두 INVALID_CREDENTIALS 하나로 응답한다. 이 검사는 `sessions_repo._check_company_role`·`allowed_companies`와 같으므로 login은 ACCESS_DENIED·SESSION_EXPIRED를 내지 않는다. 안내는 「아이디 또는 비밀번호가 올바르지 않습니다.」로 고정하고, 모든 실패에서 scrypt를 정확히 1회 수행해 응답 시간을 맞춘다. DB 장애는 실패 응답으로 바꾸지 않는다. 동시 로그인 시도마다 scrypt 메모리 약 32 MiB를 쓰며, 동시 실행 제한은 두지 않는다(수용한 위험. login_attempts 제한과 함께 후속 작업).
 
 토큰은 `secrets.token_urlsafe(32)`(43자), 세션 ID는 uuid4다. DB에는 토큰의 SHA-256만 저장한다. sessions.auth_version은 users.auth_version을 복사하고, expires_at은 `UTC_TIMESTAMP(6)` + `SESSION_TTL_MINUTES`(기본 480분)로 SQL에서 계산한다. 사용자 조회와 세션 추가는 한 트랜잭션이다. 새 로그인은 기존 세션을 폐기하지 않는다. 재검증은 만료를 연장하지 않는다. 브라우저가 보낸 role·company_id는 읽지 않는다.
 
-초기 계정은 운영자가 DB 접속 권한으로 CLI를 실행해 만든다. 비밀번호는 환경변수 `HYUNDAP_ACCOUNT_PASSWORD` 또는 getpass 입력(2회 확인)으로만 받고 명령 인자·로그·출력에 남기지 않는다. 길이는 12~1024자다. 역할은 platform_admin / company_admin / employee 중 하나이며, platform_admin은 회사 없이, 나머지는 활성 회사 ID와 함께 만든다. 첫 platform_admin도 같은 CLI로 만든다. 같은 login_identifier는 CONFLICT다.
+초기 계정은 운영자가 DB 접속 권한으로 CLI를 실행해 만든다. 비밀번호는 기본으로 getpass 입력(2회 확인)으로 받는다. 비대화형 실행에서만 비밀 저장소에서 export한 `HYUNDAP_ACCOUNT_PASSWORD`를 쓰며, 명령줄에 직접 적지 않는다. CLI는 읽은 직후 이 환경변수를 지운다. 비밀번호는 명령 인자·로그·출력에 남기지 않는다. 길이는 12~1024자다. 역할은 platform_admin / company_admin / employee 중 하나이며, platform_admin은 회사 없이, 나머지는 활성 회사 ID와 함께 만든다. 첫 platform_admin도 같은 CLI로 만든다. 같은 login_identifier는 CONFLICT다.
 
 ```python
 from hyundap.auth.session_service import login, logout, validate_session
