@@ -6,9 +6,10 @@
 
 import hashlib
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from hyundap.auth.errors import AccessError
+from . import legacy
 
 
 ROLE_MAP = {
@@ -62,12 +63,18 @@ def _read_valid_session(connection, session_id, digest, lock):
     suffix = ''
     if lock:
         suffix = ' FOR UPDATE'
+    deadline = ''
+    parameters = {'id': session_id, 'token_hash': digest}
+    columns = {column['name'] for column in inspect(connection).get_columns('sessions')}
+    if {'idle_expires_at', 'absolute_expires_at'} <= columns:
+        deadline = ' AND idle_expires_at>:legacy_now AND absolute_expires_at>:legacy_now'
+        parameters['legacy_now'] = legacy.epoch_now()
     # 기존 세션·사용자 키의 collation이 달라도 동작하도록 컬럼 간 JOIN을 피한다.
     session = connection.execute(text('''
         SELECT id,user_id,auth_version FROM sessions
         WHERE id=:id AND token_hash=:token_hash
           AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP(6)
-    ''' + suffix), {'id': session_id, 'token_hash': digest}).mappings().one_or_none()
+    ''' + deadline + suffix), parameters).mappings().one_or_none()
     if not session:
         raise AccessError('SESSION_EXPIRED')
     return session

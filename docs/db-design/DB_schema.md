@@ -1,6 +1,6 @@
 # 스키마 v4 정의 — #119
 
-2026-10-26 채택 계약: [DB_contract.md](DB_contract.md). 기존 8개 업무 테이블과 schema_migrations를 보존하고 document_versions/document_chunks만 추가한다. 실제 공유 DB는 접속 설정이 없어 아직 조회하지 못했다. 아래 구조와 격리 테스트의 v3 기준 구조를 실제 DB 실측 결과로 오해하지 않는다.
+2026-10-26 채택 계약: [DB_contract.md](DB_contract.md). 기존 8개 업무 테이블과 schema_migrations를 보존하고 document_versions/document_chunks만 추가한다. 실제 Railway v3 구조를 읽기 전용으로 확인했으며, 호환 패치와 적용 차단 조건은 [MIGRATION_v4.md](MIGRATION_v4.md)의 Railway 절차를 따른다. 아래 설계 구조와 기존 최소 v3 fixture는 실제 DB 실측 DDL과 다르다.
 
 ## 관계
 

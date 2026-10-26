@@ -393,7 +393,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
         """작업 생성 SQL 실패 시 같은 TX의 문서·후보도 롤백된다."""
         def fail_job_insert(conn, cursor, statement, parameters, context, executemany):
             """테스트에서 작업 INSERT에만 합성 DB 장애를 주입한다."""
-            if statement.lstrip().startswith('INSERT INTO index_jobs'):
+            if statement.replace('`', '').lstrip().startswith('INSERT INTO index_jobs'):
                 raise OperationalError('test', {}, Exception('synthetic-private-value'))
         event.listen(self.engine, 'before_cursor_execute', fail_job_insert)
         try:

@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from .errors import DbError
 from .runtime import require_id, transaction
+from . import legacy
 
 
 STAGES = ('received', 'ingest', 'embedding', 'verify', 'publish', 'complete')
@@ -256,3 +257,5 @@ def _store_stage_result(database, job_id, clean, reports):
         WHERE id=:id
     '''), {'stage': clean['stage'], 'report': json.dumps(reports, ensure_ascii=False),
           'code': code, 'message': message, 'id': job_id})
+    legacy.finish_job(database, job_id, complete=clean['stage'] == 'complete' and clean['status'] == 'success',
+                      failed=clean['status'] in ('failed', 'partial'))
