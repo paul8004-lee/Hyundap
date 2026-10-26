@@ -5,9 +5,7 @@
 
 함수:
     FUN-218 ingest_document — 검증·로딩·정규화·청킹을 순서대로 실행하고 IngestResult를 돌려준다.
-    FUN-219 build_ingest_report — 사용한 파서·청킹 설정·경고·구간/조각 수를 보고서로 구성한다.
-    
-파일 검증(6단계)과 처리 보고서(7단계)는 아직 추가 전"""
+    FUN-219 build_ingest_report — 사용한 파서·청킹 설정·경고·구간/조각 수를 보고서로 구성한다."""
 
 import os
 from importlib.metadata import version
