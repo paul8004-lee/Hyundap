@@ -105,7 +105,30 @@ verify_documents_access(actor, cited_pairs)  # None 또는 AccessError/DbError
 
 ## 4. 상태·트랜잭션·실패 계약
 
-### DB P1 문서 저장 보완 (db01, 2026-10-26)
+### DB P1 수집 보고서 저장 보완 (db01, 2026-10-26)
+
+`normalize_report(report)`는 ingest 단계에서 다음 선택 필드를 추가로 받는다.
+parser는 pypdf/python-docx/python-pptx, parser_version은 1~64자의 ASCII 영숫자와
+`._+-`이며 첫 글자는 영숫자다. 두 필드는 각각 생략할 수 있다.
+chunk_size는 bool 제외 양의 정수, chunk_overlap은 bool 제외 0 이상 정수이며
+둘 다 있으면 overlap < size다. section_count/chunk_count/warning_count는
+bool 제외 0 이상 정수다. 명시적 None은 거부하며 다른 단계의 수집 전용 필드도
+INVALID_INPUT이다. 기존 필드 없는 보고서는 계속 허용한다.
+
+warnings 원문은 제거하며 warning_count를 자동으로 만들지 않는다. 생산·호출 담당이
+안전한 개수를 전달한다. 임의 본문·비밀값·원시 오류 문구는 저장하지 않는다.
+
+`record_stage_result`는 수집 성공에 chunk_count가 명시되면 processing 버전의
+양수 expected_chunk_count와 현재 manifest 행 수가 모두 같아야 저장한다.
+부적격 버전 상태는 INVALID_STATE, 개수 모순은 INVALID_INPUT이다.
+버전 → 작업 순서로 잠근 뒤 소속을 재확인하고 청크 수는 현재 잠금 조회로 읽는다.
+REPEATABLE READ에서도 선행 참조 조회의 과거 snapshot을 개수 비교에 사용하지 않는다.
+검사·JSON·stage·오류 열 갱신은 같은 TX이며 호출자 연결을 커밋하지 않는다.
+다른 단계와 `_attempts`는 보존하고 성공 결과 변경·늦은 단계 기록은 CONFLICT다.
+manifest와 보고서의 호출부는 기존처럼 별도 TX이므로 전체 수집 결과의 원자성은
+이 계약으로 추가 보장하지 않는다.
+
+### 문서 메타데이터와 중복 조회 세부 규칙
 
 `validate_metadata`는 공통 `DOC_TYPE_CODES`로 저장 유형을 검사한다. doc_type 키가
 없으면 `DEFAULT_DOC_TYPE`을 사용하고, 명시적 None·빈 문자열·미등록 값은

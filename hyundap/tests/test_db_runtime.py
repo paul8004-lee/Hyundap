@@ -347,6 +347,48 @@ class DatabaseRuntimeTests(unittest.TestCase):
         self.assertEqual(reports['embedding']['failures'][0]['code'], 'API_TIMEOUT')
         self.assertNotIn('synthetic-secret', raw)
 
+    def test_ingest_count_mismatch_does_not_change_job(self):
+        """명시적 성공 청크 수를 예상·실제 manifest와 비교하고 모순 보고서는 저장하지 않는다."""
+        candidate = self.candidate()
+        version = candidate['version_id']
+        chunks_repo.save_manifest(version, [{'id': version + ':00000', 'chunk_index': 0,
+                                            'content_hash': 'b' * 64}])
+        with self.engine.connect() as database:
+            before = tuple(database.execute(text('SELECT stage,report,error_code FROM index_jobs WHERE id=:id'),
+                                            {'id': candidate['job_id']}).one())
+        for count in (0, 2):
+            with self.subTest(count=count), self.assertRaises(DbError) as caught:
+                jobs_repo.record_stage_result(candidate['job_id'],
+                    {'status': 'success', 'chunk_count': count})
+            self.assertEqual(caught.exception.code, 'INVALID_INPUT')
+        with self.engine.connect() as database:
+            after = tuple(database.execute(text('SELECT stage,report,error_code FROM index_jobs WHERE id=:id'),
+                                           {'id': candidate['job_id']}).one())
+        self.assertEqual(before, after)
+        report = {'status': 'success', 'chunk_count': 1, 'parser': 'pypdf',
+                  'parser_version': '6.21.2', 'warning_count': 0}
+        with self.engine.begin() as database:
+            jobs_repo.record_stage_result(candidate['job_id'], report, connection=database)
+            self.assertTrue(database.in_transaction())
+        jobs_repo.record_stage_result(candidate['job_id'], report)
+        with self.engine.connect() as database:
+            stored = json.loads(database.execute(text('SELECT report FROM index_jobs WHERE id=:id'),
+                                                {'id': candidate['job_id']}).scalar_one())
+        self.assertEqual(stored['ingest']['chunk_count'], 1)
+        self.assertEqual(stored['ingest']['parser'], 'pypdf')
+
+    def test_ingest_count_rejects_actual_manifest_drift(self):
+        """예상 수만 일치해도 실제 행 수가 다르면 저장을 거부한다."""
+        candidate = self.candidate()
+        version = candidate['version_id']
+        chunks_repo.save_manifest(version, [{'id': version + ':00000', 'chunk_index': 0,
+                                            'content_hash': 'b' * 64}])
+        with self.engine.begin() as database:
+            database.execute(text('DELETE FROM document_chunks WHERE version_id=:id'), {'id': version})
+        with self.assertRaises(DbError) as caught:
+            jobs_repo.record_stage_result(candidate['job_id'], {'status': 'success', 'chunk_count': 1})
+        self.assertEqual(caught.exception.code, 'INVALID_INPUT')
+
     def test_failed_job_insert_rolls_back_document_and_version(self):
         """작업 생성 SQL 실패 시 같은 TX의 문서·후보도 롤백된다."""
         def fail_job_insert(conn, cursor, statement, parameters, context, executemany):

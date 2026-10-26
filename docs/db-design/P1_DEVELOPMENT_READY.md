@@ -88,3 +88,7 @@ MySQL 잠금·동시성·원자성은 미검증이며 관련 이슈는 완료 �
 같은 브랜치에서 다음 묶음의 기획을
 [P1_CHUNK_REPORT_PLAN.md](P1_CHUNK_REPORT_PLAN.md)에 작성했다.
 새 보고서 필드·청크 수 비교·잠금 순서·개별 저장소 TX의 완료 조건을 구분한다.
+
+묶음 B 로컬 구현 후 최신 검증: test_ingest_storage 포함 60개 중 22개 통과·
+38개 MySQL skip·실패 0. 수집 보고서 필드·manifest 입력·이력 보존은 오프라인에서
+검증했고 새 저장 SQL의 MySQL 실행·잠금·경쟁·롤백은 대기다.
