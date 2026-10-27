@@ -16,6 +16,7 @@
 import hashlib
 import os
 import zipfile
+import zlib
 
 from pypdf import PdfReader
 
@@ -31,6 +32,13 @@ from .models import (
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx")
 MAX_FILE_BYTES = 104857600
 OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+# 확장자별 필수 파일과, 다른 형식임을 알려 주는 파일 (확장자만 바꾼 파일을 UNSUPPORTED_FORMAT으로 구분)
+ZIP_REQUIRED = {".docx": "word/document.xml", ".pptx": "ppt/presentation.xml"}
+ZIP_OTHER_FORMAT_MARKERS = ("word/document.xml", "ppt/presentation.xml", "xl/workbook.xml")
+ZIP_MACRO_MARKER = "vbaProject.bin"
+# zip을 읽다가 파일이 깨졌을 때 라이브러리가 내는 예외 (BadZipFile만 잡으면 zlib.error 등이 그대로 올라온다)
+ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError)
 
 
 def check_file_format(file_path):
@@ -102,18 +110,22 @@ def check_not_corrupted(file_path, extension, reader=None):
             raise IngestError(CORRUPTED_FILE)
         return
 
-    if extension == ".docx":
-        required = "word/document.xml"
-    else:
-        required = "ppt/presentation.xml"
+    required = ZIP_REQUIRED[extension]
     try:
         with zipfile.ZipFile(file_path) as z:
             bad = z.testzip()
             names = z.namelist()
-    except zipfile.BadZipFile:
+    except ZIP_READ_ERRORS:
         raise IngestError(CORRUPTED_FILE)
-    if bad is not None or required not in names:
+    if bad is not None:
         raise IngestError(CORRUPTED_FILE)
+    if required not in names:
+        # 다른 Office 형식(xlsx, pptx↔docx)이면 손상이 아니라 형식 오류다
+        if any(marker in names for marker in ZIP_OTHER_FORMAT_MARKERS):
+            raise IngestError(UNSUPPORTED_FORMAT)
+        raise IngestError(CORRUPTED_FILE)
+    if any(name.endswith(ZIP_MACRO_MARKER) for name in names):
+        raise IngestError(UNSUPPORTED_FORMAT)   # 매크로 포함 문서(.docm/.pptm)는 범위 밖
 
 
 def compute_file_hash(file_path):
