@@ -101,11 +101,18 @@ def load_docx(file_path, upload_info):
     title = None
     lines = []
     table_no = 0
+    style_names = {}
 
     for block in iter_blocks(docx_file.element.body, docx_file._body):
         if isinstance(block, Paragraph):
             text = block.text.strip()
-            if block.style.name.startswith("Heading"):
+            # [병목 해결을 위해, 수업에서 다루지 않은 block._p.style 사용]
+            # block.style.name은 스타일을 직접 지정하지 않은 문단마다 기본 스타일을 처음부터 다시 찾아서 느리다.
+            # 그래서 스타일 번호(block._p.style)만 먼저 읽고, 처음 보는 번호일 때만 이름을 읽어 style_names에 저장해 둔다.
+            style_id = block._p.style
+            if style_id not in style_names:
+                style_names[style_id] = block.style.name
+            if style_names[style_id].startswith("Heading"):
                 add_docx_section(doc, title, lines)
                 title = text
                 lines = []
