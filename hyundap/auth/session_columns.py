@@ -11,6 +11,7 @@ def build_session_insert(base_params, ttl_minutes):
 
     시간은 UTC Unix 초로 고정하며 생성·활동 시각과 유휴/절대 만료를 함께 채운다.
     인증 expires_at도 같은 절대 만료로 만든다. 별도 CSRF 원문은 반환·저장하지 않는다.
+    FROM_UNIXTIME 변환은 MySQL 세션 시간대가 UTC(+00:00)인 것을 전제로 한다.
     입력을 변경하거나 DB 구조를 조회하지 않으며 트랜잭션은 호출자가 소유한다.
     """
     now = epoch_now()
