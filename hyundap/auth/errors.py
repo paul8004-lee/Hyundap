@@ -8,6 +8,7 @@ class AccessError(Exception):
         'SESSION_EXPIRED': '다시 로그인해 주세요.',
         'ACCESS_DENIED': '접근 권한이 없습니다.',
         'STATE_CHANGED': '문서 상태가 변경되었습니다. 다시 요청해 주세요.',
+        'INVALID_CREDENTIALS': '아이디 또는 비밀번호가 올바르지 않습니다.',
     }
 
     def __init__(self, code):
