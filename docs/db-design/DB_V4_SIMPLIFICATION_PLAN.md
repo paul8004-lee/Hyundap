@@ -1,6 +1,9 @@
 # DB 개선안 — 최종 v4 스키마·내부 저장 계약 단일화
 
+> 2026-10-27 #168 구현 중 사용자 결정: v3 이행 도구를 폐기하고 운영 전환은 고려하지 않는다. 아래의 과도기 보존·운영 전환 제안은 이 결정으로 대체한다. 현재 구현·초기화 계약은 [V4_INITIALIZATION.md](V4_INITIALIZATION.md), 검증은 [V4_REFACTOR_VALIDATION.md](V4_REFACTOR_VALIDATION.md)를 따른다.
+
 작성일: 2026-10-27. 상태: 검토·후속 구현안. 현재 PR의 v3 호환 구조를 즉시 제거한 결과가 아니다.
+feature/db 적용을 위한 컬럼·함수·검증·운영 순서는 [V4_APPLICATION_PREPARATION.md](V4_APPLICATION_PREPARATION.md)에 구체화했다. 준비 문서 작성은 실제 DDL 적용이나 호환 코드 삭제를 의미하지 않는다.
 목적은 Railway와 내부 코드가 동일한 최종 v4 계약만 사용하도록 해 호환 분기·중복 저장을 줄이는 것이다.
 이번 문서 저장과 PR 피드백 조치는 실제 Railway DDL/DML 적용 승인을 의미하지 않는다.
 

@@ -1,5 +1,7 @@
 # db_test 브랜치 DB·메서드 동작 검증
 
+> 이 문서는 v4 단일화 전 P1 검증 이력이다. 당시 v3 fixture·호환 도구·테스트 명령은 현재 폐기되었다. 최종 v4의 초기화와 최신 290개 검증은 [V4_INITIALIZATION.md](V4_INITIALIZATION.md), [V4_REFACTOR_VALIDATION.md](V4_REFACTOR_VALIDATION.md)를 따른다.
+
 검증일: 2026-10-26. 기존 db_tset에서 db_test를 만들고 feature/db의
 4ce3778을 병합했다. 아래 결과는 병합 후 발견한 수정까지 포함한다.
 

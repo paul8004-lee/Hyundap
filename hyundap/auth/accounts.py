@@ -8,19 +8,15 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
-from hyundap.db import legacy
+from hyundap.db.clock import epoch_now
 from hyundap.db.errors import DbError
-from hyundap.db.runtime import get_table_columns, require_id, transaction
+from hyundap.db.runtime import require_id, transaction
 from .passwords import hash_password
 
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 1024
 EMAIL_MAX_LENGTH = 254
-# 앱 역할 이름 → users.role에 저장하는 기존 역할 코드(Railway users_ck_3).
-STORED_ROLES = {'platform_admin': 'SUPER_ADMIN', 'company_admin': 'COMPANY_ADMIN',
-                'employee': 'EMPLOYEE'}
-# 기본값이 없는 필수 시간 컬럼이다. users에 있을 때만 legacy.epoch_now() 값을 채운다.
-TIME_COLUMNS = ('created_at', 'updated_at')
+APP_ROLES = ('platform_admin', 'company_admin', 'employee')
 
 
 def create_account(email, role, company_id, password):
@@ -29,11 +25,11 @@ def create_account(email, role, company_id, password):
     platform_admin은 회사 없이, 나머지 역할은 활성 회사 ID와 함께 만든다.
     잘못된 입력은 쓰기 전에 DbError('INVALID_INPUT'), 같은 login_identifier는
     DbError('CONFLICT'), DB 장애는 DbError('DB_UNAVAILABLE')다. 이메일은 앞뒤 공백을 지우고
-    소문자로, 역할은 기존 역할 코드(SUPER_ADMIN 등)로 바꿔 저장하며 users에 created_at·
-    updated_at이 있으면 legacy.epoch_now() 값을 채운다(시간 단위가 잘못되면 INVALID_STATE).
+    소문자로 저장한다. 역할도 앱과 같은 소문자 코드를 사용하며 생성·갱신 시간은
+    UTC Unix 초로 채운다. 호출자 TX 안에서 고정 INSERT를 실행한다.
     """
     email = _check_email(email)
-    if role not in STORED_ROLES:
+    if role not in APP_ROLES:
         raise DbError('INVALID_INPUT')
     if role == 'platform_admin':
         if company_id is not None:
@@ -53,19 +49,12 @@ def create_account(email, role, company_id, password):
             if not active:
                 raise DbError('INVALID_INPUT')
         params = {'id': user_id, 'company_id': company_id, 'email': email,
-                  'role': STORED_ROLES[role], 'password_hash': stored}
-        columns = 'id,company_id,email,role,is_active,auth_version,password_hash'
-        values = ':id,:company_id,:email,:role,1,1,:password_hash'
-        names = {str(column['name']).lower() for column in get_table_columns(database, 'users')}
-        present = [name for name in TIME_COLUMNS if name in names]
-        if present:
-            now = legacy.epoch_now()
-            for name in present:
-                params[name] = now
-                columns += ',' + name
-                values += ',:' + name
+                  'role': role, 'password_hash': stored, 'now': epoch_now()}
         # login_identifier는 DB가 LOWER(TRIM(email))로 만들고 고유 키 충돌은 CONFLICT가 된다.
-        database.execute(text(f'INSERT INTO users ({columns}) VALUES ({values})'), params)
+        database.execute(text('''
+            INSERT INTO users (id,company_id,email,role,is_active,auth_version,password_hash,created_at,updated_at)
+            VALUES (:id,:company_id,:email,:role,1,1,:password_hash,:now,:now)
+        '''), params)
     return user_id
 
 
@@ -77,5 +66,4 @@ def _check_email(email):
     local, at, domain = email.partition('@')
     if not at or not local or not domain or '@' in domain or len(email) > EMAIL_MAX_LENGTH:
         raise DbError('INVALID_INPUT')
-    # Railway users_ck_1은 email이 LOWER(TRIM(email))과 같아야 한다.
     return email.lower()

@@ -26,7 +26,7 @@ class DatabaseSmokeServices(MockServices):
         with engine.begin() as db:
             db.execute(text('INSERT INTO companies (id,name) VALUES (:id,:name)'),
                        [{'id': code, 'name': label} for label, code in COMPANIES])
-            db.execute(text("INSERT INTO users (id,company_id,email,role) VALUES ('ui-manager','hri','ui@test.invalid','COMPANY_ADMIN')"))
+            db.execute(text("INSERT INTO users (id,company_id,email,role) VALUES ('ui-manager','hri','ui@test.invalid','company_admin')"))
         self.actor = session_fixture(engine, 'ui-manager', 'hri')
 
     async def login(self, username, password):

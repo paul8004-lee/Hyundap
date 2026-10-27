@@ -9,14 +9,13 @@ import hashlib
 from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
-from . import legacy
-from .runtime import get_table_columns
+from .clock import epoch_now
 
 
 ROLE_MAP = {
-    'platform_admin': 'platform_admin', 'SUPER_ADMIN': 'platform_admin',
-    'company_admin': 'company_admin', 'COMPANY_ADMIN': 'company_admin',
-    'employee': 'employee', 'EMPLOYEE': 'employee',
+    'platform_admin': 'platform_admin',
+    'company_admin': 'company_admin',
+    'employee': 'employee',
 }
 
 
@@ -64,18 +63,14 @@ def _read_valid_session(connection, session_id, digest, lock):
     suffix = ''
     if lock:
         suffix = ' FOR UPDATE'
-    deadline = ''
-    parameters = {'id': session_id, 'token_hash': digest}
-    columns = {column['name'] for column in get_table_columns(connection, 'sessions')}
-    if {'idle_expires_at', 'absolute_expires_at'} <= columns:
-        deadline = ' AND idle_expires_at>:legacy_now AND absolute_expires_at>:legacy_now'
-        parameters['legacy_now'] = legacy.epoch_now()
-    # 기존 세션·사용자 키의 collation이 달라도 동작하도록 컬럼 간 JOIN을 피한다.
+    parameters = {'id': session_id, 'token_hash': digest, 'now': epoch_now()}
+    # 세션 확인 후 사용자 행을 읽어 같은 잠금 순서를 유지한다.
     session = connection.execute(text('''
         SELECT id,user_id,auth_version FROM sessions
         WHERE id=:id AND token_hash=:token_hash
           AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP(6)
-    ''' + deadline + suffix), parameters).mappings().one_or_none()
+          AND idle_expires_at>:now AND absolute_expires_at>:now
+    ''' + suffix), parameters).mappings().one_or_none()
     if not session:
         raise AccessError('SESSION_EXPIRED')
     return session

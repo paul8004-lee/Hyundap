@@ -15,7 +15,7 @@ from hyundap.auth.errors import AccessError
 from .errors import DbError
 from .runtime import require_id, transaction
 from .sessions_repo import current_actor
-from . import legacy
+from . import jobs_repo
 
 
 # ponytail: P0 단일 프로세스의 게시/복구를 직렬화한다. 다중 작업자는 외부 작업 임대가 필요하다.
@@ -239,11 +239,11 @@ def read_job(database, version_id, *, lock=False):
 def write_publication(database, job, reports, publication, *, complete=False, error_code=None):
     """복구에 필요한 이전 포인터·공개 상태·단계를 작업 JSON에 원자적으로 저장한다."""
     reports['_publication'] = publication
-    database.execute(text('''
-        UPDATE index_jobs SET stage=:stage,report=:report,error_code=:code,error_message=:message WHERE id=:id
-    '''), {'stage': 'complete' if complete else 'publish', 'report': json.dumps(reports, ensure_ascii=False),
-          'code': error_code, 'message': '게시 상태 복구 필요' if error_code else None, 'id': job['id']})
-    legacy.finish_job(database, job['id'], complete=complete)
+    phase = publication['phase']
+    status = ('SUCCEEDED' if complete else 'FAILED' if phase in ('restored', 'superseded')
+              else 'QUEUED' if phase in ('pending_activation', 'restore_pending') else None)
+    jobs_repo.store_job_result(database, job['id'], 'complete' if complete else 'publish', reports,
+        status=status, error_code=error_code, error_message='게시 상태 복구 필요' if error_code else None)
 
 
 def ensure_no_pending_publication(database, document_id, *, except_job=None):
@@ -576,4 +576,3 @@ def finish_recovery(document_id, version_id):
         database.execute(text("UPDATE document_versions SET version_status='failed' WHERE id=:id"), {'id': version_id})
         publication['phase'] = 'restored'
         write_publication(database, job, reports, publication, error_code='ACTIVATION_FAILED')
-        legacy.finish_job(database, job['id'], failed=True)

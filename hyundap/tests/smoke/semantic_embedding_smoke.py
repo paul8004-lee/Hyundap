@@ -15,7 +15,6 @@ from sqlalchemy.engine import make_url
 
 from hyundap.common.config import get_settings
 from hyundap.db import runtime, schema
-from ..test_schema_migration import BASELINE, execute_script
 from .services import DatabaseSmokeServices
 
 
@@ -72,14 +71,10 @@ def main():
     url = make_url(os.environ['SEMANTIC_TEST_URL'])
     if url.host != '127.0.0.1' or not re.fullmatch(r'hyundap_semantic_eval_test(?:_[0-9a-f]{8})?', url.database or ''):
         raise SystemExit('Only a dedicated local semantic evaluation DB is allowed.')
-    engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True)
+    engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True,
+                           connect_args={'init_command': "SET time_zone='+00:00'"})
     try:
-        with engine.begin() as db:
-            if inspect(db).get_table_names():
-                raise RuntimeError('Refuse an existing database.')
-            execute_script(db, BASELINE)
-            execute_script(db, schema.prepare_sql(schema.snapshot(db)))
-            db.execute(text('UPDATE schema_migrations SET version=4'))
+        schema.create_v4_schema(engine)
         original_get_engine = runtime.get_engine
         runtime.get_engine = lambda: engine
         try:

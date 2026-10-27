@@ -14,14 +14,15 @@ import logging
 import os
 import sys
 import traceback
+from datetime import timezone
 import unittest
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, IntegrityError
 
 from hyundap.auth import session_columns, session_service
 from hyundap.auth.errors import AccessError
@@ -29,21 +30,19 @@ from hyundap.auth.passwords import hash_password
 from hyundap.common import config
 from hyundap.db import runtime, schema
 from hyundap.db.errors import DbError
-from hyundap.tests.test_schema_migration import BASELINE, execute_script
 
 PASSWORD = 'synthetic-Passw0rd!'
 MESSAGE = '아이디 또는 비밀번호가 올바르지 않습니다.'
 KEYS = {'user_id', 'display_name', 'role', 'company_id', 'company_name', 'allowed_company_ids',
         'token', 'session_id'}
-V3_COLUMNS = ('csrf_token_hash', 'created_at', 'last_seen_at', 'idle_expires_at', 'absolute_expires_at')
 REAL_SCRYPT = hashlib.scrypt
 _ENGINE = None
 
 
 def auth_test_engine():
-    """격리 테스트 DB에 기준 v3 + v4 마이그레이션을 한 번만 준비하고 Engine을 반환한다.
+    """빈 격리 테스트 DB에 최종 v4를 한 번 직접 생성하고 Engine을 반환한다.
 
-    두 테스트 모듈(session, accounts)이 같은 프로세스에서 공유한다. 기존 테이블이 있는
+    세 인증 테스트 모듈이 같은 프로세스에서 공유한다. 기존 테이블이 있는
     DB에는 실행하지 않으므로 다시 실행하려면 빈 hyundap_auth_test DB를 새로 만들어야 한다.
     """
     global _ENGINE
@@ -54,12 +53,7 @@ def auth_test_engine():
         engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True,
                                connect_args={'init_command': "SET time_zone='+00:00'"})
         atexit.register(engine.dispose)
-        with engine.begin() as database:
-            if inspect(database).get_table_names():
-                raise RuntimeError('기존 테이블이 있는 DB에는 실행하지 않습니다.')
-            execute_script(database, BASELINE)
-            execute_script(database, schema.prepare_sql(schema.snapshot(database)))
-            database.execute(text('UPDATE schema_migrations SET version=4 WHERE version=3'))
+        schema.create_v4_schema(engine)
         _ENGINE = engine
     return _ENGINE
 
@@ -206,8 +200,7 @@ class OfflineLoginFailureTests(unittest.TestCase):
         database.execute.return_value.mappings.return_value.one_or_none.return_value = {
             'id': 'user-id', 'password_hash': hash_password(PASSWORD), 'auth_version': 1}
         denied = patch.object(session_service, 'current_actor', side_effect=AccessError('ACCESS_DENIED'))
-        v4_only = patch.object(session_columns, 'get_table_columns', return_value=[])
-        with fake_transaction(database), denied, v4_only, \
+        with fake_transaction(database), denied, \
                 patch.object(hashlib, 'scrypt', side_effect=REAL_SCRYPT) as spy, \
                 self.assertRaises(AccessError) as caught:
             session_service.login(username='user@test.invalid', password=PASSWORD)
@@ -230,7 +223,6 @@ class DatabaseSessionTests(unittest.TestCase):
         unit = patch.dict(os.environ)
         unit.start()
         self.addCleanup(unit.stop)
-        os.environ.pop('DB_LEGACY_TIME_UNIT', None)
         self.ttl = config.get_settings().session_ttl_minutes
         self.company, self.company_name = make_company(self.engine)
 
@@ -270,18 +262,14 @@ class DatabaseSessionTests(unittest.TestCase):
                  ('wrong-password', make_user(self.engine, company_id=self.company)[1], PASSWORD + 'x', None),
                  ('inactive-user', make_user(self.engine, company_id=self.company, active=False)[1], PASSWORD, None),
                  ('inactive-company', make_user(self.engine, company_id=inactive_company)[1], PASSWORD, None),
-                 ('super-admin-inactive-company',
-                  make_user(self.engine, role='SUPER_ADMIN', company_id=inactive_company)[1], PASSWORD, None),
-                 ('unknown-role', make_user(self.engine, role='UNKNOWN', company_id=self.company)[1], PASSWORD, None),
                  ('null-hash', make_user(self.engine, company_id=self.company, password=None)[1], PASSWORD, None),
-                 ('employee-without-company', make_user(self.engine, company_id=None)[1], PASSWORD, None),
                  ('platform-admin-no-active-company',
                   make_user(self.engine, role='platform_admin', company_id=None)[1], PASSWORD,
                   self.deactivate_all_companies)]
         return cases
 
     def test_ac002_login_success_payload_and_row(self):
-        """직원·회사 없는 SUPER_ADMIN·회사 있는 SUPER_ADMIN 로그인 결과와 세션 행."""
+        """직원과 회사 없는 플랫폼 관리자의 로그인 결과와 필수 세션 행을 검증한다."""
         user_id, email = make_user(self.engine, company_id=self.company)
         before = session_count(self.engine)
         result = self.login(email)
@@ -303,16 +291,12 @@ class DatabaseSessionTests(unittest.TestCase):
                 {'id': result['session_id']}).scalar_one()
         self.assertLessEqual(abs(seconds - self.ttl * 60), 60)
 
-        _, admin_email = make_user(self.engine, role='SUPER_ADMIN', company_id=None)
+        _, admin_email = make_user(self.engine, role='platform_admin', company_id=None)
         admin = self.login(admin_email)
         self.assertEqual((admin['role'], admin['company_id'], admin['company_name']),
                          ('platform_admin', None, None))
         self.assertEqual(admin['allowed_company_ids'], active_company_ids(self.engine))
 
-        _, scoped_email = make_user(self.engine, role='SUPER_ADMIN', company_id=self.company)
-        scoped = self.login(scoped_email)
-        self.assertEqual((scoped['role'], scoped['company_id'], scoped['company_name']),
-                         ('platform_admin', self.company, self.company_name))
 
     def test_ac003_every_failure_branch_is_generic(self):
         """모든 실패 분기는 같은 INVALID_CREDENTIALS이며 세션 행을 추가하지 않는다."""
@@ -450,53 +434,41 @@ class DatabaseSessionTests(unittest.TestCase):
         self.assertIsNone(session_service.logout(session=dict(live, token='w' * 43)))
         self.assertIsNone(session_row(self.engine, live['session_id'])['revoked_at'])
 
-    def test_d11_v4_only_structure_uses_v4_insert(self):
-        """v3 세션 컬럼이 없는 v4 구조에서 로그인 INSERT가 성공한다."""
-        with self.engine.connect() as database:
-            columns = {column['name'] for column in inspect(database).get_columns('sessions')}
-        self.assertFalse(columns & set(V3_COLUMNS))
+    def test_final_session_has_all_required_security_columns(self):
+        """필수 CSRF와 세 만료값을 같은 초 기준으로 저장한다."""
         _, email = make_user(self.engine, company_id=self.company)
         result = self.login(email)
-        self.assertEqual(set(result), KEYS)
-        self.assertEqual(session_service.validate_session(session=result), result)
-
-    def test_d11_v3_columns_present_are_filled(self):
-        """v3 컬럼과 sessions_ck_3이 있으면 같은 INSERT가 그 값을 채우고 순서 제약을 지킨다."""
-        with self.engine.begin() as database:
-            database.execute(text('''
-                ALTER TABLE sessions ADD COLUMN csrf_token_hash varchar(64) NOT NULL,
-                  ADD COLUMN created_at bigint NOT NULL, ADD COLUMN last_seen_at bigint NOT NULL,
-                  ADD COLUMN idle_expires_at bigint NOT NULL, ADD COLUMN absolute_expires_at bigint NOT NULL,
-                  ADD CONSTRAINT sessions_ck_3 CHECK (created_at <= last_seen_at
-                    AND last_seen_at <= idle_expires_at AND idle_expires_at <= absolute_expires_at)
-            '''))
-        # 구조 캐시는 DDL을 모르므로 ALTER 전후로 비운다.
-        runtime.clear_schema_cache()
-
-        def drop_v3_columns():
-            with self.engine.begin() as database:
-                database.execute(text('ALTER TABLE sessions DROP CHECK sessions_ck_3'))
-                database.execute(text('''
-                    ALTER TABLE sessions DROP COLUMN csrf_token_hash, DROP COLUMN created_at,
-                      DROP COLUMN last_seen_at, DROP COLUMN idle_expires_at, DROP COLUMN absolute_expires_at
-                '''))
-            runtime.clear_schema_cache()
-        self.addCleanup(drop_v3_columns)
-        _, email = make_user(self.engine, company_id=self.company)
-        result = self.login(email)
-        self.assertEqual(set(result), KEYS)
         row = session_row(self.engine, result['session_id'])
-        digest = hashlib.sha256(result['token'].encode('utf-8')).hexdigest()
-        self.assertRegex(row['csrf_token_hash'], r'^[0-9a-f]{64}$')
-        self.assertNotEqual(row['csrf_token_hash'], digest)
         self.assertEqual(row['created_at'], row['last_seen_at'])
         self.assertEqual(row['idle_expires_at'], row['absolute_expires_at'])
-        self.assertEqual(row['idle_expires_at'] - row['created_at'], self.ttl * 60)
-        with self.engine.connect() as database:
-            now = database.execute(text('SELECT UNIX_TIMESTAMP()')).scalar_one()
-        self.assertLessEqual(abs(int(now) - row['created_at']), 60)
-        self.assertEqual(session_service.validate_session(session=result), result)
-        self.assertIsNone(session_service.logout(session=result))
+        self.assertEqual(row['absolute_expires_at'] - row['created_at'], self.ttl * 60)
+        self.assertEqual(int(row['expires_at'].replace(tzinfo=timezone.utc).timestamp()),
+                         row['absolute_expires_at'])
+        self.assertNotEqual(row['csrf_token_hash'], row['token_hash'])
+        self.assertEqual(session_service.validate_session(result), result)
+
+    def test_invalid_user_states_are_rejected_by_final_constraints(self):
+        """지원하지 않는 역할·회사 조합은 DB 제약으로 거부한다."""
+        for role, company in (('UNKNOWN', self.company), ('employee', None),
+                              ('platform_admin', self.company), ('SUPER_ADMIN', None)):
+            with self.subTest(role=role, company=company), self.assertRaises((IntegrityError, OperationalError)):
+                make_user(self.engine, role=role, company_id=company)
+
+    def test_registration_and_login_do_not_reflect_schema(self):
+        """계정 등록과 로그인에서 업무 구조 조회를 하지 않는다."""
+        from hyundap.auth import accounts
+        statements = []
+        def capture(conn, cursor, sql, params, context, many):
+            """시험 중 실행한 SQL만 수집한다."""
+            statements.append(sql.lower())
+        event.listen(self.engine, 'before_cursor_execute', capture)
+        try:
+            email = uuid4().hex + '@test.invalid'
+            accounts.create_account(email, 'employee', self.company, PASSWORD)
+            self.login(email)
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', capture)
+        self.assertFalse(any('information_schema' in sql or 'show create' in sql for sql in statements))
 
 
 if __name__ == '__main__':
