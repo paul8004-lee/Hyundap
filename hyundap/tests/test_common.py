@@ -50,8 +50,10 @@ class DocTypeTests(unittest.TestCase):
 
     def test_codes_match_db_check_constraint(self):
         """공통 목록과 DB documents.doc_type CHECK 제약의 허용 값이 같은지 확인한다."""
-        from hyundap.db.schema import CHECKS
-        allowed = set(re.findall(r"'([^']+)'", CHECKS['documents']['ck_v4_doc_type']))
+        from hyundap.db.schema import DESIGN_DIR
+        import json
+        contract = json.loads((DESIGN_DIR / 'schema_v4_contract.json').read_text(encoding='utf-8'))
+        allowed = set(re.findall(r"'([^']+)'", contract['documents']['checks']['ck_v4_doc_type'][0]))
         self.assertEqual(DOC_TYPE_CODES, allowed)
 
 

@@ -25,6 +25,13 @@ class DatabaseConnectionTests(unittest.TestCase):
         with patch.dict('os.environ',{},clear=True),patch.object(connection,'load_dotenv'),self.assertRaises(ValueError):
             connection.create_db_engine()
 
+    def test_engine_initializes_mysql_session_in_utc(self):
+        """앱 Engine은 세션 시간대를 UTC로 설정해 만료 시각 변환을 보호한다."""
+        with patch.dict('os.environ', {'DATABASE_URL': 'mysql://team:password@localhost/db'}, clear=True), \
+                patch.object(connection, 'load_dotenv'), patch.object(connection, 'create_engine') as create:
+            connection.create_db_engine()
+        self.assertIn("time_zone='+00:00'", create.call_args.kwargs['connect_args']['init_command'])
+
     def test_invalid_urls_do_not_expose_credentials(self):
         """드라이버·포트·비밀번호가 잘못된 URL의 오류에 비밀값이 노출되지 않는지 확인한다."""
         for value in ('sqlite:///private-password','mysql://team:private-password@localhost:99999/db','mysql://team@localhost/db'):

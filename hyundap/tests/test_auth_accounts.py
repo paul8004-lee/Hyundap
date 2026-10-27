@@ -54,87 +54,47 @@ class OfflineCreateAccountInputTests(unittest.TestCase):
             engine.assert_not_called()
 
 
-BASELINE_USER_COLUMNS = ('id', 'company_id', 'email', 'role', 'is_active', 'password_hash',
-                         'auth_version', 'login_identifier')
-RAILWAY_USER_COLUMNS = BASELINE_USER_COLUMNS + ('google_sub', 'created_at', 'updated_at', 'password')
-
-
 @contextmanager
-def fake_write(columns):
-    """accounts의 트랜잭션·구조 조회를 mock으로 바꾸고 (연결, INSERT 인자 조회 함수)를 넘긴다."""
+def fake_write():
+    """고정 INSERT의 인자를 확인하는 가짜 트랜잭션을 제공한다."""
     database = MagicMock()
-
     @contextmanager
     def transaction(connection=None):
+        """호출자가 만든 가짜 연결을 전달한다."""
         yield database
-
     def insert_call():
-        """users INSERT 호출의 (SQL 문자열, 인자 dict)를 반환한다."""
+        """users INSERT의 SQL과 인자를 반환한다."""
         for call in database.execute.call_args_list:
-            sql = str(call.args[0])
-            if 'INSERT INTO users' in sql:
-                return sql, call.args[1]
-        raise AssertionError('users INSERT가 실행되지 않았습니다.')
-
-    with patch.object(accounts, 'transaction', transaction), \
-            patch.object(accounts, 'get_table_columns',
-                         return_value=[{'name': name} for name in columns]):
+            if 'INSERT INTO users' in str(call.args[0]):
+                return str(call.args[0]), call.args[1]
+        raise AssertionError('users INSERT was not called')
+    with patch.object(accounts, 'transaction', transaction):
         yield database, insert_call
 
 
 class OfflineCreateAccountWriteTests(unittest.TestCase):
-    """리뷰 R1 — 저장 직전 시간값 채움·역할 매핑·이메일 정규화(mock 연결, DB 동작은 DB 테스트가 확인)."""
-
-    def setUp(self):
-        environ = patch.dict(os.environ)
-        environ.start()
-        self.addCleanup(environ.stop)
-        os.environ.pop('DB_LEGACY_TIME_UNIT', None)
-
-    def test_railway_time_columns_are_filled_from_epoch_now(self):
-        """users에 created_at·updated_at이 있으면 legacy.epoch_now() 값으로 둘 다 채운다."""
-        with fake_write(RAILWAY_USER_COLUMNS) as (_, insert_call), \
-                patch.object(accounts.legacy, 'epoch_now', return_value=1234) as now:
+    """최종 v4의 고정 시간·역할·이메일 저장 계약을 검증한다."""
+    def test_final_timestamps_use_one_unix_second_value(self):
+        """생성·갱신 시각을 동일한 Unix 초 하나로 저장한다."""
+        with fake_write() as (_, insert_call), patch.object(accounts, 'epoch_now', return_value=1234) as now:
             accounts.create_account(EMAIL, 'platform_admin', None, PASSWORD)
         sql, params = insert_call()
         now.assert_called_once_with()
-        self.assertEqual((params['created_at'], params['updated_at']), (1234, 1234))
-        self.assertIn('created_at', sql)
-        self.assertIn('updated_at', sql)
-        self.assertNotIn('google_sub', sql)
+        self.assertEqual(params['now'], 1234)
+        self.assertIn('created_at,updated_at', sql)
+        self.assertEqual(sql.count(':now'), 2)
 
-    def test_baseline_without_time_columns_adds_nothing_and_ignores_unit(self):
-        """시간 컬럼이 없으면 인자에 넣지 않고 시간 단위 설정도 읽지 않는다."""
-        os.environ['DB_LEGACY_TIME_UNIT'] = 'invalid-unit'
-        with fake_write(BASELINE_USER_COLUMNS) as (_, insert_call):
-            accounts.create_account(EMAIL, 'platform_admin', None, PASSWORD)
-        sql, params = insert_call()
-        self.assertNotIn('created_at', sql)
-        self.assertNotIn('created_at', params)
-        self.assertNotIn('updated_at', params)
-
-    def test_invalid_time_unit_blocks_before_insert(self):
-        """시간 컬럼이 있는데 시간 단위가 잘못되면 INVALID_STATE이며 INSERT하지 않는다."""
-        os.environ['DB_LEGACY_TIME_UNIT'] = ''
-        with fake_write(RAILWAY_USER_COLUMNS) as (database, _), self.assertRaises(DbError) as caught:
-            accounts.create_account(EMAIL, 'platform_admin', None, PASSWORD)
-        self.assertEqual(caught.exception.code, 'INVALID_STATE')
-        self.assertFalse(any('INSERT INTO users' in str(call.args[0])
-                             for call in database.execute.call_args_list))
-
-    def test_roles_are_mapped_to_stored_codes_before_insert(self):
-        """platform_admin→SUPER_ADMIN, company_admin→COMPANY_ADMIN, employee→EMPLOYEE로 저장한다."""
-        company = str(uuid4())
-        cases = (('platform_admin', None, 'SUPER_ADMIN'), ('company_admin', company, 'COMPANY_ADMIN'),
-                 ('employee', company, 'EMPLOYEE'))
-        for role, company_id, stored in cases:
-            with self.subTest(role=role), fake_write(BASELINE_USER_COLUMNS) as (_, insert_call):
-                accounts.create_account(EMAIL, role, company_id, PASSWORD)
-                self.assertEqual(insert_call()[1]['role'], stored)
+    def test_roles_are_stored_without_legacy_mapping(self):
+        """세 앱 역할을 변환 없이 소문자로 저장한다."""
+        for role in accounts.APP_ROLES:
+            with self.subTest(role=role), fake_write() as (_, insert_call):
+                company = None if role == 'platform_admin' else str(uuid4())
+                accounts.create_account(EMAIL, role, company, PASSWORD)
+                self.assertEqual(insert_call()[1]['role'], role)
 
     def test_email_is_stripped_and_lowercased_before_insert(self):
-        """앞뒤 공백을 지우고 소문자로 바꾼 이메일을 저장한다(users_ck_1)."""
-        with fake_write(BASELINE_USER_COLUMNS) as (_, insert_call):
+        """이메일의 공백을 제거하고 소문자로 저장한다."""
+        with fake_write() as (_, insert_call):
             accounts.create_account('  Mixed.Case@Test.INVALID ', 'platform_admin', None, PASSWORD)
         self.assertEqual(insert_call()[1]['email'], 'mixed.case@test.invalid')
 
@@ -302,16 +262,18 @@ class DatabaseCreateAccountTests(unittest.TestCase):
                 FROM users WHERE id=:id
             '''), {'id': user_id}).mappings().one()
         self.assertEqual((row['role'], row['auth_version'], row['is_active'], row['login_identifier'],
-                          row['company_id']), ('COMPANY_ADMIN', 1, 1, 'new@test.invalid', company))
+                          row['company_id']), ('company_admin', 1, 1, 'new@test.invalid', company))
         self.assertTrue(verify_password(PASSWORD, row['password_hash']))
         session = session_service.login(username='New@Test.invalid', password=PASSWORD)
         self.assertEqual((session['user_id'], session['role']), (user_id, 'company_admin'))
 
     def test_ac012_conflict_and_company_state(self):
         """정규화한 이메일 중복은 CONFLICT, 비활성·없는 회사는 INVALID_INPUT이며 행이 늘지 않는다."""
+        company, _ = make_company(self.engine)
+        accounts.create_account('example@test.invalid', 'employee', company, PASSWORD)
         before = self.user_count()
         with self.assertRaises(DbError) as caught:
-            accounts.create_account(' example@test.invalid ', 'employee', 'company-a', PASSWORD)
+            accounts.create_account(' example@test.invalid ', 'employee', company, PASSWORD)
         self.assertEqual(caught.exception.code, 'CONFLICT')
         inactive, _ = make_company(self.engine, active=False)
         for company_id in (inactive, str(uuid4())):

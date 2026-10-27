@@ -15,9 +15,9 @@ from threading import RLock
 from sqlalchemy import text
 
 from hyundap.common.config import get_settings
-from . import chunks_repo, documents_repo, jobs_repo, legacy, versions_repo, version_service
+from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
 from .errors import DbError
-from .runtime import get_table_columns, require_id, transaction
+from .runtime import require_id, transaction
 
 
 # ponytail: P0의 단일 앱 프로세스에서 업로드·같은 후보 재시도를 순차 실행한다.
@@ -323,11 +323,6 @@ def create_upload_candidate(actor, company_id, values, source, root):
             text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
             {'path': str(destination), 'id': ids['version_id']},
         )
-        # 기존 문서의 첫 원본 포인터는 보존하고 새 문서만 최종 경로로 확정한다.
-        if not values.get('document_id') and 'storage_key' in {
-                column['name'] for column in get_table_columns(database, 'documents')}:
-            database.execute(text('UPDATE documents SET storage_key=:path WHERE id=:id'),
-                             {'path': str(destination), 'id': ids['document_id']})
         database.execute(
             text('UPDATE index_jobs SET attempts=1,report=:report WHERE id=:id'),
             {'id': ids['job_id'], 'report': json.dumps({'_upload_root': str(root)})},
@@ -450,12 +445,7 @@ def reset_retry_records(database, version_id, job_id, report):
         text("UPDATE document_versions SET version_status='processing' WHERE id=:id"),
         {'id': version_id},
     )
-    database.execute(text('''
-        UPDATE index_jobs SET stage='received', attempts=attempts+1, report=:report,
-                              error_code=NULL, error_message=NULL
-        WHERE id=:id
-    '''), {'id': job_id, 'report': json.dumps(report, ensure_ascii=False)})
-    legacy.reset_job_for_retry(database, job_id)
+    jobs_repo.reset_job_for_retry(database, job_id, report)
 
 
 def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):

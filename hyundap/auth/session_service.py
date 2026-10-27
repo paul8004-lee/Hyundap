@@ -16,7 +16,7 @@ from hyundap.db.sessions_repo import current_actor, token_hash
 from .errors import AccessError
 from .passwords import verify_password
 from .permissions import allowed_companies
-from .session_columns import build_session_insert, present_legacy_columns
+from .session_columns import build_session_insert
 
 USERNAME_MAX_LENGTH = 254
 PASSWORD_MAX_LENGTH = 1024
@@ -48,7 +48,6 @@ def login(username, password):
             token = secrets.token_urlsafe(32)
             session_id = str(uuid4())
             sql, params = build_session_insert(
-                present_legacy_columns(database),
                 {'id': session_id, 'user_id': user['id'], 'token_hash': token_hash(token),
                  'auth_version': user['auth_version']}, ttl)
             database.execute(text(sql), params)

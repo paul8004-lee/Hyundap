@@ -13,7 +13,6 @@ from sqlalchemy.engine import make_url
 
 from hyundap.common.config import get_settings
 from hyundap.db import runtime, schema
-from ..test_schema_migration import BASELINE, execute_script
 from .services import DatabaseSmokeServices
 
 
@@ -24,14 +23,10 @@ def main():
     url = make_url(os.environ['UI_DB_TEST_URL'])
     if url.host != '127.0.0.1' or url.database not in ('hyundap_ui_test', 'hyundap_semantic_test'):
         raise RuntimeError('전용 로컬 UI 시험 DB만 허용합니다.')
-    engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True)
+    engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True,
+                           connect_args={'init_command': "SET time_zone='+00:00'"})
     try:
-        with engine.begin() as db:
-            if inspect(db).get_table_names():
-                raise RuntimeError('기존 테이블이 있는 DB는 사용하지 않습니다.')
-            execute_script(db, BASELINE)
-            execute_script(db, schema.prepare_sql(schema.snapshot(db)))
-            db.execute(text('UPDATE schema_migrations SET version=4'))
+        schema.create_v4_schema(engine)
         runtime.get_engine = lambda: engine
         with TemporaryDirectory(prefix='hyundap-ui-originals-', ignore_cleanup_errors=True) as directory:
             # UI 시험이 기존 벡터 자료와 섞이지 않도록 새 경로를 실행마다 사용한다.

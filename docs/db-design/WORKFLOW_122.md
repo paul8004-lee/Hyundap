@@ -84,8 +84,8 @@ P0는 단일 앱 프로세스의 업로드/게시/복구 직렬 실행이다. Py
 
 저장소 루트에서 `python -m unittest discover -s hyundap/tests -t . -v`를 실행한다. 워크플로 통합 테스트는 DB_WORKFLOW_TEST_URL(host=127.0.0.1, database=hyundap_workflow_test)의 빈 일회용 DB만 허용한다. 기존 테이블이 있으면 중단한다. 다른 두 fixture는 DB_RUNTIME_TEST_URL과 DB_MIGRATION_TEST_URL을 별도 빈 DB로 설정한다.
 
-DB 회귀 검증은 실제 로컬 MySQL과 임시 원본 파일, fake 수집기·벡터 저장소 조합이다. 최소 v3 fixture와 실제 Railway DDL 재현 fixture를 구분한다. 실제 공유 DB는 읽기 전용 점검을 완료했으며 최근 결과는 v3·구조 진단 36개다. 기존 데이터 이행·운영 DDL 적용과 인증/UI 연결은 별도 대기다. 이전 실제 임베딩 표본 시험은 SEMANTIC_SEARCH_TEST.md, 회귀 범위는 DB_TEST_VALIDATION.md 및 2026-10-27 검토 보고서에 기록한다.
+DB 회귀 검증은 최종 v4를 직접 생성한 로컬 MySQL과 임시 원본 파일, fake 수집기·벡터 저장소 조합이다. v3 fixture·이행 도구는 #168의 사용자 결정으로 폐기했다. Railway 쓰기와 실제 API 호출은 없으며 인증/UI 운영 바인딩을 완료했다는 의미도 아니다. 최신 회귀는 V4_REFACTOR_VALIDATION.md를 따르고 이전 시험·P1 검증 문서는 당시 이력으로 보존한다.
 
-2026-10-27 보완: finish_recovery는 후보 비활성 확인·실패 표시·restored 기록과 함께 기존 작업을 FAILED/종료 시각으로 같은 TX에 확정한다. 정리 실패로 restore_pending인 작업은 종료하지 않는다. reset_retry_records는 기존 상태를 QUEUED로 맞추고 attempt_no=증가한 attempts, finished_at/started_at/heartbeat_at/lease_token/lease_expires_at=NULL을 함께 저장한다. 기존 활성 작업 UNIQUE와 충돌하면 후보 상태·시도 횟수·원장 초기화까지 롤백한다. 외부 콜백은 이 TX 확정 후 실행된다.
+2026-10-27 최종 v4: write_publication은 jobs_repo.store_job_result로 상태·보고서를 함께 저장한다. restore_pending은 QUEUED로 활성 보호를 유지하고 restored/superseded는 FAILED로 종료한다. reset_retry_records는 jobs_repo.reset_job_for_retry로 QUEUED·received·attempts 증가·finished_at/started_at 초기화를 저장한다. 활성 작업 UNIQUE와 충돌하면 후보 상태·시도 횟수·원장 초기화까지 롤백한다. 외부 콜백은 이 TX 확정 후 실행된다.
 
 로그인 범위 제거 전 2026-10-26 검증: Python 3.11 / SQLAlchemy 2.0.55 / MySQL 8.4.13에서 루트 전체 테스트 53개가 건너뜀 없이 통과했다. 원본 경로·작업 정보의 원자 기록과 재시도 경로 검사를 마지막 보완한 뒤 전용 새 DB에서 워크플로 18개도 다시 통과했다. 짧은 절대 import·sys.path 조작이 없고, 모든 모듈·클래스·함수의 한글 독스트링, Python 컴파일과 공백 검사를 확인했다. 실제 외부 API 호출은 없었다.

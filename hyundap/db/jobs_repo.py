@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from .errors import DbError
 from .runtime import require_id, transaction
-from . import legacy
+from .clock import epoch_now
 
 
 STAGES = ('received', 'ingest', 'embedding', 'verify', 'publish', 'complete')
@@ -252,10 +252,42 @@ def _store_stage_result(database, job_id, clean, reports):
     message = None
     if code:
         message = f'처리 실패: {code}'
+    status = None
+    if clean['status'] in ('failed', 'partial'):
+        status = 'FAILED'
+    elif clean['stage'] == 'complete' and clean['status'] == 'success':
+        status = 'SUCCEEDED'
+    store_job_result(database, job_id, clean['stage'], reports, status=status,
+                     error_code=code, error_message=message)
+
+
+def store_job_result(database, job_id, stage, report, *, status=None,
+                     error_code=None, error_message=None):
+    """검증된 단계·보고서·종료 상태를 한 UPDATE로 저장한다. 호출자 TX에 참여한다.
+
+    내부 서비스 전용 보조 함수이며 상태 전이 권한은 호출자가 검사한다.
+    status 생략은 현재 상태·종료 시간을 보존한다. 직접 커밋하지 않는다.
+    """
+    if status not in (None, 'QUEUED', 'SUCCEEDED', 'FAILED', 'CANCELLED') or stage not in STAGES:
+        raise DbError('INVALID_INPUT')
     database.execute(text('''
-        UPDATE index_jobs SET stage=:stage,report=:report,error_code=:code,error_message=:message
+        UPDATE index_jobs SET stage=:stage,report=:report,error_code=:code,error_message=:message,
+            status=COALESCE(:status,status),updated_at=:now,
+            finished_at=CASE WHEN :status='QUEUED' THEN NULL
+                WHEN :status IS NOT NULL THEN :now ELSE finished_at END
         WHERE id=:id
-    '''), {'stage': clean['stage'], 'report': json.dumps(reports, ensure_ascii=False),
-          'code': code, 'message': message, 'id': job_id})
-    legacy.finish_job(database, job_id, complete=clean['stage'] == 'complete' and clean['status'] == 'success',
-                      failed=clean['status'] in ('failed', 'partial'))
+    '''), {'id': job_id, 'stage': stage, 'report': json.dumps(report, ensure_ascii=False),
+          'status': status, 'now': epoch_now(), 'code': error_code, 'message': error_message})
+
+
+def reset_job_for_retry(database, job_id, report):
+    """검증된 작업을 같은 TX에서 재시도 상태로 저장한다. 반환값·직접 커밋은 없다.
+
+    다른 활성 작업과 UNIQUE 충돌하면 버전 변경까지 호출자의 TX에서 취소된다.
+    시도 이력은 호출자가 만든 report에 보존하고 attempts만 한 번 증가시킨다.
+    """
+    database.execute(text('''
+        UPDATE index_jobs SET status='QUEUED',stage='received',attempts=attempts+1,
+            report=:report,error_code=NULL,error_message=NULL,started_at=NULL,
+            finished_at=NULL,updated_at=:now WHERE id=:id
+    '''), {'id': job_id, 'report': json.dumps(report, ensure_ascii=False), 'now': epoch_now()})

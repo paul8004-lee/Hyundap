@@ -23,9 +23,8 @@ from sqlalchemy.engine import make_url
 
 from hyundap.auth.errors import AccessError
 from hyundap.common.schemas import Chunk
-from hyundap.db import chunks_repo, documents_repo, runtime, schema, version_service
+from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, version_service
 from hyundap.db.errors import DbError
-from .test_schema_migration import BASELINE, execute_script
 from .test_db_runtime import session_fixture
 
 
@@ -131,12 +130,7 @@ class UploadWorkflowTests(unittest.TestCase):
         cls.engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True,
                                    connect_args={'init_command': "SET time_zone='+00:00'"})
         cls.addClassCleanup(cls.engine.dispose)
-        with cls.engine.begin() as database:
-            if inspect(database).get_table_names():
-                raise RuntimeError('기존 테이블이 있는 DB에는 실행하지 않습니다.')
-            execute_script(database, BASELINE)
-            execute_script(database, schema.prepare_sql(schema.snapshot(database)))
-            database.execute(text('UPDATE schema_migrations SET version=4 WHERE version=3'))
+        schema.create_v4_schema(cls.engine)
 
     def setUp(self):
         """테스트별 회사·관리자·원본 파일·벡터 저장소를 준비한다."""
@@ -153,7 +147,7 @@ class UploadWorkflowTests(unittest.TestCase):
                               {'id': self.other_company, 'name': '다른 합성 회사'}])
             database.execute(text('''INSERT INTO users
                 (id,company_id,email,role)
-                VALUES (:id,:company,:email,'COMPANY_ADMIN')'''),
+                VALUES (:id,:company,:email,'company_admin')'''),
                 {'id': self.user_id, 'company': self.company, 'email': email})
         self.actor = session_fixture(self.engine, self.user_id, self.company)
         temporary = TemporaryDirectory()
@@ -208,6 +202,8 @@ class UploadWorkflowTests(unittest.TestCase):
         with self.engine.begin() as database:
             database.execute(text("UPDATE document_versions SET version_status='ready' WHERE id=:id"),
                              {'id': result['version_id']})
+            # 게시만 시험하는 fixture는 색인 작업을 먼저 종료해 여러 준비 후보를 만든다.
+            jobs_repo.store_job_result(database, result['job_id'], 'verify', {}, status='SUCCEEDED')
         return result
 
     def publish(self, candidate, expected=None):
@@ -440,11 +436,11 @@ class UploadWorkflowTests(unittest.TestCase):
         """오래된 복구 요청은 새 포인터를 보존하고 superseded만 기록한다."""
         previous = self.upload()
         candidate = self.candidate(previous['document_id'])
+        latest = self.candidate(previous['document_id'])
         complete = self.version_service.validate_completeness(
             candidate['document_id'], candidate['version_id'], embedding=self.embedding)
         self.version_service.prepare_publication(self.actor, candidate['document_id'],
             candidate['version_id'], self.company, previous['version_id'], complete['_seal'])
-        latest = self.candidate(previous['document_id'])
         with self.engine.begin() as database:
             database.execute(text('UPDATE documents SET active_version_id=:version WHERE id=:id'),
                              {'version': latest['version_id'], 'id': latest['document_id']})
@@ -485,8 +481,8 @@ class UploadWorkflowTests(unittest.TestCase):
         """플랫폼 관리자도 비활성 회사에는 외부 벡터 조회 전에 게시를 거절한다."""
         candidate = self.candidate()
         with self.engine.begin() as database:
-            database.execute(text("UPDATE users SET role='SUPER_ADMIN',company_id=:company WHERE id=:id"),
-                             {'company': self.other_company, 'id': self.user_id})
+            database.execute(text("UPDATE users SET role='platform_admin',company_id=NULL WHERE id=:id"),
+                             {'id': self.user_id})
             database.execute(text('UPDATE companies SET is_active=0 WHERE id=:id'), {'id': self.company})
         with patch.object(self.embedding, 'get_version_chunk_ids') as ids_query, \
                 patch.object(self.embedding, 'get_document_chunks') as chunks_query:
