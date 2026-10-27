@@ -82,7 +82,7 @@ flowchart LR
 | ② | 용량 | 1바이트 이상 100MiB(104,857,600바이트) 이하 | `FILE_TOO_LARGE`, 0바이트는 `CORRUPTED_FILE` |
 | ③ | 암호화 | PDF는 `is_encrypted`, DOCX·PPTX는 OLE2 시작값 | `ENCRYPTED_FILE` |
 | ④ | 손상 | PDF는 1쪽 이상 열림, DOCX·PPTX는 압축 정상 + 필수 파일 존재 | `CORRUPTED_FILE` |
-| ⑤ | 해시 | 파일 전체 SHA-256 (1MiB씩 읽음) | — |
+| ⑤ | 해시 | 파일 전체 SHA-256 (1MiB씩 읽음); 호출자가 검증한 해시를 제공하면 재사용 | — |
 | ⑥ | 중복 | 같은 회사에 같은 해시 문서가 있으면 중복 (파일명이 달라도) | `DUPLICATE_FILE` |
 
 - 비밀번호를 받아 푸는 기능은 없습니다.
@@ -160,8 +160,12 @@ IngestResult         status("success"|"failed"), chunks(list[Chunk]), report(dic
 | `CORRUPTED_FILE` | 깨진 파일 또는 0바이트 | 용량·손상 검사, 로더 | 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인한 뒤 다시 올려 주세요. |
 | `DUPLICATE_FILE` | 같은 회사에 같은 내용이 이미 있음 | 중복 검사 | 같은 회사에 동일한 내용의 파일이 이미 등록되어 있습니다. |
 | `EMPTY_DOCUMENT` | 추출된 글자가 없음 (스캔본 등) | 로더 이후, 청킹 | 문서에서 글자를 읽을 수 없습니다. 스캔한 이미지 문서는 지원하지 않습니다. |
+| `INVALID_DOC_TYPE` | 지원하지 않는 문서 유형 | 수집 진입 | 문서 유형을 확인해 주세요. |
+| `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 | 수집 처리 | 파일을 다시 업로드해 주세요. |
 
-- 안내 문구는 `IngestError`에 문구를 따로 주지 않았을 때 쓰는 기본 문구이며(`models.py`의 `ERROR_MESSAGES`), 사용자 화면에 그대로 보입니다.
+- 안내 문구는 `IngestError`의 기본 문구다. DB 업로드 결과는 원문을 전달하지 않고 UI가 코드별 안내를 표시한다.
+- `LEGACY_FORMAT` 안내는 준비되어 있지만 구형 Office 판별은 아직 구현되지 않았다. DB 후보 생성 전에는 유형·파일 접근 오류도 작업 원장 없이 반환한다.
+- 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수다. 20자는 임시 진단 기준이며 검색 품질 합격 기준이 아니다.
 - 문구는 임시안이며, UI 담당(박경환)과 맞춘 뒤 확정합니다.
 
 ## 8. 설정값
@@ -178,7 +182,7 @@ IngestResult         status("success"|"failed"), chunks(list[Chunk]), report(dic
 
 | 순서 | 만들 것 | 완료 기준 |
 |---|---|---|
-| 1 | `models.py` — `IngestError`, `IngestResult` | 오류 코드 6개로 오류를 만들고 `code`/`message`를 꺼낼 수 있다 |
+| 1 | `models.py` — `IngestError`, `IngestResult` | 오류 코드로 오류를 만들고 `code`/`message`를 꺼낼 수 있다 |
 | 2 | `validator.py` — 형식·용량 → 암호화·손상 → 해시·중복 | 정상 파일은 통과하고, 잘못된 파일마다 정해진 오류 코드가 나온다 |
 | 3 | `loaders/base.py` — `build_location_label`, `table_to_text` | `p.3`, `슬라이드 5`, `섹션 2 (제목)` 문구, 표 조각마다 머리글 복제 |
 | 4 | `pdf_loader.py` → `docx_loader.py` → `pptx_loader.py`, `loaders/__init__.py` | 샘플 파일 → `CommonDocument`, 섹션 수·위치 문구가 맞다 |

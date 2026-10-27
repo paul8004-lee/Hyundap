@@ -72,7 +72,7 @@ def validate_metadata(metadata):
     """업로드 계약의 필수 값·길이·분류·해시를 검사해 새 dict로 돌려준다.
 
     파일 검증·원본 저장은 여기서 수행하지 않는다. storage_path는 서버가 정한 내부 경로다.
-    doc_type 생략은 공통 기본값이며 명시적 None/빈 값/미등록 코드는 INVALID_INPUT이다.
+    doc_type 생략은 공통 기본값이며 명시적 None/빈 값/미등록 코드는 INVALID_DOC_TYPE이다.
     입력을 변경하거나 DB에 연결하지 않는다.
     """
     if not isinstance(metadata, dict):
@@ -85,7 +85,7 @@ def validate_metadata(metadata):
     require_id(result['company_id'])
     require_hash(result['sha256'])
     if not isinstance(result['doc_type'], str) or result['doc_type'] not in DOC_TYPE_CODES:
-        raise DbError('INVALID_INPUT')
+        raise DbError('INVALID_DOC_TYPE')
     if result['data_category'] not in ('operational', 'evaluation'):
         raise DbError('INVALID_INPUT')
     for field_name, max_length in (('file_name', 255), ('storage_path', 1024)):

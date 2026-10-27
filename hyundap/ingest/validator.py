@@ -15,6 +15,7 @@
 
 import hashlib
 import os
+import re
 import zipfile
 import zlib
 
@@ -148,10 +149,10 @@ def check_duplicate(file_hash, company_id, find_by_hash=None):
         raise IngestError(DUPLICATE_FILE)
 
 
-def validate_upload(file_path, company_id, find_by_hash=None):
+def validate_upload(file_path, company_id, find_by_hash=None, file_hash=None):
     """업로드 파일 검사를 정해진 순서(형식→용량→암호화→손상→해시→중복)로 실행한다.
 
-    해시·중복 검사는 find_by_hash를 넘겼을 때만 하고, 넘기지 않으면 건너뛴다(db가 전담)."""
+    중복 조회가 있을 때 검증된 해시를 재사용하고, 없으면 파일에서 계산한다."""
     extension = check_file_format(file_path)
     size_bytes = check_file_size(file_path)
     reader = None
@@ -159,10 +160,11 @@ def validate_upload(file_path, company_id, find_by_hash=None):
         reader = open_pdf(file_path)
     check_not_encrypted(file_path, extension, reader)
     check_not_corrupted(file_path, extension, reader)
-    # 해시·중복 검사는 find_by_hash를 받았을 때만 한다. 없으면 file_hash는 None이다.
-    file_hash = None
+    if file_hash is not None and (not isinstance(file_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", file_hash)):
+        raise ValueError("file_hash must be a lowercase SHA-256 digest")
     if find_by_hash is not None:
-        file_hash = compute_file_hash(file_path)
+        if file_hash is None:
+            file_hash = compute_file_hash(file_path)
         check_duplicate(file_hash, company_id, find_by_hash)
     return {
         "file_name": os.path.basename(file_path),
