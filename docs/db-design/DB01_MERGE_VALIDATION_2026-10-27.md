@@ -26,4 +26,4 @@ python -m unittest discover -s hyundap/tests -t .
 
 ## 전달 상태
 
-검증 후 db01 로컬 병합 커밋을 확정한다. 이 보고서 외 실행 코드는 feature/db 6d334ee와 동일하다. db01 원격 push는 이번 요청에 포함하지 않아 수행하지 않는다. 원래 PR 요청의 소스는 feature/db, 대상은 develop으로 유지하며 db01 검증 결과를 PR 본문에 기록한다.
+검증 후 db01 병합 커밋 f61f66f를 확정했다. 이 보고서 외 실행 코드는 feature/db 6d334ee와 동일하다. 이후 사용자 요청에 따라 db01을 원격 push하고 db01 → develop PR을 생성한다. 기존 feature/db → develop PR #176은 새 PR로 대체하며 원본 브랜치는 유지한다. 이번 전달 보완은 문서만 변경하므로 기존 332개 테스트·충돌 0건 결과를 따른다.
