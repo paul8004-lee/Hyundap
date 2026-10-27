@@ -21,6 +21,9 @@ from .base import build_location_label, table_to_text
 from hyundap.common.schemas import CommonDocument, Section
 from ..models import CORRUPTED_FILE, IngestError
 
+# 글자를 읽지 않는 그림·도형·차트·텍스트 상자(w:drawing, 구형 w:pict). mc:Fallback 안의 중복 표현은 뺀다.
+UNREAD_OBJECTS_XPATH = ".//w:drawing | .//w:pict[not(ancestor::*[local-name()='Fallback'])]"
+
 
 def add_docx_section(doc, title, lines):
     """제목과 모아 둔 글로 구간 1개를 만들어 문서에 더한다."""
@@ -118,4 +121,7 @@ def load_docx(file_path, upload_info):
             lines.extend(table_to_text(rows))
 
     add_docx_section(doc, title, lines)
+    unread = len(docx_file.element.body.xpath(UNREAD_OBJECTS_XPATH))
+    if unread > 0:
+        doc.warnings.append(f"그림·도형·차트·텍스트 상자 {unread}개는 글자를 읽지 않음")
     return doc
