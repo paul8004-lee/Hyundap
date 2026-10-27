@@ -4,11 +4,15 @@
 DB_AUTH_TEST_URL(127.0.0.1/hyundap_auth_test, 빈 DB)일 때만 실행한다. 합성 데이터만 쓴다.
 """
 
+import ast
 import io
 import logging
 import os
+import subprocess
+import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -135,6 +139,68 @@ class OfflineCliTests(unittest.TestCase):
         self.assertEqual(err, DbError.MESSAGES['CONFLICT'] + '\n')
         self.assertNotIn('HYUNDAP_ACCOUNT_PASSWORD', os.environ)
         self.assert_no_secret(out, err)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NEW_MODULES = ('passwords', 'session_service', 'session_columns', 'accounts', 'create_account')
+FORBIDDEN_TABLES = ('login_attempts', 'oauth_states', 'audit_logs')
+
+
+def imported_modules(source, package):
+    """소스의 import 대상 모듈 이름 집합을 절대 이름으로 반환한다(from X import y는 X.y도 포함)."""
+    names = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ''
+            if node.level:
+                parent = package.rsplit('.', node.level - 1)[0] if node.level > 1 else package
+                base = parent + ('.' + base if base else '')
+            names.add(base)
+            names.update(f'{base}.{alias.name}' for alias in node.names)
+    return names
+
+
+class BoundaryTests(unittest.TestCase):
+    """AC-014 + N6 — import 방향·허용 목록·금지 테이블·변경 파일 범위."""
+
+    def test_db_modules_never_import_new_auth_modules(self):
+        """hyundap/db/*.py는 새 auth 모듈을 import하지 않는다(검출기 자체도 합성 소스로 확인)."""
+        banned = {f'hyundap.auth.{name}' for name in NEW_MODULES}
+        self.assertTrue(banned & imported_modules('from hyundap.auth import session_service', 'hyundap.db'))
+        self.assertTrue(banned & imported_modules('from ..auth.passwords import x', 'hyundap.db'))
+        files = sorted((REPO_ROOT / 'hyundap' / 'db').glob('*.py'))
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(path=path.name):
+                found = imported_modules(path.read_text(encoding='utf-8'), 'hyundap.db')
+                self.assertFalse(found & banned)
+
+    def test_new_modules_import_allowlist_and_tables(self):
+        """새 모듈은 표준 라이브러리·SQLAlchemy·hyundap.db·config·auth만 쓰고 금지 테이블을 언급하지 않는다."""
+        for name in NEW_MODULES:
+            source = (REPO_ROOT / 'hyundap' / 'auth' / f'{name}.py').read_text(encoding='utf-8')
+            with self.subTest(module=name):
+                for module in imported_modules(source, 'hyundap.auth'):
+                    top = module.split('.')[0]
+                    allowed = (top in sys.stdlib_module_names or top == 'sqlalchemy'
+                               or module.startswith(('hyundap.db', 'hyundap.auth', 'hyundap.common.config')))
+                    self.assertTrue(allowed, module)
+                for table in FORBIDDEN_TABLES:
+                    self.assertNotIn(table, source.lower())
+
+    def test_diff_does_not_touch_forbidden_paths(self):
+        """origin/develop 기준 변경 파일에 의존성·스키마·UI·DB 패키지·기존 DB 테스트가 없다."""
+        result = subprocess.run(['git', 'diff', '--name-only', 'origin/develop...HEAD'], cwd=REPO_ROOT,
+                                capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            self.skipTest('origin/develop을 확인할 수 없음')
+        changed = result.stdout.split()
+        forbidden = ('requirements.txt', 'hyundap/db/', 'docs/db-design/', 'hyundap/ui/',
+                     'hyundap/tests/test_db_runtime.py', 'hyundap/tests/test_schema_migration.py')
+        for path in changed:
+            self.assertFalse(path.startswith(forbidden), path)
 
 
 @unittest.skipUnless(os.getenv('DB_AUTH_TEST_URL'), '격리 MySQL URL 필요 (DB_AUTH_TEST_URL)')
