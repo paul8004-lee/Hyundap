@@ -576,3 +576,4 @@ def finish_recovery(document_id, version_id):
         database.execute(text("UPDATE document_versions SET version_status='failed' WHERE id=:id"), {'id': version_id})
         publication['phase'] = 'restored'
         write_publication(database, job, reports, publication, error_code='ACTIVATION_FAILED')
+        legacy.finish_job(database, job['id'], failed=True)

@@ -164,8 +164,12 @@ class UploadWorkflowTests(unittest.TestCase):
         self.upload_dir = self.directory / 'uploads'
         self.embedding = FakeEmbedding()
 
-    def ingest(self, path, upload_info):
+    def ingest(self, path, upload_info, *, find_by_hash=None):
         """업로드 식별자를 그대로 반영한 두 개의 공통 청크를 만든다."""
+        if find_by_hash is not None:
+            digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+            if find_by_hash(upload_info['company_id'], digest):
+                return {'status': 'failed', 'error_code': 'DUPLICATE_FILE'}
         chunks = []
         for index in range(2):
             chunks.append(Chunk(
@@ -271,7 +275,7 @@ class UploadWorkflowTests(unittest.TestCase):
             chunks: list[Chunk]
             report: dict
 
-        def ingest_dataclass(path, info):
+        def ingest_dataclass(path, info, *, find_by_hash=None):
             """일반 수집 결과를 데이터클래스 결과로 감싼다."""
             return IngestResult(**self.ingest(path, info))
 
@@ -297,7 +301,7 @@ class UploadWorkflowTests(unittest.TestCase):
         """외부 수집기의 예상 밖 예외 원문이 반환값과 작업 원장에 노출되지 않는다."""
         secret = 'synthetic-private-external-value'
 
-        def failing_ingest(path, info):
+        def failing_ingest(path, info, *, find_by_hash=None):
             """비밀 문자열을 포함한 외부 모듈 예외를 발생시킨다."""
             raise RuntimeError(secret)
 

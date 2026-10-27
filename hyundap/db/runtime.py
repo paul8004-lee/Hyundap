@@ -3,11 +3,44 @@
 import re
 from contextlib import contextmanager
 from functools import lru_cache
+from threading import RLock
+from weakref import WeakKeyDictionary
 
+from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .connection import create_db_engine
 from .errors import DbError
+
+
+_schema_columns = WeakKeyDictionary()
+_schema_lock = RLock()
+
+
+def get_table_columns(connection, table):
+    """Engine별 읽기 전용 테이블 구조를 캐시하고 컬럼 메타데이터 tuple을 반환한다.
+
+    connection과 table은 내부 DB 연결·테이블 이름이다. 최초 요청은 호출자 연결로
+    구조만 조회하며 업무 행·DB 쓰기·커밋은 없다. DDL 완료 후 clear_schema_cache가 필요하다.
+    Engine은 약한 참조로 보관해 캐시가 회수를 막지 않는다. 반환 메타데이터는 수정하지 않는다.
+    """
+    with _schema_lock:
+        tables = _schema_columns.setdefault(connection.engine, {})
+        if table not in tables:
+            tables[table] = tuple(inspect(connection).get_columns(table))
+        return tables[table]
+
+
+def clear_schema_cache(engine=None):
+    """지정 Engine 또는 전체 구조 캐시를 비운다. 반환값과 DB 접근·커밋은 없다.
+
+    쓰기를 중지한 DDL/이행 완료 후 또는 Engine 설정 변경 시 사용한다. 기본은 전체 삭제다.
+    """
+    with _schema_lock:
+        if engine is None:
+            _schema_columns.clear()
+        else:
+            _schema_columns.pop(engine, None)
 
 
 @lru_cache(maxsize=1)

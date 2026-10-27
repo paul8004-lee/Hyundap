@@ -18,7 +18,7 @@ from .chat_page import render_answer, render_citation, render_scope_hint
 from .admin_page import render_upload_result
 from .components import show_feedback, render_header, render_login_error
 from .search_page import document_rows, render_document, render_evidence, render_coverage
-from .services import COMPANIES, UIServiceError
+from .services import company_choices, UIServiceError
 
 
 @dataclass
@@ -172,8 +172,7 @@ class UIController:
         ctx.user = user
         ctx.results, ctx.selected, ctx.citations = [], None, []
         ctx.query, ctx.doc_type, ctx.scope = "", "__all__", "선택 문서"
-        allowed = set(user.get("allowed_company_ids") or [])
-        companies = [(name, code) for name, code in COMPANIES if code in allowed]
+        companies = company_choices(user, demo=self.service.demo or getattr(self.service, "temporary_auth", False))
         ctx.company = "__all__" if user.get("role") == "platform_admin" else user.get("company_id")
         upload_company = user.get("company_id") or (companies[0][1] if companies else None)
         choices = [("전체 회사", "__all__"), *companies] if user.get("role") == "platform_admin" else companies

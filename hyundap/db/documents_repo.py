@@ -3,12 +3,12 @@
 import mimetypes
 from uuid import uuid4
 
-from sqlalchemy import bindparam, inspect, text
+from sqlalchemy import bindparam, text
 
 from hyundap.auth.errors import AccessError
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
-from .runtime import require_hash, require_id, transaction
+from .runtime import get_table_columns, require_hash, require_id, transaction
 from .sessions_repo import current_actor
 from . import legacy
 
@@ -194,7 +194,7 @@ def _insert_version_and_job(database, document_id, data):
          (id,document_id,company_id,version_no,file_name,storage_path,sha256,file_size,data_category)
         VALUES (:id,:document_id,:company_id,:version_no,:file_name,:storage_path,:sha256,:file_size,:data_category)
     '''), values)
-    legacy_columns = {column['name'] for column in inspect(database).get_columns('documents')}
+    legacy_columns = {column['name'] for column in get_table_columns(database, 'documents')}
     revision = {'generation': 0, 'content_revision': 0}
     if {'generation', 'content_revision'} <= legacy_columns:
         database.execute(text('UPDATE documents SET generation=generation+1 WHERE id=:id'), {'id': document_id})
