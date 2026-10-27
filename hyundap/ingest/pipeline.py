@@ -13,9 +13,11 @@ from importlib.metadata import version
 from .chunker import chunk_document
 from .loaders import load_document
 from hyundap.common.config import get_settings
-from hyundap.common.schemas import DEFAULT_DOC_TYPE, HEADER_KEYS
+from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES, HEADER_KEYS
 from .models import (
     EMPTY_DOCUMENT,
+    FILE_UNAVAILABLE,
+    INVALID_DOC_TYPE,
     STATUS_FAILED,
     STATUS_SUCCESS,
     IngestError,
@@ -30,16 +32,18 @@ PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
 def ingest_document(file_path, upload_info, find_by_hash=None):
     """검증→로드→정규화→청킹을 순서대로 실행하고 결과를 IngestResult로 돌려준다."""
     upload_info = dict(upload_info)
-    if not upload_info.get("doc_type"):
+    if "doc_type" not in upload_info:
         upload_info["doc_type"] = DEFAULT_DOC_TYPE
 
     for key in HEADER_KEYS:
         if key not in upload_info:
             raise ValueError(f"upload_info에 {key} 가 없습니다")
-        if not isinstance(upload_info[key], str) or not upload_info[key].strip():
+        if key != "doc_type" and (not isinstance(upload_info[key], str) or not upload_info[key].strip()):
             raise ValueError(f"upload_info의 {key} 값이 올바르지 않습니다")
 
     try:
+        if not isinstance(upload_info["doc_type"], str) or upload_info["doc_type"] not in DOC_TYPE_CODES:
+            raise IngestError(INVALID_DOC_TYPE)
         validate_upload(file_path, upload_info["company_id"], find_by_hash)
         doc = load_document(file_path, upload_info)
         doc = normalize_document(doc)
@@ -49,6 +53,9 @@ def ingest_document(file_path, upload_info, find_by_hash=None):
         report = build_ingest_report(file_path, doc, chunks)
     except IngestError as e:
         return IngestResult(status=STATUS_FAILED, error_code=e.code, error_message=e.message)
+    except (FileNotFoundError, PermissionError):
+        error = IngestError(FILE_UNAVAILABLE)
+        return IngestResult(status=STATUS_FAILED, error_code=error.code, error_message=error.message)
 
     return IngestResult(status=STATUS_SUCCESS, chunks=chunks, report=report)
 
