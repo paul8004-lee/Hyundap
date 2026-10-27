@@ -1,7 +1,7 @@
 """실제 임베딩·Chroma·MySQL의 소규모 의미 검색 시험. 합성 문서만 외부 API에 전송한다.
 
 SEMANTIC_TEST_URL은 127.0.0.1의 빈 hyundap_semantic_eval_test DB만 허용한다.
-실행: python -m hyundap.tests.semantic_embedding_smoke. API 키는 루트 .env에서 읽는다.
+실행: python -m hyundap.tests.smoke.semantic_embedding_smoke. API 키는 루트 .env에서 읽는다.
 """
 import asyncio
 import json
@@ -10,14 +10,13 @@ import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from docx import Document
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from hyundap.common.config import get_settings
 from hyundap.db import runtime, schema
-from .test_schema_migration import BASELINE, execute_script
-from .ui_db_smoke import DatabaseSmokeServices
+from ..test_schema_migration import BASELINE, execute_script
+from .services import DatabaseSmokeServices
 
 
 SAMPLES = (
@@ -31,6 +30,8 @@ SAMPLES = (
 
 
 async def seed_samples(service, directory):
+    from docx import Document
+
     session = await service.login('manager', 'demo1234')
     uploaded = {}
     for name, content, _ in SAMPLES:

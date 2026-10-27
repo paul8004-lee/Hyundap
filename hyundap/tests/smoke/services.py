@@ -1,28 +1,17 @@
-"""로컬 DB UI 확인 전용. 실제 MySQL·수집기·임베딩·Chroma, 합성 세션을 사용한다.
-
-운영 인증/LLM 구현이 아니다. UI_DB_TEST_URL은 127.0.0.1의 빈 시험 DB만
-허용하며 기존 DB에는 fixture를 적용하지 않는다. 임베딩은 실제 API를 호출한다.
-"""
+"""Gradio 앱을 import하지 않는 DB 시험 어댑터. 합성 인증 전용이다."""
 import asyncio
-import os
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 
-from hyundap.app import APP_JS, build_app
 from hyundap.auth.permissions import verify_documents_access
-from hyundap.common.config import get_settings
-from hyundap.db import documents_repo, runtime, schema, upload_service, version_service
+from hyundap.db import documents_repo, upload_service, version_service
 from hyundap.db.errors import DbError
-from hyundap.ui.components import get_theme
 from hyundap.ui.mock_services import MockServices
 from hyundap.ui.services import BackendServices, COMPANIES, UIServiceError, to_plain
 from hyundap.search import search as search_documents
 from hyundap.search.errors import SearchError
-from .test_db_runtime import session_fixture
-from .test_schema_migration import BASELINE, execute_script
+from ..test_db_runtime import session_fixture
 
 
 class DatabaseSmokeServices(MockServices):
@@ -82,38 +71,3 @@ class DatabaseSmokeServices(MockServices):
 
     async def summarize(self, *args, **kwargs):
         raise UIServiceError('TEST_SCOPE', '이 실행은 DB 업로드·조회 시험용입니다. LLM은 연결하지 않았습니다.')
-
-
-def main():
-    url = make_url(os.environ['UI_DB_TEST_URL'])
-    if url.host != '127.0.0.1' or url.database not in ('hyundap_ui_test', 'hyundap_semantic_test'):
-        raise RuntimeError('전용 로컬 UI 시험 DB만 허용합니다.')
-    engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True)
-    try:
-        with engine.begin() as db:
-            if inspect(db).get_table_names():
-                raise RuntimeError('기존 테이블이 있는 DB는 사용하지 않습니다.')
-            execute_script(db, BASELINE)
-            execute_script(db, schema.prepare_sql(schema.snapshot(db)))
-            db.execute(text('UPDATE schema_migrations SET version=4'))
-        runtime.get_engine = lambda: engine
-        with TemporaryDirectory(prefix='hyundap-ui-originals-', ignore_cleanup_errors=True) as directory:
-            # UI 시험이 기존 벡터 자료와 섞이지 않도록 새 경로를 실행마다 사용한다.
-            os.environ['CHROMA_DB_PATH'] = str(Path(directory) / 'chroma')
-            get_settings.cache_clear()
-            service = DatabaseSmokeServices(engine, Path(directory))
-            if os.environ.get('UI_SEMANTIC_SEED') == '1':
-                from .semantic_embedding_smoke import seed_samples
-                asyncio.run(seed_samples(service, Path(directory)))
-                print('SEMANTIC_UI_READY: 3 synthetic documents indexed with real embeddings', flush=True)
-            app = build_app(service)
-            app.title = 'Hyundap DB 시험 · 실제 임베딩·Chroma · 인증 대역'
-            port = int(os.environ.get('UI_DB_TEST_PORT', '7861'))
-            app.launch(server_name='127.0.0.1', server_port=port, share=False,
-                       theme=get_theme(), css=app.hyundap_css, js=APP_JS, footer_links=[])
-    finally:
-        engine.dispose()
-
-
-if __name__ == '__main__':
-    main()

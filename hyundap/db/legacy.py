@@ -7,9 +7,10 @@
 import os
 import time
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 from .errors import DbError
+from .runtime import get_table_columns
 
 
 def epoch_now():
@@ -30,7 +31,7 @@ def insert(connection, table, values, legacy_values):
     """
     if table not in ('documents', 'index_jobs'):
         raise DbError('INVALID_INPUT')
-    columns = {column['name']: column for column in inspect(connection).get_columns(table)}
+    columns = {column['name']: column for column in get_table_columns(connection, table)}
     supplied = dict(values)
     for name, value in legacy_values.items():
         if name in columns:
@@ -56,7 +57,7 @@ def finish_job(connection, job_id, *, complete=False, failed=False):
     """
     if not (complete or failed):
         return
-    columns = {column['name'] for column in inspect(connection).get_columns('index_jobs')}
+    columns = {column['name'] for column in get_table_columns(connection, 'index_jobs')}
     if {'status', 'finished_at', 'updated_at'} <= columns:
         connection.execute(text('''
             UPDATE index_jobs SET status=:status,finished_at=:now,updated_at=:now WHERE id=:id
@@ -70,7 +71,7 @@ def reset_job_for_retry(connection, job_id):
     attempt_no를 증가한 attempts와 맞춘다. 기존 활성 작업과 충돌하면 DB 오류를
     전달해 호출자의 버전/P1 상태 변경까지 함께 롤백하게 한다. 직접 커밋하지 않는다.
     """
-    columns = {column['name'] for column in inspect(connection).get_columns('index_jobs')}
+    columns = {column['name'] for column in get_table_columns(connection, 'index_jobs')}
     if not {'status', 'attempt_no', 'finished_at', 'updated_at'} <= columns:
         return
     updates = ["status='QUEUED'", 'attempt_no=attempts', 'finished_at=NULL', 'updated_at=:now']

@@ -6,10 +6,11 @@
 
 import hashlib
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
 from . import legacy
+from .runtime import get_table_columns
 
 
 ROLE_MAP = {
@@ -65,7 +66,7 @@ def _read_valid_session(connection, session_id, digest, lock):
         suffix = ' FOR UPDATE'
     deadline = ''
     parameters = {'id': session_id, 'token_hash': digest}
-    columns = {column['name'] for column in inspect(connection).get_columns('sessions')}
+    columns = {column['name'] for column in get_table_columns(connection, 'sessions')}
     if {'idle_expires_at', 'absolute_expires_at'} <= columns:
         deadline = ' AND idle_expires_at>:legacy_now AND absolute_expires_at>:legacy_now'
         parameters['legacy_now'] = legacy.epoch_now()

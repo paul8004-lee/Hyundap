@@ -31,7 +31,7 @@ OpenAI `text-embedding-3-small`을 사용했다. 최소 점수는 기존 기본�
 
 ## 재현과 UI 확인
 
-실제 API 시험은 `python -m hyundap.tests.semantic_embedding_smoke`로 실행한다.
+실제 API 시험은 `python -m hyundap.tests.smoke.semantic_embedding_smoke`로 실행한다.
 SEMANTIC_TEST_URL은 127.0.0.1의 빈 hyundap_semantic_eval_test 또는
 8자리 hex 접미사가 붙은 전용 DB만 허용한다. 기존 테이블이 있으면 중단한다.
 합성 DOCX 3개를 실제 수집·색인하고 질문 3개와 무관한 질문 1개를 실행한다.
@@ -39,7 +39,7 @@ SEMANTIC_TEST_URL은 127.0.0.1의 빈 hyundap_semantic_eval_test 또는
 Windows의 Chroma 열린 파일 때문에 임시 폴더 일부가 종료 시 남을 수 있다.
 첫 실행의 임시 폴더 정리 오류를 보완한 뒤 새 시험 DB에서 정상 종료를 확인했다.
 
-UI는 `python -m hyundap.tests.ui_db_smoke`이며 UI_DB_TEST_URL은 전용 시험 DB,
+UI는 `python -m hyundap.tests.smoke.ui_db_smoke`이며 UI_DB_TEST_URL은 전용 시험 DB,
 UI_DB_TEST_PORT=7862, UI_SEMANTIC_SEED=1로 실행했다.
 현재 주소는 http://127.0.0.1:7862, 합성 계정은 manager / demo1234다.
 기존 가짜 벡터 자료는 자동 이행하지 않으므로 새 화면에서 문서를 다시 업로드한다.

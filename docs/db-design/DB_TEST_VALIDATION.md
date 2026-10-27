@@ -56,3 +56,22 @@ python -m unittest hyundap.tests.test_access_queries hyundap.tests.test_ingest_s
 재실행한 결과는 **111개 통과, 실패 0, 오류 0, 건너뜀 0**이다.
 이전 108개 결과는 당시 이력이며, 현재 추가 검증 범위는 2026-10-27 검토 보고서의 조치 완료 절을 따른다.
 Railway 실제 DB 변경이나 새 외부 임베딩 API 호출은 포함하지 않는다.
+
+## PR #166 피드백 반영 후 전체 검증
+
+2026-10-27, Python 3.11.9 / SQLAlchemy 2.0.55 / PyMySQL 1.1.2 /
+새 로컬 MySQL 8.4.13의 빈 전용 DB 4개를 준비해 전체 테스트를 실행했다.
+
+```powershell
+python -m unittest discover -s hyundap/tests -t .
+```
+
+결과는 **240개 통과, 실패 0, 오류 0, 건너뜀 0**이다. 이전 111개는 DB·검색 관련
+선택 모듈의 결과이고, 이번 240개는 전체 발견 테스트의 결과다.
+테이블 구조 캐시의 Engine/연결 재사용·격리·DDL 후 초기화·조회 실패 재시도 4개와
+시험 어댑터 import 시 hyundap.app/Gradio를 불러오지 않는 새 프로세스 검사 1개를 추가했다.
+
+수동 API/UI 점검은 tests/smoke로 이동하고 공용 시험 어댑터는 smoke.services로 분리했다.
+실제 수동 API 호출은 이번 실행에 포함하지 않는다. DB·수동 점검 코드 및 변경 Python
+독스트링의 한자·깨진 문자도 검사해 남은 항목이 없음을 확인했다.
+향후 v4 단일화 계획은 DB_V4_SIMPLIFICATION_PLAN.md에 저장했으며 아직 적용안이다.

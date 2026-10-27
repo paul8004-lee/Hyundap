@@ -27,6 +27,13 @@
 
 생략 가능한 `connection=`을 제공하면 호출자가 시작한 TX에 참여하고 스스로 커밋하지 않는다. 생략 시 공유 Engine의 짧은 TX를 사용한다. 앱 종료 시 `db.runtime.get_engine().dispose()`로 풀을 닫고, 설정 변경 시 dispose 후 get_engine.cache_clear()를 호출한다.
 
+업무 처리의 컬럼 조회는 runtime.get_table_columns로 Engine별 캐시를 사용한다.
+같은 Engine의 다른 연결은 같은 구조를 재사용하며, 다른 Engine의 구조는 섞이지 않는다.
+캐시는 약한 Engine 참조와 스레드 잠금으로 관리한다. 첫 조회 실패는 캐시하지 않는다.
+운영 중 스키마는 고정하는 전제이며, 쓰기 중지 후 DDL/이행을 완료하면
+runtime.clear_schema_cache(engine) 또는 전체 clear_schema_cache()를 호출한 뒤 재개한다.
+Engine의 연결 대상 DB를 실행 중 USE 등으로 바꾸지 않는다. schema.snapshot의 관리용 실측은 캐시하지 않는다.
+
 새 후보 생성은 현재 세션·관리자 역할·회사 활성·레거시 이행 여부를 검사한다. 회사 행과 기존 문서 행 잠금으로 동시 중복·버전 번호 경쟁을 보호한다. 후보나 작업 INSERT가 실패하면 새 문서도 함께 롤백한다. 임베딩·파일 저장을 TX 안에서 실행하지 않는다.
 
 manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재시도는 허용하고 해시 변경·추가·누락은 CONFLICT다. ready 버전과 정상 활성 버전을 mark_failed로 변경하지 않는다. 보고서는 단계별로 보존하며 이미 성공한 단계의 변경과 앞 단계의 지연 결과를 거부한다. 원시 오류 메시지 대신 안전한 코드만 저장한다.
@@ -92,9 +99,9 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 아래 DB 함수의 클래스는 모두 없음이며, 클래스 메서드가 아닌 모듈 함수다.
 함수 앞의 밑줄은 내부 보조 함수 관례이며, 밑줄이 없는 함수도 호출 흐름에서 보조 역할일 수 있다.
 
-### 신규 최상위 함수 7개와 내부 콜백
+### 신규 최상위 함수 9개와 내부 콜백
 
-기준은 develop 공통 조상 98d428e와 현재 db_test 작업 트리의 차이다. 미커밋 보완을 포함한다.
+기준은 develop 공통 조상 98d428e 대비 db_test의 누적 변경이다.
 
 | 소속 모듈 | 함수 | 클래스 | 역할 | 연결되는 상위 함수 |
 |---|---|---|---|---|
@@ -105,6 +112,8 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 | hyundap.db.legacy | finish_job(connection, job_id, *, complete=False, failed=False) | 없음 | 보조: 기존 작업 종료·활성 보호 해제 | _store_stage_result, write_publication, finish_recovery |
 | hyundap.db.legacy | reset_job_for_retry(connection, job_id) | 없음 | 보조: 기존 작업 재시도 상태 동기화 | reset_retry_records |
 | hyundap.db.schema | prepare_legacy_sql(connection, time_unit) | 없음 | 주요 처리: 빈 실제 v3의 검토용 SQL 생성 | schema.main의 --prepare-legacy 분기 |
+| hyundap.db.runtime | get_table_columns(connection, table) | 없음 | 보조: Engine별 테이블 구조 캐시 | 기존 필수값 저장·세션 검사·작업 상태 저장 |
+| hyundap.db.runtime | clear_schema_cache(engine=None) | 없음 | 보조: 이행/DDL 후 구조 캐시 초기화 | 쓰기 중지 후 관리·테스트 경계 |
 | hyundap.db.upload_service | ingest_and_save_chunks 내부 find_by_hash(company_id, sha256) | 없음 | 내부 보조 콜백: 현재 후보를 제외하는 중복 조회 | 실제 ingest_document에 전달 |
 
 내부 콜백은 독립 모듈 함수나 외부 API가 아니다. 현재 후보 ID는 외부 요청이 아니라
@@ -134,11 +143,15 @@ current_actor, upload_document, retry_upload, run_attempt, publish_version, reco
 
 | 모듈 | 클래스 | 상속 | 주요 책임 |
 |---|---|---|---|
-| hyundap.tests.ui_db_smoke | DatabaseSmokeServices | MockServices | 합성 인증 문맥으로 upload/search/detail 시험. 운영 인증 서비스가 아님 |
+| hyundap.tests.smoke.services | DatabaseSmokeServices | MockServices | 합성 인증 문맥으로 upload/search/detail 시험. Gradio 앱을 import하지 않으며 운영 인증 서비스가 아님 |
 | hyundap.tests.test_legacy_db | LegacyConfigurationTests | unittest.TestCase | 시간 기본값·설정 오류·밀리초 호환 검사 |
 | hyundap.tests.test_legacy_db | LegacyDatabaseTests | unittest.TestCase | 실제 v3 DDL의 저장·접근·복구·재시도·롤백 검사 |
 | hyundap.tests.test_ingest_bridge | IngestBridgeTests | unittest.TestCase | 수집 콜백 문맥과 경고 개수 변환 검사 |
 | hyundap.tests.test_semantic_ui_bridge | SemanticUIBridgeTests | unittest.IsolatedAsyncioTestCase | 문장형 검색 전달·오류 처리 검사 |
+| hyundap.tests.test_schema_cache | SchemaCacheTests | unittest.TestCase | Engine/연결별 구조 재사용·격리·DDL 후 무효화·조회 실패 재시도 검사 |
+
+수동 UI·실제 API 실행 진입점은 hyundap.tests.smoke 아래에 둔다. Gradio 앱은
+ui_db_smoke.main이 실행될 때만 import한다. 자동 검색 브리지 테스트는 services만 import한다.
 
 앞으로 신규 함수는 위 형식으로 소속 모듈·클래스 유무·메인/보조 역할·호출 관계를 기록한다.
 DB 보조 함수는 입력·반환·오류·DB 변경 여부·호출자 TX 참여 및 커밋 책임을 한글 설명에 명시한다.
