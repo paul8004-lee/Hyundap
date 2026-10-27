@@ -18,9 +18,9 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 
 기존 공개 메인 함수의 서명과 dict/list 반환을 유지한다. 검색용 원시 조회는 document_id/company_id/company_name/doc_type/publication_status/deleted_at/active_version_id/version_no/version_status/data_category/file_name의 11필드다. 없는 ID는 누락하며 빈 입력은 DB 접근 없이 []다.
 
-문서 생성은 `{document_id,version_id,job_id}`를 반환한다. 업로드 메타데이터의 doc_type 누락은 공통 기본값이며 명시적 잘못된 값은 INVALID_INPUT이다. manifest는 버전 ID 기반 청크 ID·연속 순번·해시 목록이고 본문·벡터는 저장하지 않는다. 보고서는 허용 필드만 정규화하며 원문·비밀값·원시 예외를 저장하지 않는다.
+문서 생성은 `{document_id,version_id,job_id}`를 반환한다. 업로드 메타데이터의 doc_type 누락은 공통 기본값이며 명시적 잘못된 값은 INVALID_DOC_TYPE이다. 없는 파일이나 읽기 권한이 없는 원본은 FILE_UNAVAILABLE이다. 후보 생성 전 실패는 작업 원장을 만들지 않는다. manifest는 버전 ID 기반 청크 ID·연속 순번·해시 목록이고 본문·벡터는 저장하지 않는다. 보고서는 허용 필드만 정규화하며 원문·비밀값·원시 예외를 저장하지 않는다.
 
-주요 오류는 INVALID_INPUT/INVALID_STATE/DUPLICATE_FILE/CONFLICT/DB_UNAVAILABLE, 접근 오류는 SESSION_EXPIRED/ACCESS_DENIED/STATE_CHANGED다. 함수가 외부 connection을 받으면 호출자 TX에 참여하며 직접 커밋·종료하지 않는다. 생략하면 runtime.transaction이 커밋/롤백을 소유한다. 초기화 DDL은 업무 TX와 별개다.
+주요 오류는 INVALID_INPUT/INVALID_DOC_TYPE/FILE_UNAVAILABLE/INVALID_STATE/DUPLICATE_FILE/CONFLICT/DB_UNAVAILABLE, 접근 오류는 SESSION_EXPIRED/ACCESS_DENIED/STATE_CHANGED다. 함수가 외부 connection을 받으면 호출자 TX에 참여하며 직접 커밋·종료하지 않는다. 생략하면 runtime.transaction이 커밋/롤백을 소유한다. 초기화 DDL은 업무 TX와 별개다.
 
 ## 모듈과 메인·보조 함수
 

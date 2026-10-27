@@ -180,6 +180,35 @@ class UploadWorkflowTests(unittest.TestCase):
             self.actor, self.source, dict(company_id=self.company, doc_type='manual', **metadata),
             ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
 
+    def test_pre_candidate_input_errors_do_not_create_records(self):
+        for source, doc_type, code in ((self.source, 'invalid', 'INVALID_DOC_TYPE'),
+                                       (self.directory / 'missing.pdf', 'manual', 'FILE_UNAVAILABLE')):
+            with self.subTest(code=code), self.assertRaises(DbError) as caught:
+                self.upload_service.upload_document(
+                    self.actor, source, {'company_id': self.company, 'doc_type': doc_type},
+                    ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+            self.assertEqual(caught.exception.code, code)
+        with self.engine.connect() as database:
+            count = database.execute(text('SELECT COUNT(*) FROM documents WHERE company_id=:id'),
+                                     {'id': self.company}).scalar_one()
+            self.assertEqual(count, 0)
+
+    def test_short_chunk_count_is_persisted_in_ingest_report(self):
+        def ingest(path, info, **kwargs):
+            result = self.ingest(path, info, **kwargs)
+            result['report'].update(chunk_count=2, short_chunk_count=2)
+            return result
+        result = self.upload_service.upload_document(
+            self.actor, self.source, {'company_id': self.company, 'doc_type': 'manual'},
+            ingest_document=ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+        self.assertEqual(result['status'], 'success')
+        with self.engine.connect() as database:
+            report = database.execute(text('SELECT report FROM index_jobs WHERE id=:id'),
+                                      {'id': result['job_id']}).scalar_one()
+        if isinstance(report, str):
+            report = json.loads(report)
+        self.assertEqual(report['ingest']['short_chunk_count'], 2)
+
     def active_version(self, document_id):
         """DB의 실제 활성 포인터를 조회한다."""
         with self.engine.connect() as database:

@@ -37,7 +37,7 @@ class DocumentStorageTests(unittest.TestCase):
             for changes in cases:
                 with self.subTest(changes=changes), self.assertRaises(DbError) as caught:
                     documents_repo.create_document_version({}, dict(self.metadata, **changes))
-                self.assertEqual(caught.exception.code, 'INVALID_INPUT')
+                self.assertEqual(caught.exception.code, 'INVALID_DOC_TYPE' if 'doc_type' in changes else 'INVALID_INPUT')
             engine.assert_not_called()
 
     def test_metadata_boundaries_and_extra_fields(self):
