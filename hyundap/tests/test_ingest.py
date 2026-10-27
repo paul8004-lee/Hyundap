@@ -5,6 +5,7 @@
 import base64
 import io
 import pickle
+import re
 import tempfile
 import unittest
 import zipfile
@@ -223,6 +224,36 @@ class TableTests(unittest.TestCase):
             self.assertTrue(piece.startswith('| 항목 | 설명 |\n| --- | --- |'))
             self.assertLessEqual(len(piece), 800)
         self.assertIn('| B | 짧음 |', pieces[-1])
+
+    @staticmethod
+    def data_cells(pieces, key='a'):
+        """조각의 데이터 행마다 (이스케이프 안 된 `|` 개수, 내용 칸 원문)을 돌려준다."""
+        found = []
+        for piece in pieces:
+            for line in piece.split('\n')[2:]:
+                bare = len(re.findall(r'(?<!\\)\|', line))
+                match = re.match(r'^\| %s \| (.*) \|$' % key, line)
+                found.append((bare, match.group(1).replace('\\|', '|') if match else None))
+        return found
+
+    def test_split_never_breaks_an_escaped_pipe(self):
+        """분할 지점이 `\\|` 사이에 놓여도 행마다 열이 늘지 않고 내용이 보존되는지 확인한다. (리뷰 지적 사례)"""
+        text = 'x' * 765 + '|' + 'y' * 200
+        pieces = table_to_text([['항목', '내용'], ['a', text]])
+        self.assertGreater(len(pieces), 1)
+        cells = self.data_cells(pieces)
+        self.assertTrue(all(bare == 3 for bare, _ in cells), cells)   # 2열 표의 한 줄은 `|`가 3개
+        self.assertEqual(''.join(content for _, content in cells), text)
+
+    def test_split_keeps_columns_for_every_pipe_position(self):
+        """`|`의 위치를 분할 경계 주변에서 바꿔 가며 모든 조각의 열 개수와 내용이 유지되는지 확인한다."""
+        for lead in range(730, 800):
+            for pipes in (1, 2, 3):
+                text = 'x' * lead + '|' * pipes + 'y' * 200
+                with self.subTest(lead=lead, pipes=pipes):
+                    cells = self.data_cells(table_to_text([['항목', '내용'], ['a', text]]))
+                    self.assertTrue(all(bare == 3 for bare, _ in cells))
+                    self.assertEqual(''.join(content for _, content in cells), text)
 
 
 class PptxTests(IngestTestCase):
