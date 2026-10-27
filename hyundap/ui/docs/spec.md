@@ -40,7 +40,7 @@
 
 예시 업로드는 업무 문서 보관·본문 추출·DB 등록·색인을 수행하지 않고 검색 결과에도 추가하지 않는다. 파일 선택 과정에서 Gradio의 임시 파일은 생성될 수 있다. 예시 답변은 실제 AI 생성 결과가 아니다.
 
-backend 모드의 임시 인증은 명시적으로 지정한 설정이며 실제 인증 실패 시 자동으로 예시 계정으로 전환하는 기능이 아니다. `session_id` 또는 `_session_token`이 없는 임시 계정은 `AUTH_BACKEND_PENDING` 안내와 함께 모든 보호된 업무 호출을 차단한다. 이때 로그인 화면으로 되돌리지 않고 임시 로그인 상태를 유지한다. 전체 예시 검색·답변·업로드 흐름은 `--mode demo`에서 확인한다.
+backend 모드의 임시 인증은 명시적으로 지정한 설정이며 실제 인증 실패 시 자동으로 예시 계정으로 전환하는 기능이 아니다. `session_id` 또는 `token`이 없는 계정은 `AUTH_BACKEND_PENDING` 안내와 함께 모든 보호된 업무 호출을 차단한다. 기존 체험 계정에는 `session_id`가 없다. 이때 로그인 화면으로 되돌리지 않고 임시 로그인 상태를 유지한다. 전체 예시 검색·답변·업로드 흐름은 `--mode demo`에서 확인한다.
 
 ### 1.2 이번 범위에서 제외한 기능
 
@@ -188,7 +188,7 @@ hyundap/
 
 UI가 의존하는 `UIServices` 메서드는 모두 async 규격이다. 실제 연결 함수는 동기·async 둘 다 가능하다. 동기 함수는 작업 스레드에서, async 함수는 await로 호출한다. 파일 추출·청킹·임베딩·DB 저장의 내부 순서는 UI가 조립하지 않는다.
 
-아래 표는 **현재 어댑터가 호출하는 규격**이며, 팀이 최종 확정한 모든 공개 함수의 목록이라는 의미는 아니다. `검증 사용자`는 `validate_session` 결과를 `validated_session_to_actor()`로 변환한 dict다. `user_id`, `company_id`, `role`, `session_id`, `auth_version`, `_session_token`을 요구한다. 임시 UI `token`을 실제 서버 인증정보로 바꾸거나 가짜 서버 세션을 만들지 않는다.
+아래 표는 **현재 어댑터가 호출하는 규격**이며, 팀이 최종 확정한 모든 공개 함수의 목록이라는 의미는 아니다. `검증 사용자`는 SPEC-AUTH-001의 `validate_session` 결과를 `validated_session_to_actor()`로 변환한 dict다. `user_id`, `company_id`, `role`, `session_id`를 포함하고 검증된 `token`을 `_session_token`으로 전달한다. 별도 `_session_token`이나 `auth_version` 입력을 요구하지 않는다. 실제 세션·사용자·권한 버전은 `sessions_repo.current_actor`가 DB에서 재검증한다. UI는 서버 세션을 발급하지 않는다.
 
 | UI 메서드 | 현재 바인딩과 실제 전달 인자 | 반환 규격 |
 |---|---|---|
@@ -215,7 +215,7 @@ UI가 의존하는 `UIServices` 메서드는 모두 async 규격이다. 실제 �
 
 | 데이터 | 필드와 기준 |
 |---|---|
-| 로그인 세션 | `user_id`, `display_name`, `role`, `company_id`, `company_name`, `allowed_company_ids`, 비어 있지 않은 `token`을 UI 어댑터가 요구한다. `must_change_password`는 선택 필드다. 실제 업무에는 서버 검증된 `session_id`, `auth_version`, `_session_token`도 필요하며 화면 출력에 사용하지 않는다. |
+| 로그인 세션 | `user_id`, `display_name`, `role`, `company_id`, `company_name`, `allowed_company_ids`, 비어 있지 않은 `token`을 UI 어댑터가 요구한다. `must_change_password`는 선택 필드다. 실제 업무에는 SPEC-AUTH-001의 `session_id`도 필요하다. `token`은 서버 내부 actor의 `_session_token`으로 전달하며, 인증 결과에 `auth_version`과 별도 `_session_token`을 요구하지 않는다. 세션 비밀값은 화면에 출력하지 않는다. |
 | 세션 재검증 | 최소 `user_id`, `role`, `company_id`, `allowed_company_ids`가 필요하다. `token` 생략 시 기존 토큰을 사용한다. 비밀번호 변경 플래그 생략 시 기존 값을 유지하므로 변경 완료 후 명시적 `False`가 필요하다. |
 | 회사 선택지 | `allowed_company_ids`와 `companies=[{"company_id": ..., "company_name": ...}]`를 사용한다. 허용 ID를 기준으로 하며 이름 누락 시 ID 표시. 예시 회사 목록은 demo·임시 인증에 한정한다. |
 | 검색 응답 | `results` 목록이 필수다. `query`, `total_hits`, `company_ids`, `doc_types`, `elapsed_sec` 등이 함께 올 수 있다. |
@@ -353,6 +353,12 @@ python -m hyundap.app --check-backend
 python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v
 ```
 
+리뷰 요청으로 저장소에 추가한 연결·인증 계약·준비 점검 검사까지 함께 실행하려면 다음 명령을 사용한다.
+
+```powershell
+python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
+```
+
 체험 로그인은 일반 사용자 `employee`, 관리자 `manager` 또는 `admin`, 공통 비밀번호 `demo1234`다. 기본 backend 모드에서는 임시 로그인만 가능하며 업무 요청은 `AUTH_BACKEND_PENDING`으로 차단한다. 전체 demo 모드에서 `점검`을 검색하면 결과·상세·요약·질문·출처 흐름을 확인할 수 있다. 상세 실행 방법은 [UI README](../README.md)를 따른다.
 
 최신 develop `98d428e` 병합으로 검색 PR #143, 수집 PR #136, 챗봇 PR #144와 임베딩 PR #151 구현을 가져왔다. UI 담당이 백엔드 파일을 별도로 수정하지는 않았다. 의존성 설치·실제 서버 세션·DB 및 LLM 설정을 갖춘 환경에서 별도의 통합 검수가 필요하다.
@@ -373,13 +379,15 @@ python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_servic
 
 검색 연결 검사의 가짜 함수는 keyword-only `user` 인자를 요구한다. 따라서 `actor`로 호출하는 실수가 다시 들어오면 실패한다. UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전했다(PR #140).
 
-이번 연결 작업에서는 분리 snapshot의 실제 PR 코드에 대해 연결 검사 37개와 기존 UI 검사 16개, 총 53개가 통과했다. 외부 DB·벡터 저장소·LLM·업로드는 대체 객체로 검사했으며 실제 데이터 통합 검수와 구분한다. 추가 검사 파일은 임시 검증 위치에 두었고 팀 테스트 폴더는 수정하지 않았다. 기본 backend·전체 demo의 Gradio 화면 생성과 실제 저장소의 브라우저 employee 로그인 → 검색 → 인증 준비 안내·로그인 유지도 확인했다.
+최초 연결 작업에서는 분리 snapshot의 실제 PR 코드에 대해 연결 검사 37개와 기존 UI 검사 16개, 총 53개가 통과했다. 리뷰 요청에 따라 임시 위치의 연결 검사를 `hyundap/tests/test_ui_backend.py`, `test_ui_backend_documents.py`, `test_ui_backend_feedback.py`로 옮기고, 인증 계약 회귀 검사와 `test_ui_backend_check.py`의 준비 점검 검사도 추가했다. 개인 경로나 `sys.path` 우회 없이 저장소의 unittest discover로 실행한다. 외부 DB·벡터 저장소·LLM·업로드는 대체 객체로 검사하며 실제 데이터 통합 검수와 구분한다. 기본 backend·전체 demo의 Gradio 화면 생성과 브라우저 employee 로그인 → 검색 → 인증 준비 안내·로그인 유지도 확인했다.
 
 최신 develop `98d428e` 병합 후 실제 작업 저장소에서 연결 검사 37개와 UI 검사 16개를 재실행해 모두 통과했다. 공개 함수 14개의 import와 backend·demo 화면 생성도 확인했다. 외부 서비스는 여전히 대체 객체로 검사했으므로 실제 데이터 통합 완료를 의미하지 않는다.
 
+리뷰 반영 후 프로젝트 `.venv`에서 저장소 전체 검사는 241개 실행, 성공(실제 MySQL 필요 35개 건너뜀)이다. 신규 연결·인증 계약·준비 점검 검사는 49개이며 기존 UI 16개를 합쳐 UI 관련 검사는 65개다. 사용자가 설치한 PyMySQL 1.1.2를 프로젝트 가상환경에서 읽었으며 임시 패키지 경로나 `PYTHONPATH` 변경 없이 재검증했다. 공개 함수 14개의 import와 backend·demo 화면 생성도 성공했다. 검증 환경의 SQLAlchemy는 2.1.6으로 루트 요구 버전 2.0.55와 차이가 있다.
+
 ## 10. 실제 통합 실행에 남은 사항
 
-1. UI 규격의 `login`·`logout`·`validate_session`을 제공하는 실제 인증 제공자. 검증 결과에는 화면용 사용자·역할·허용 회사·회사 표시명과 서버 검증된 `session_id`, `auth_version`, `_session_token`이 필요하다. 현재 연결은 `UserContext`라는 임의 클래스를 만들지 않고 백엔드가 요구하는 사용자 dict를 전달한다.
+1. SPEC-AUTH-001에 따라 구현 중인 `hyundap.auth.session_service`의 `login`·`logout`·`validate_session`을 `create_bindings(authentication=...)`에 연결한다. 검증 결과는 화면용 사용자·역할·허용 회사·회사 표시명과 `session_id`, `token`을 제공한다. UI는 이 `token`을 DB 내부 `_session_token` 필드로 전달하며, 별도 `auth_version`·`_session_token` 반환을 요구하지 않는다. 현재 기본 인증은 체험 계정으로 유지한다.
 2. 권한·활성 버전을 재검증하고 로컬 원본 파일을 준비하는 다운로드 공개 함수, 임시 파일 정리 책임. 이 함수가 제공될 때까지 `DOWNLOAD_NOT_CONNECTED`를 유지한다.
 3. 루트 requirements 설치, DB·LLM 설정, 사용 가능한 실제 테스트 계정·문서. 검색·ingest 구현은 최신 develop 병합으로 반영했다. 필수 설정값은 화면이나 문서에 넣지 않는다.
 4. 실제 인증·허용 회사 범위·문서 변경/삭제·세션 만료·근거 없음·요약 실패·중복 업로드·복구 필요 상황의 통합 검수. 업로드 후 검색 가능 여부까지 실제 환경에서 확인한다.
@@ -400,6 +408,7 @@ python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_servic
 | 회사 목록 | 검증 세션의 허용 ID·회사 목록으로 선택지 구성; 예시 `COMPANIES`는 demo·임시 인증에 한정 |
 | import 기준 | 저장소 루트의 `hyundap` 패키지 기준; `python -m hyundap.app`으로 실행 통일, 앱의 `sys.path` 우회 제거 |
 | 테스트 담당 | PR #140에서 UI 검사 16개를 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전 완료; 기존 UI 테스트 원본 제거 |
+| 연결 검사·인증 계약 리뷰 | `hyundap/tests/test_ui_backend*.py`로 연결 검사 추가; SPEC-AUTH-001의 `token` → DB `_session_token` 변환, `auth_version` 요구 제거 |
 | 실제 함수 등록 | 검색 PR #143·챗봇 PR #134·상세 래퍼·DB 업로드 대표 함수 및 오류 변환기 등록 |
 | 인증·다운로드 | 사용자 요청으로 체험 로그인 임시 유지, 서버 세션 없는 업무 요청 차단; 실제 인증·다운로드 공개 함수 대기 |
 | PR 본문·화면 | 사용자 검토용 초안·캡처를 준비하며 PR 생성·수정은 사용자가 진행 |

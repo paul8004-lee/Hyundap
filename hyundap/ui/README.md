@@ -1,6 +1,6 @@
 # 현답 Gradio 화면 실행·연결 안내
 
-Python 3.11 이상, Gradio 6.30.0 기준입니다. 수정 범위는 `hyundap/app.py`와 `hyundap/ui/`입니다.
+Python 3.11 이상, Gradio 6.30.0 기준입니다. UI 구현 범위는 `hyundap/app.py`와 `hyundap/ui/`이며, 자동 검사는 팀 테스트 위치인 `hyundap/tests/`에서 관리합니다.
 Figma의 색상·배치·카드를 실제 Gradio 입력창과 버튼으로 재현했습니다. 화면 스크린샷을 앱 배경으로 붙인 구현이 아닙니다.
 
 화면별 동작, 파일 역할, B01~B32 진행 상태와 백엔드 연결 규격은 [UI 스펙 문서](docs/spec.md)를 참고하세요.
@@ -89,7 +89,9 @@ python -m hyundap.app --check-backend
 
 질문의 결과 필드 `status`, `answer`, `citations`, `citations_by_company`, `document_ids`, `message`, `error_code`와 요약 필드는 UI와 일치합니다. dataclass 응답은 어댑터가 dict로 변환합니다. 상세는 본문 전체가 아니라 실제 청크에서 가져온 발췌문을 표시하며, 읽기 전후의 접근 권한과 활성 버전을 확인합니다. 업로드의 저장·추출·청킹·임베딩·발행 순서는 기존 DB 업로드 함수가 담당합니다.
 
-실제 인증 제공자는 `create_bindings(authentication=...)`에 전달하며 UI 규격의 `login`·`logout`·`validate_session`을 제공해야 합니다. 검증된 사용자에는 `user_id`, `company_id`, `role`, `session_id`, `auth_version`, `_session_token`이 필요합니다. UI 임시 `token`만으로 실제 서버 세션을 만들지 않습니다. `session_id` 또는 `_session_token`이 없으면 `AUTH_BACKEND_PENDING`으로 업무 호출을 막습니다. 해당 검사는 임시 로그인 화면을 종료시키지 않습니다.
+실제 인증 제공자는 `create_bindings(authentication=...)`에 전달하며 UI 규격의 `login`·`logout`·`validate_session`을 제공해야 합니다. SPEC-AUTH-001의 반환 필드는 `user_id`, `display_name`, `role`, `company_id`, `company_name`, `allowed_company_ids`, `token`, `session_id`입니다. 변환 함수는 검증된 `token`을 DB 내부 actor의 `_session_token`으로 전달하고, 사용자 ID·회사 ID·역할·세션 ID만 함께 넘깁니다. 인증 결과에 `auth_version`이나 별도 `_session_token`을 요구하지 않으며 권한 버전과 실제 세션 유효성은 DB가 다시 확인합니다. `session_id` 또는 `token`이 없으면 `AUTH_BACKEND_PENDING`으로 업무 호출을 막고 임시 로그인은 유지합니다. 기존 체험 계정에는 `session_id`가 없으므로 이 제한이 그대로 적용됩니다.
+
+인증 구현이 준비되면 `hyundap.auth.session_service`의 `login`·`logout`·`validate_session`을 인증 제공자로 연결할 예정입니다. 현재 기본 실행은 임시 로그인 + backend 모드이며, 예시 데이터로 검색·질문까지 확인하려면 `python -m hyundap.app --mode demo`를 사용합니다.
 
 `hyundap/ui/services.py`는 동기 함수를 작업 스레드에서 호출하고 async 함수를 기다립니다. 실제 권한 판정은 백엔드가 수행하며 메뉴 숨김만으로 권한을 보장하지 않습니다. 아직 필요한 항목은 실제 인증 제공자, 권한을 검증하는 다운로드 공개 함수, 실행 환경·테스트 계정/문서와 실제 통합 검수입니다.
 검색의 `total_hits`는 문서 전체 개수가 아닌 청크 수이므로 현재 받은 문서 목록 길이를 표시합니다. 작업 성공과 검색 가능 여부도 구분합니다.
@@ -104,13 +106,20 @@ python -m hyundap.app --check-backend
 
 ## 이번 연결 검증
 
+- 리뷰 반영 후 프로젝트 `.venv`에서 저장소 전체 검사: 241개 실행, 성공(실제 MySQL이 필요한 35개 건너뜀). 신규 연결·인증·준비 점검 검사는 49개이며 기존 UI 16개를 합쳐 UI 관련 검사는 65개입니다. 사용자가 설치한 PyMySQL 1.1.2를 프로젝트 가상환경에서 읽었으며 임시 패키지 경로나 `PYTHONPATH` 변경 없이 재검증했습니다.
 - 분리 작업 폴더에서 실제 PR 코드에 대한 연결 검사 37개와 기존 UI 검사 16개, 총 53개가 통과했습니다. DB·벡터 저장소·LLM·업로드의 외부 경계는 테스트 대체 객체로 검사했습니다.
 - 최신 develop `98d428e` 병합 후 실제 작업 저장소에서도 같은 연결 검사 37개와 UI 검사 16개가 모두 통과했습니다. 공개 함수 14개의 import와 backend·demo 화면 생성을 확인했습니다.
 - 실제 저장소에서 기본 backend 앱을 실행하고 브라우저의 employee 로그인 → 검색 → 인증 준비 안내 및 로그인 상태 유지를 확인했습니다.
-- 기본 backend와 전체 demo 모두 Gradio 컴포넌트 생성이 성공했습니다. 추가 연결 검사는 UI 폴더 밖의 임시 검증 파일에서 실행했으며 팀 테스트 폴더는 수정하지 않았습니다.
-- 검색·수집 구현은 최신 develop 병합으로 반영했습니다. 실행 환경에는 PyMySQL 설치, SQLAlchemy 요구 버전 적용, DB·OpenAI 설정이 필요합니다. 실제 서버 세션·원문 다운로드 함수도 제공 대기이므로 실제 데이터 통합 검수는 남아 있습니다.
+- 기본 backend와 전체 demo 모두 Gradio 컴포넌트 생성이 성공했습니다. 최초 연결 검사 37개는 리뷰 요청에 따라 `hyundap/tests/test_ui_backend.py`, `test_ui_backend_documents.py`, `test_ui_backend_feedback.py`로 옮겼습니다. 인증 계약 회귀 검사와 `test_ui_backend_check.py`의 연결 준비 점검 검사도 추가했습니다.
+- 검색·수집 구현은 최신 develop 병합으로 반영했습니다. PyMySQL 1.1.2 설치와 공개 함수 14개의 import, backend·demo 화면 생성을 확인했습니다. 로컬 검증 환경의 SQLAlchemy는 2.1.6으로 루트 요구 버전 2.0.55와 다르며 DB·OpenAI 설정도 필요합니다. 실제 서버 세션·원문 다운로드 함수도 제공 대기이므로 실제 데이터 통합 검수는 남아 있습니다.
 
 ## 기존 UI 검증 기록
+
+UI와 연결 검사를 모두 실행하려면 저장소 맨 위에서 아래 명령을 사용합니다. 테스트 파일에는 개인 경로나 `sys.path` 변경이 없으며 실제 DB·LLM 호출은 대체합니다.
+
+```powershell
+python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
+```
 
 - 서비스 검사 6건, 화면 컨트롤러 검사 10건 통과.
 - 재실행: 저장소 맨 위에서 `python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v` (Gradio 설치 환경).
@@ -132,6 +141,7 @@ UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`�
 - [x] 실제 세션의 허용 회사 ID·회사 목록으로 선택지를 구성하고, 예시 회사는 demo·임시 로그인에 한정합니다.
 - [x] 팀 import 규칙에 맞춰 저장소 최상위의 `python -m hyundap.app` 실행으로 통일하고 앱의 경로 우회를 제거했습니다.
 - [x] 검색·질문·요약·상세·업로드 함수와 오류 변환기를 UI 연결부에 등록했습니다.
+- [x] 연결 검사를 `hyundap/tests/`에 추가하고, SPEC-AUTH-001의 `token`을 DB의 `_session_token`으로 전달하도록 맞췄습니다.
 - [ ] 실제 인증·다운로드 공개 함수를 연결하고 설정·테스트 문서를 갖춘 환경에서 통합 동작을 검수합니다.
 - [x] PR #140에서 UI 검사 16개를 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전하고 기존 UI 테스트 원본을 제거했습니다.
 

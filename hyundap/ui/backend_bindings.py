@@ -47,17 +47,18 @@ def summarize_document(**kwargs):
 
 
 def validated_session_to_actor(session: dict) -> dict:
-    """검증된 서버 세션에서 백엔드 actor만 꺼낸다. 예시 토큰은 변환하지 않는다."""
-    if not session.get("session_id") or not session.get("_session_token"):
+    """SPEC-AUTH-001의 검증 결과를 DB가 재검증할 서버 actor로 변환한다."""
+    if not session.get("session_id") or not session.get("token"):
         raise UIServiceError(
             "AUTH_BACKEND_PENDING",
             "임시 로그인으로 화면을 열었습니다. 실제 문서 처리는 인증팀의 서버 세션 연결 후 사용할 수 있습니다.",
             "input_error",
         )
-    required = {"user_id", "company_id", "role", "session_id", "auth_version", "_session_token"}
+    required = {"user_id", "company_id", "role", "session_id"}
     if required - session.keys():
         raise UIServiceError("INVALID_SESSION", "서버 세션의 사용자·권한 정보를 확인해 주세요.")
-    return {name: session[name] for name in required}
+    # 인증의 공개 token을 DB 내부 필드로 전달한다. auth_version은 DB가 다시 읽는다.
+    return {**{name: session[name] for name in required}, "_session_token": session["token"]}
 
 
 def download_original(**kwargs):
@@ -72,8 +73,8 @@ def create_bindings(authentication=None) -> BackendBindings:
     """실제 업무 함수와 인증 제공자를 등록한다. 기본 인증만 기존 예시 사용.
 
     authentication은 UI 규격의 login/logout/validate_session을 제공한다.
-    실제 인증 제공자는 검증 결과에 session_id/auth_version/_session_token과
-    표시용 회사 목록을 포함해야 한다. 비밀값은 서버 상태에만 보관한다.
+    실제 인증 제공자는 SPEC-AUTH-001의 token/session_id와 사용자·회사 정보를
+    반환한다. token은 actor의 _session_token으로 전달하며 서버 상태에만 보관한다.
     """
     temporary_auth = authentication is None
     if temporary_auth:
