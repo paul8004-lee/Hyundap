@@ -95,14 +95,20 @@ def copy_original(source, destination, expected_hash, expected_size):
 
 def failure_code(error):
     """예외에서 안전한 코드만 가져온다. 원시 메시지·URL·접속 비밀값은 저장하지 않는다."""
-    code = error if isinstance(error, str) else getattr(error, 'code', None)
-    return code if isinstance(code, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', code) else 'PROCESSING_FAILED'
+    if isinstance(error, str):
+        code = error
+    else:
+        code = getattr(error, 'code', None)
+    if isinstance(code, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', code):
+        return code
+    return 'PROCESSING_FAILED'
 
 
 def record_upload_failure(ids, stage, error, backend):
     """게시 미완료는 복구에 맡기고, 비활성 처리 후보만 실패 기록·벡터 정리한다."""
     code = failure_code(error)
     with version_service.PUBLICATION_LOCK:
+        # 게시 중이거나 이미 활성화된 후보는 게시 복구 절차에서 처리한다.
         with transaction() as database:
             document, _ = version_service.read_candidate(database, ids['document_id'], ids['version_id'], lock=True)
             job, reports = version_service.read_job(database, ids['version_id'], lock=True)
@@ -111,14 +117,18 @@ def record_upload_failure(ids, stage, error, backend):
                 return dict(ids, status='failed', error_code='RECOVERY_REQUIRED', recovery_required=True)
             if phase == 'restored':
                 return dict(ids, status='failed', error_code=code, recovery_required=False)
-        if reports.get(stage, {}).get('status') not in ('partial', 'failed'):
+        stage_status = reports.get(stage, {}).get('status')
+        if stage_status not in ('partial', 'failed'):
             jobs_repo.record_stage_result(ids['job_id'], {'stage': stage, 'status': 'failed', 'error_code': code})
         versions_repo.mark_failed(ids['version_id'])
+
+        # 외부 벡터 삭제는 SQL 트랜잭션 밖에서 수행한다.
         cleanup_pending = False
         try:
             backend['delete_vectors'](ids['document_id'], ids['version_id'])
         except Exception:
             cleanup_pending = True
+        # 삭제 실패도 기록해 이후 복구가 필요한지 알 수 있게 한다.
         with transaction() as database:
             job, reports = version_service.read_job(database, ids['version_id'], lock=True)
             reports['_cleanup_pending'] = cleanup_pending
@@ -162,24 +172,27 @@ def save_ingest_chunks(ids, company_id, result):
     chunks = result.get('chunks')
     if not isinstance(chunks, list) or not chunks:
         raise DbError('INVALID_INPUT')
+    # 원래 청크는 임베딩에 넘기고 DB에는 식별자와 본문 해시만 저장한다.
     manifest = []
     for chunk in chunks:
-        row = version_service.as_mapping(chunk)
-        if row.get('document_id') != ids['document_id']:
+        chunk_data = version_service.as_mapping(chunk)
+        if chunk_data.get('document_id') != ids['document_id']:
             raise DbError('INVALID_INPUT')
-        if row.get('version_id') != ids['version_id']:
+        if chunk_data.get('version_id') != ids['version_id']:
             raise DbError('INVALID_INPUT')
-        if row.get('company_id') != company_id:
+        if chunk_data.get('company_id') != company_id:
             raise DbError('INVALID_INPUT')
-        if not isinstance(row.get('text'), str):
+        if not isinstance(chunk_data.get('text'), str):
             raise DbError('INVALID_INPUT')
-        content_hash = hashlib.sha256(row['text'].encode('utf-8')).hexdigest()
+        content_hash = hashlib.sha256(chunk_data['text'].encode('utf-8')).hexdigest()
         manifest.append({
-            'id': row.get('chunk_id'),
-            'chunk_index': row.get('chunk_index'),
+            'id': chunk_data.get('chunk_id'),
+            'chunk_index': chunk_data.get('chunk_index'),
             'content_hash': content_hash,
         })
     chunks_repo.save_manifest(ids['version_id'], manifest)
+
+    # 경고 원문은 저장하지 않고 개수만 단계 보고서에 남긴다.
     report = version_service.as_mapping(result.get('report') or {})
     report = dict(report)
     if 'warnings' in report:
@@ -308,17 +321,19 @@ def create_upload_candidate(actor, company_id, values, source, root):
     """
     with transaction() as database:
         version_service.require_manager(actor, database, company_id)
+        # 기존 문서라면 게시 시 비교할 현재 활성 버전을 잠가 읽는다.
         expected_active_id = None
         if values.get('document_id') is not None:
-            row = database.execute(
+            active_version_row = database.execute(
                 text('SELECT active_version_id FROM documents WHERE id=:id FOR UPDATE'),
                 {'id': require_id(values['document_id'])},
             ).first()
-            if row:
-                expected_active_id = row[0]
+            if active_version_row:
+                expected_active_id = active_version_row[0]
         ids = documents_repo.create_document_version(actor, values, connection=database)
         destination = source_destination(
             root, company_id, ids['document_id'], ids['version_id'], source.suffix)
+        # 후보 경로와 최초 시도 정보를 후보 생성과 함께 확정한다.
         database.execute(
             text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
             {'path': str(destination), 'id': ids['version_id']},
@@ -384,19 +399,20 @@ def prepare_retry(actor, version_id):
         document, version, job, reports = read_retry_records(database, actor, version_id)
         check_retry_allowed(document, version, reports)
         version_service.ensure_no_pending_publication(database, document['id'])
-        root = Path(reports.get('_upload_root', ''))
-        source = Path(version['storage_path'])
+        upload_root = Path(reports.get('_upload_root', ''))
+        stored_source = Path(version['storage_path'])
         if '_upload_root' not in reports:
             raise DbError('INVALID_STATE')
 
-        reset_report = build_retry_report(root, reports)
+        # 실제 경로와 파일은 트랜잭션이 끝난 뒤 retry_upload에서 검사한다.
+        reset_report = build_retry_report(upload_root, reports)
         reset_retry_records(database, version_id, job['id'], reset_report)
         ids = {'document_id': document['id'], 'version_id': version_id, 'job_id': job['id']}
     return {
         'ids': ids,
         'expected_active_id': document['active_version_id'],
-        'root': root,
-        'source': source,
+        'root': upload_root,
+        'source': stored_source,
         'sha256': version['sha256'],
         'file_size': version['file_size'],
     }
@@ -459,17 +475,18 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
     with WORKFLOW_LOCK:
         ingest_function = get_ingest_function(ingest_document)
         backend = version_service.get_embedding_backend(embedding)
-        retry = prepare_retry(actor, version_id)
-        ids = retry['ids']
+        retry_info = prepare_retry(actor, version_id)
+        ids = retry_info['ids']
 
         # prepare_retry의 DB 변경이 확정된 뒤 파일과 외부 벡터 저장소에 접근한다.
         try:
-            root = retry['root'].resolve()
-            source = retry['source'].resolve()
+            root = retry_info['root'].resolve()
+            source = retry_info['source'].resolve()
             if not source.is_relative_to(root):
                 raise DbError('INVALID_STATE')
         except (DbError, OSError) as error:
             return record_upload_failure(ids, 'received', error, backend)
+        # 이전 시도에서 남은 벡터를 삭제한 뒤 같은 후보를 다시 처리한다.
         try:
             backend['delete_vectors'](ids['document_id'], version_id)
         except Exception as error:
@@ -477,7 +494,7 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
         if source_path is not None:
             try:
                 replacement = Path(source_path).resolve(strict=True)
-                copy_original(replacement, source, retry['sha256'], retry['file_size'])
+                copy_original(replacement, source, retry_info['sha256'], retry_info['file_size'])
             except (DbError, OSError) as error:
                 return record_upload_failure(ids, 'received', error, backend)
-        return run_attempt(actor, ids, retry['expected_active_id'], ingest_function, backend)
+        return run_attempt(actor, ids, retry_info['expected_active_id'], ingest_function, backend)

@@ -18,15 +18,20 @@ DESIGN_DIR = Path(__file__).resolve().parents[2] / 'docs' / 'db-design'
 def _read_layout(connection):
     """버전 기록 전에도 컬럼·인덱스·FK·CHECK를 읽는다. 업무 행은 읽지 않는다."""
     tables = {}
-    for row in connection.execute(text('''
+    column_rows = connection.execute(text('''
         SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,CHARACTER_SET_NAME,
                COLLATION_NAME,GENERATION_EXPRESSION,COLUMN_DEFAULT,EXTRA
         FROM information_schema.columns WHERE table_schema=DATABASE()
         ORDER BY TABLE_NAME,ORDINAL_POSITION
-    ''')).mappings():
-        tables.setdefault(row['TABLE_NAME'], {})[row['COLUMN_NAME']] = dict(row)
+    ''')).mappings()
+    for row in column_rows:
+        table_name = row['TABLE_NAME']
+        if table_name not in tables:
+            tables[table_name] = {}
+        tables[table_name][row['COLUMN_NAME']] = dict(row)
     reader = inspect(connection)
     keys = {}
+    # 테이블별 제약과 인덱스를 같은 이름의 컬럼 목록과 함께 보관한다.
     for table in tables:
         keys[table] = {
             'primary': reader.get_pk_constraint(table)['constrained_columns'],
@@ -71,19 +76,35 @@ def _structure(layout):
     result = {}
     for table, columns in layout['tables'].items():
         keys = layout['keys'][table]
-        result[table] = {
-            'columns': {name: [row['COLUMN_TYPE'].lower(), row['IS_NULLABLE'],
+        column_details = {}
+        for name, row in columns.items():
+            column_details[name] = [
+                row['COLUMN_TYPE'].lower(), row['IS_NULLABLE'],
                 row['CHARACTER_SET_NAME'], row['COLLATION_NAME'],
                 row['COLUMN_DEFAULT'], _expression(row['GENERATION_EXPRESSION']),
-                row['EXTRA'].lower()] for name, row in columns.items()},
+                row['EXTRA'].lower(),
+            ]
+        unique = {}
+        for item in keys['unique']:
+            unique[item['name']] = item['column_names']
+        indexes = {}
+        for item in keys['indexes']:
+            indexes[item['name']] = [item['column_names'], bool(item['unique'])]
+        foreign = {}
+        for item in keys['foreign']:
+            foreign[item['name']] = [item['constrained_columns'], item['referred_table'],
+                                     item['referred_columns'], item.get('options', {})]
+        checks = {}
+        for item in keys['checks']:
+            checks[item['name']] = [_expression(item['sqltext']), item.get('enforced')]
+        result[table] = {
+            'columns': column_details,
             'engine': keys['engine'],
             'primary': keys['primary'],
-            'unique': {item['name']: item['column_names'] for item in keys['unique']},
-            'indexes': {item['name']: [item['column_names'], bool(item['unique'])] for item in keys['indexes']},
-            'foreign': {item['name']: [item['constrained_columns'], item['referred_table'],
-                item['referred_columns'], item.get('options', {})] for item in keys['foreign']},
-            'checks': {item['name']: [_expression(item['sqltext']), item.get('enforced')]
-                       for item in keys['checks']},
+            'unique': unique,
+            'indexes': indexes,
+            'foreign': foreign,
+            'checks': checks,
         }
     return result
 

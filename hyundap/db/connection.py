@@ -19,23 +19,32 @@ def create_db_engine() -> Engine:
     PyMySQL, UTF-8, UTC 시간대, 엄격한 SQL 모드로 연결하도록 설정한다.
     설정 누락·잘못된 URL은 비밀값 없는 ValueError로 알린다.
     Engine 생성만으로 DB에 접속하지 않으며 사용 후 호출자가 dispose()해야 한다."""
-    load_dotenv(Path(__file__).resolve().parents[2]/'.env',override=False)
-    value=os.environ.get('DATABASE_URL','').strip()
+    load_dotenv(Path(__file__).resolve().parents[2] / '.env', override=False)
+    value = os.environ.get('DATABASE_URL', '').strip()
     if not value:
         raise ValueError('Set DATABASE_URL in your local .env or process environment')
     try:
-        url=make_url(value)
-        if (url.drivername not in ('mysql','mysql+pymysql') or not url.host
+        url = make_url(value)
+        if (url.drivername not in ('mysql', 'mysql+pymysql') or not url.host
                 or not url.username or not url.password or not url.database
                 or (url.port is not None and not 0 < url.port < 65536)):
             raise ValueError
-    except (ArgumentError,ValueError,TypeError):
+    except (ArgumentError, ValueError, TypeError):
         raise ValueError('DATABASE_URL must be a valid MySQL URL; check URL-encoded credentials') from None
-    return create_engine(url.set(drivername='mysql+pymysql'),pool_pre_ping=True,
-                         pool_recycle=1800,hide_parameters=True,isolation_level='READ COMMITTED',
-                         connect_args={'connect_timeout':10,'read_timeout':30,'write_timeout':30,
-                                       'charset':'utf8mb4',
-                                       'init_command':"SET SESSION sql_mode=CONCAT_WS(',',@@sql_mode,'STRICT_TRANS_TABLES'), time_zone='+00:00'"})
+    return create_engine(
+        url.set(drivername='mysql+pymysql'),
+        pool_pre_ping=True,
+        pool_recycle=1800,
+        hide_parameters=True,
+        isolation_level='READ COMMITTED',
+        connect_args={
+            'connect_timeout': 10,
+            'read_timeout': 30,
+            'write_timeout': 30,
+            'charset': 'utf8mb4',
+            'init_command': "SET SESSION sql_mode=CONCAT_WS(',',@@sql_mode,'STRICT_TRANS_TABLES'), time_zone='+00:00'",
+        },
+    )
 
 
 def main() -> int:
@@ -45,25 +54,26 @@ def main() -> int:
     최종 v4 물리 계약을 검증한 뒤에만 성공으로 판정한다.
     표준 출력에 접속 URL·DB 예외 원문을 노출하지 않고 성공 시 0, 실패 시 1을 반환한다.
     생성한 Engine은 성공·실패와 관계없이 닫으며 스키마 변경은 실행하지 않는다."""
-    engine=None
+    engine = None
     try:
-        engine=create_db_engine()
+        engine = create_db_engine()
         with engine.connect() as connection:
             from .schema import snapshot, validate_v4
-            layout=snapshot(connection)
-            version=layout['version']
+            layout = snapshot(connection)
+            version = layout['version']
             if validate_v4(layout):
                 print('DB_CHECK_FAILED: incomplete schema v4; run python -m hyundap.db.schema --check')
                 return 1
-            count=len(layout['tables'])
+            count = len(layout['tables'])
         print(f'DB_CONNECTION_OK: schema_version={version}, tables={count}, '
-              f'version_storage_ready={version==4}')
+              f'version_storage_ready={version == 4}')
         return 0
     except Exception as error:
-        print('DB_CHECK_FAILED:',type(error).__name__,'Check DATABASE_URL, account permissions and network access.')
+        print('DB_CHECK_FAILED:', type(error).__name__, 'Check DATABASE_URL, account permissions and network access.')
         return 1
     finally:
-        if engine is not None:engine.dispose()
+        if engine is not None:
+            engine.dispose()
 
 
 if __name__=='__main__':
