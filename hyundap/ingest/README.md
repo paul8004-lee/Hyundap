@@ -83,6 +83,10 @@ else:
 | `CORRUPTED_FILE` | 깨진 파일 또는 0바이트 |
 | `DUPLICATE_FILE` | 같은 회사에 같은 내용의 파일이 이미 있음 |
 | `EMPTY_DOCUMENT` | 글자를 꺼낼 수 없음 (스캔한 이미지 문서 등) |
+| `INVALID_DOC_TYPE` | 지원하지 않는 문서 유형 |
+| `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 |
+
+`LEGACY_FORMAT`은 안내 문구만 준비됐으며 구형 Office 파일 판별은 미구현입니다. DB 업로드의 사전 검사는 별도 오류를 반환할 수 있습니다.
 
 ## 알아 둘 점
 
