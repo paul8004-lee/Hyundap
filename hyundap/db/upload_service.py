@@ -15,7 +15,7 @@ from threading import RLock
 from sqlalchemy import inspect, text
 
 from hyundap.common.config import get_settings
-from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
+from . import chunks_repo, documents_repo, jobs_repo, legacy, versions_repo, version_service
 from .errors import DbError
 from .runtime import require_id, transaction
 
@@ -455,6 +455,7 @@ def reset_retry_records(database, version_id, job_id, report):
                               error_code=NULL, error_message=NULL
         WHERE id=:id
     '''), {'id': job_id, 'report': json.dumps(report, ensure_ascii=False)})
+    legacy.reset_job_for_retry(database, job_id)
 
 
 def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):

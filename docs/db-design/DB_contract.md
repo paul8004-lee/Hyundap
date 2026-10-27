@@ -6,6 +6,11 @@
 
 ## 1. 책임과 채택 결정
 
+2026-10-27 코드 배치 결정: DB는 기존 일반 함수·dict 중심 구조를 유지한다.
+신규 코드는 기능 책임에 맞는 모듈에 배치하고, 클래스가 없으면 모듈 함수로 명시한다.
+메인/보조 역할과 호출 관계를 [DB 명세의 코드 배치 목록](../../hyundap/db/docs/spec.md)에 기록한다.
+운영 함수와 실제 클래스가 있는 시험 어댑터·테스트는 구분한다. 형식적인 클래스 래퍼는 추가하지 않는다.
+
 | 항목 | 채택 내용 | 명세 근거 / 연계 담당 |
 |---|---|---|
 | DB·권한 책임 | 전재경은 DB 저장·조회·접근 권한 재검증·완전성 판정·업로드 처리 연계를 구현한다. 로그인·비밀번호 해싱/검증·세션 발급/폐기는 담당 범위에서 제외한다. 기존 WBS 배정은 자동 변경하지 않는다. | 제약_운영 A9:G9 / 외부 인증 담당과 연계 |
@@ -152,6 +157,8 @@ manifest와 보고서의 호출부는 기존처럼 별도 TX이므로 전체 수
 | document_versions | processing → ready 또는 failed / failed → processing | ready는 양수 예상 수·완전한 manifest·벡터 ID 집합 검증 후 설정. failed 재시도는 같은 ID, 단일 실행자. ready 버전의 파일·manifest는 불변 |
 | index_jobs | queued → running → succeeded 또는 failed / failed → queued | stage는 received/ingest/embedding/verify/publish/complete. 재시도는 같은 후보, attempts 증가. 단일 프로세스가 순차 실행하고 중복 실행은 거부 |
 | sessions 읽기 | 외부 인증 담당이 관리한 상태 검사 | auth_version 불일치·만료·폐기·토큰 없음이면 DB 접근 거부. 상태 변경은 DB 담당 범위 밖 |
+
+실제 v3 작업 컬럼이 있는 경우 P1 종료 상태도 status(SUCCEEDED/FAILED)와 finished_at에 반영한다. 복구 대기 작업은 활성 보호를 유지하고, 외부 정리까지 끝난 restored 작업만 실패 종료한다. 재시도는 기존 status=QUEUED, attempt_no=증가한 attempts로 맞추며 종료·실행·임대 필드를 비운다. 후보의 processing 전환과 이 변경은 같은 TX다. 다른 활성 작업이 있으면 CONFLICT로 전체 롤백한다. 이전 시도 보고서는 _attempts에 보존한다.
 
 업로드의 권한·중복 확인과 문서/후보/작업 생성은 짧은 트랜잭션으로 묶는다. UNIQUE(company_id,sha256)는 동시에 도착한 새 후보의 최종 중복을 차단한다. 기존 문서 행 잠금 안에서 version_no를 할당한다. 파일 저장 실패는 후보·작업을 failed로 기록하고 기존 활성 버전은 유지한다. 외부 파일·ingest·Chroma 호출 중 SQL 행 잠금을 유지하지 않는다.
 

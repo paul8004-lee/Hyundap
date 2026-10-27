@@ -10,9 +10,9 @@
 | F41 / F107 | 처리 보고서·실패 사유 영속화 | 김혜리·박영준; 관리 UI는 박경환 |
 | F110~112 | 완전성 판정·DB 포인터·embedding 호출 | 박영준; Chroma 내부는 embedding |
 
-#118은 계약 작성, #119는 구조·마이그레이션 준비다. #121 저장 함수와 #122 DB 업로드·게시·복구 서비스를 db02 작업 트리에서 구현했다. 실제 수집/임베딩 모듈은 아직 뼈대여서 실연동 완료와는 구분한다.
+#118은 계약 작성, #119는 구조·마이그레이션 준비다. #121 저장 함수와 #122 DB 업로드·게시·복구 서비스는 구현돼 있다. 현재 ingest/embedding에는 실제 함수가 있으며, 합성 문서 3개를 사용한 실제 임베딩·Chroma·MySQL 시험 결과는 [SEMANTIC_SEARCH_TEST.md](../../../docs/db-design/SEMANTIC_SEARCH_TEST.md)에 기록했다. 운영 인증·UI 바인딩과 서비스 전체 통합 완료는 별도다.
 
-저장소 맨 위에서 `python -m hyundap.db.schema --inspect/--check`로 구조를 확인한다. SQL 생성은 `python -m hyundap.db.schema --prepare docs\db-design\migrations\004_local.sql`이며 DB 쓰기를 실행하지 않는다. 실제 공유 DB는 아직 미점검이다. 일반 함수·dict/list와 기존 SQLAlchemy text 연결을 재사용한다.
+저장소 맨 위에서 `python -m hyundap.db.schema --inspect/--check`로 구조를 확인한다. SQL 생성은 `python -m hyundap.db.schema --prepare docs\db-design\migrations\004_local.sql`이며 DB 쓰기를 실행하지 않는다. Railway 실제 DB를 읽기 전용으로 점검한 최근 결과는 v3·구조 진단 36개다. 빈 실제 v3 업무 테이블 전용 `--prepare-legacy`와 적용 조건은 [MIGRATION_v4.md](../../../docs/db-design/MIGRATION_v4.md)를 따른다. 일반 함수·dict/list와 기존 SQLAlchemy text 연결을 재사용한다.
 
 ## 구현 파일과 트랜잭션
 
@@ -37,7 +37,7 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 
 `python -m pip install -r requirements.txt` 후 저장소 맨 위에서 실행한다. 오프라인 테스트는 `python -m unittest hyundap.tests.test_db_runtime.OfflineRuntimeTests -v`다. 실제 저장 테스트는 빈 로컬 MySQL의 DB_RUNTIME_TEST_URL(host=127.0.0.1, database=hyundap_runtime_test)을 설정하고 `python -m unittest hyundap.tests.test_db_runtime -v`로 실행한다. 기존 테이블이 있으면 중단한다.
 
-테스트는 대표 v3를 v4로 이행한 합성 fixture다. 실제 공유 DB의 추가 필수 컬럼·enum·기존 자료와의 호환성은 #119 실측 뒤 확인해야 한다. 실제 DB의 DDL/DML, 커밋·푸시·PR 작성은 이번 작업에서 하지 않는다.
+테스트는 최소 v3 fixture와 실제 Railway DDL을 재현한 로컬 fixture를 구분한다. test_legacy_db는 기존 필수 컬럼·상태 제약·다중 문서·다음 버전·실패 복구·재시도를 합성 자료로 검증한다. 실제 DB DDL/DML·기존 업무 데이터 이행은 실행하지 않았다. 검증 범위는 [DB_TEST_VALIDATION.md](../../../docs/db-design/DB_TEST_VALIDATION.md)와 [2026-10-27 검토 보고서](../../../docs/db-design/DB_P1_SPEC_REVIEW_2026-10-27.md)를 따른다.
 
 #122의 입력·반환·기본 어댑터·실패 원장·운영 복구와 선행 조건은 [WORKFLOW_122.md](../../../docs/db-design/WORKFLOW_122.md)를 따른다. 원본 보관 경로는 앱 서버가 관리하며 외부 벡터 호출은 SQL TX 밖에서 수행한다. 순수 ID 개수 검사로 완전성을 확정하지 않는다. 단일 앱 프로세스 운영이 전제다.
 
@@ -47,6 +47,8 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 
 
 로그인·비밀번호 해싱/검증·세션 발급/폐기는 DB 담당 범위에서 제외했다. 테스트는 합성 사용자·세션 행을 준비하여 DB 접근 검증만 확인한다. 실제 인증 담당과의 연결은 미완료다.
+
+2026-10-27 상태 동기화 보완: 외부 정리가 끝나 복구가 restored가 된 경우에만 기존 작업을 FAILED로 종료한다. restore_pending에서는 활성 작업 보호를 유지한다. 재시도 시 stage/attempts와 기존 status/attempt_no/종료·임대 필드를 같은 TX에서 초기화하며, 활성 작업 충돌은 버전·작업 변경 전체를 롤백한다. 시간 정책은 UTC Unix 초 기본값이며 기존 밀리초 시스템과의 명시적 호환 설정도 지원한다.
 
 ## 메인 함수와 보조 함수 읽는 순서
 
@@ -81,3 +83,62 @@ manifest는 처리 중인 버전에만 저장한다. 같은 전체 목록의 재
 | `prepare_recovery` | 현재 복구 단계 조회 → `check_previous_version` 이전 버전 적격성 확인 → 최신 포인터 보호 → `restore_database_pointer` 조건부 포인터 복구 → 복구 대기 기록 |
 
 예를 들어 `record_stage_result`의 네 단계는 같은 DB 연결을 사용한다. 마지막 저장이 실패하면 그 트랜잭션이 취소된다. 보조 함수가 직접 새 트랜잭션을 열거나 커밋하지 않으므로 책임 분리가 저장의 원자성을 바꾸지 않는다. 외부에서 연결을 전달했다면 최종 커밋·롤백은 그 연결을 연 호출자가 담당한다.
+
+## 신규 코드의 모듈·역할·클래스 배치
+
+2026-10-27 사용자 결정: **기존 함수 구조를 유지하고 모듈·역할·클래스 유무를 문서화한다.**
+클래스 소속을 기재하기 위해 기존 함수를 새 클래스나 정적 메서드로 감싸지 않는다.
+메인 함수는 기능 진입점·흐름 담당, 보조 함수는 검사·조회·조립·저장 책임이다.
+아래 DB 함수의 클래스는 모두 없음이며, 클래스 메서드가 아닌 모듈 함수다.
+함수 앞의 밑줄은 내부 보조 함수 관례이며, 밑줄이 없는 함수도 호출 흐름에서 보조 역할일 수 있다.
+
+### 신규 최상위 함수 7개와 내부 콜백
+
+기준은 develop 공통 조상 98d428e와 현재 db_test 작업 트리의 차이다. 미커밋 보완을 포함한다.
+
+| 소속 모듈 | 함수 | 클래스 | 역할 | 연결되는 상위 함수 |
+|---|---|---|---|---|
+| hyundap.db.jobs_repo | _ingest_metrics(report, stage) | 없음 | 보조: 수집 보고서 필드·타입·범위 검사 | normalize_report |
+| hyundap.db.jobs_repo | _check_ingest_count(database, version_id, count) | 없음 | 보조: 보고·예상·실제 청크 수 비교 | record_stage_result |
+| hyundap.db.legacy | epoch_now() | 없음 | 보조: 시간 정책에 따른 Unix 시간 | 기존 필수값 저장·세션 만료·작업 상태 저장 |
+| hyundap.db.legacy | insert(connection, table, values, legacy_values) | 없음 | 보조: 기존 필수 컬럼을 포함한 INSERT | _prepare_document, _insert_version_and_job |
+| hyundap.db.legacy | finish_job(connection, job_id, *, complete=False, failed=False) | 없음 | 보조: 기존 작업 종료·활성 보호 해제 | _store_stage_result, write_publication, finish_recovery |
+| hyundap.db.legacy | reset_job_for_retry(connection, job_id) | 없음 | 보조: 기존 작업 재시도 상태 동기화 | reset_retry_records |
+| hyundap.db.schema | prepare_legacy_sql(connection, time_unit) | 없음 | 주요 처리: 빈 실제 v3의 검토용 SQL 생성 | schema.main의 --prepare-legacy 분기 |
+| hyundap.db.upload_service | ingest_and_save_chunks 내부 find_by_hash(company_id, sha256) | 없음 | 내부 보조 콜백: 현재 후보를 제외하는 중복 조회 | 실제 ingest_document에 전달 |
+
+내부 콜백은 독립 모듈 함수나 외부 API가 아니다. 현재 후보 ID는 외부 요청이 아니라
+상위 처리 흐름에서 고정한 값을 사용한다.
+
+### 기존 함수의 수정 및 역할
+
+같은 비교 범위에서 수정된 최상위 함수는 22개다. 다음 표는 신규 구현으로 잘못 계산하지 않도록 구분한다.
+
+| 소속 모듈 | 역할 | 수정한 기존 함수 | 변경 책임 |
+|---|---|---|---|
+| hyundap.db.documents_repo | 메인·공개 계약 | find_duplicate_document, validate_metadata, create_document_version | 중복 제외 문맥·유형 검사·원자 생성 |
+| hyundap.db.documents_repo | 보조 | _check_candidate_creation, _prepare_document, _insert_version_and_job | 현재 사용자·필수 기존 값·generation/작업 저장 |
+| hyundap.db.jobs_repo | 메인·공개 계약 | normalize_report, record_stage_result | 보고서 정규화·정합성 확인·단계 저장 |
+| hyundap.db.jobs_repo | 보조 | _read_stage_target, _merge_stage_reports, _store_stage_result | 잠금 순서·입력 미변경·종료 상태 반영 |
+| hyundap.db.schema | CLI 메인 | main | 명령 인자·준비·점검 진입점 |
+| hyundap.db.schema | 조회·검사 | snapshot, validate_v4 | 메타데이터 확장·token_hash 정렬 규칙 검사 |
+| hyundap.db.sessions_repo | 보조 | _read_valid_session | 기존 유휴/절대 만료와 expires_at 동시 검사 |
+| hyundap.db.upload_service | 보조 | save_ingest_chunks, ingest_and_save_chunks | 보고서 경고 수 변환·수집 중복 콜백 연결 |
+| hyundap.db.upload_service | 보조 | prepare_upload_source, create_upload_candidate, reset_retry_records | 고유 임시/최종 경로·재시도 SQL 원자 변경 |
+| hyundap.db.version_service | 보조 | write_publication, finish_recovery | 게시 원장·기존 작업 종료 동기화 |
+
+current_actor, upload_document, retry_upload, run_attempt, publish_version, recover_publication 등은
+기존 메인 흐름을 재사용한다. 표의 보조 함수 변경이 이 메인 흐름에 반영되며 새 클래스로 대체하지 않는다.
+
+### 실제 클래스가 있는 시험 코드
+
+| 모듈 | 클래스 | 상속 | 주요 책임 |
+|---|---|---|---|
+| hyundap.tests.ui_db_smoke | DatabaseSmokeServices | MockServices | 합성 인증 문맥으로 upload/search/detail 시험. 운영 인증 서비스가 아님 |
+| hyundap.tests.test_legacy_db | LegacyConfigurationTests | unittest.TestCase | 시간 기본값·설정 오류·밀리초 호환 검사 |
+| hyundap.tests.test_legacy_db | LegacyDatabaseTests | unittest.TestCase | 실제 v3 DDL의 저장·접근·복구·재시도·롤백 검사 |
+| hyundap.tests.test_ingest_bridge | IngestBridgeTests | unittest.TestCase | 수집 콜백 문맥과 경고 개수 변환 검사 |
+| hyundap.tests.test_semantic_ui_bridge | SemanticUIBridgeTests | unittest.IsolatedAsyncioTestCase | 문장형 검색 전달·오류 처리 검사 |
+
+앞으로 신규 함수는 위 형식으로 소속 모듈·클래스 유무·메인/보조 역할·호출 관계를 기록한다.
+DB 보조 함수는 입력·반환·오류·DB 변경 여부·호출자 TX 참여 및 커밋 책임을 한글 설명에 명시한다.
