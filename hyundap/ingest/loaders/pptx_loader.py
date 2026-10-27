@@ -6,9 +6,12 @@
 함수:
     FUN-210 load_pptx — PPTX 슬라이드 텍스트·표를 공통 문서로 읽는다."""
 
+from zipfile import BadZipFile
 
+from lxml.etree import XMLSyntaxError
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.exc import PackageNotFoundError
 
 from .base import build_location_label, table_to_text
 from hyundap.common.schemas import CommonDocument, Section
@@ -41,7 +44,7 @@ def load_pptx(file_path, upload_info):
     """PPTX 슬라이드를 차례로 읽어 슬라이드마다 섹션 1개로 만든다."""
     try:
         presentation = Presentation(file_path)
-    except Exception:
+    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError):   # 괄호 () 중 하나면 같은 처리를 한다.
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))

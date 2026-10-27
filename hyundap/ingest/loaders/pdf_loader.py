@@ -7,6 +7,7 @@
     FUN-208 load_pdf — PDF 페이지 텍스트를 공통 문서로 읽는다."""
 
 from langchain_community.document_loaders import PyPDFLoader
+from pypdf.errors import PyPdfError
 
 from .base import build_location_label
 from hyundap.common.schemas import CommonDocument, Section
@@ -17,7 +18,7 @@ def load_pdf(file_path, upload_info):
     """PDF를 페이지별로 읽어 페이지마다 섹션 1개를 가진 공통 문서 형식으로 바꾼다."""
     try:
         pages = PyPDFLoader(file_path).load()
-    except Exception:
+    except PyPdfError:
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))

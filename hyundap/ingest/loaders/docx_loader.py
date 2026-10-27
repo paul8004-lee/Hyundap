@@ -7,9 +7,12 @@
     FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다."""
 
 
+from zipfile import BadZipFile
 from docx import Document as DocxDocument
+from docx.opc.exceptions import PackageNotFoundError
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from lxml.etree import XMLSyntaxError
 
 from .base import build_location_label, table_to_text
 from hyundap.common.schemas import CommonDocument, Section
@@ -38,7 +41,7 @@ def load_docx(file_path, upload_info):
     """DOCX 본문을 순서대로 읽어 제목 스타일마다 새 섹션으로 나눈다."""
     try:
         docx_file = DocxDocument(file_path)
-    except Exception:
+    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError):
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))
