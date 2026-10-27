@@ -24,12 +24,11 @@ def normalize_text(text):
 
     for ch in LINE_BREAK_CHARS:
         text = text.replace(ch, "\n")
-    result = ""
-    for ch in text:
-        if unicodedata.category(ch) in ("Cc", "Cf") and ch not in ("\n", "\t"):
-            continue
-        result += ch
-    text = result
+    # 제어(Cc)·서식(Cf)·짝 없는 서로게이트(Cs) 제거. Cs가 남으면 UTF-8 저장·임베딩 호출에서 예외가 난다.
+    text = "".join(
+        ch for ch in text
+        if ch in ("\n", "\t") or unicodedata.category(ch) not in ("Cc", "Cf", "Cs")
+    )
 
     for ch in SPECIAL_SPACES:
         text = text.replace(ch, " ")
