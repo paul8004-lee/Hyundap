@@ -134,7 +134,7 @@ def build_chat_page() -> dict[str, Any]:
         scope_hint = gr.HTML(render_scope_hint("선택 문서"))
         question = gr.Textbox(
             label="질문", placeholder="예: 이 문서의 주요 내용과 핵심 수치를 알려줘",
-            lines=3, max_lines=6, max_length=4000,
+            lines=3, max_lines=6, max_length=2000,
             elem_id="hd-chat-question", elem_classes=["hd-input"],
         )
         with gr.Row(elem_id="hd-chat-actions"):
