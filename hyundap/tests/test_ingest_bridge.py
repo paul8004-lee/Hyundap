@@ -7,6 +7,16 @@ from hyundap.db.errors import DbError
 
 
 class IngestBridgeTests(unittest.TestCase):
+    def test_verified_hash_is_passed_only_to_compatible_ingest(self):
+        seen = []
+        def ingest(path, metadata, *, find_by_hash, file_hash=None):
+            seen.append(file_hash)
+            return {'status': 'failed', 'error_code': 'CORRUPTED_FILE'}
+        result = upload_service.ingest_and_save_chunks('file', {'company_id': 'c'},
+                                                       {'version_id': 'v'}, ingest, 'a' * 64)
+        self.assertEqual(result, (None, 'CORRUPTED_FILE'))
+        self.assertEqual(seen, ['a' * 64])
+
     def test_duplicate_callback_is_bound_to_current_server_candidate(self):
         info = {'company_id': 'c'}
         ids = {'version_id': 'v'}

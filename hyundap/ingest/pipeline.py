@@ -29,7 +29,7 @@ from .validator import validate_upload
 PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
 
 
-def ingest_document(file_path, upload_info, find_by_hash=None):
+def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
     """검증→로드→정규화→청킹을 순서대로 실행하고 결과를 IngestResult로 돌려준다."""
     upload_info = dict(upload_info)
     if "doc_type" not in upload_info:
@@ -44,7 +44,7 @@ def ingest_document(file_path, upload_info, find_by_hash=None):
     try:
         if not isinstance(upload_info["doc_type"], str) or upload_info["doc_type"] not in DOC_TYPE_CODES:
             raise IngestError(INVALID_DOC_TYPE)
-        validate_upload(file_path, upload_info["company_id"], find_by_hash)
+        validate_upload(file_path, upload_info["company_id"], find_by_hash, file_hash)
         doc = load_document(file_path, upload_info)
         doc = normalize_document(doc)
         if len(doc.sections) == 0:

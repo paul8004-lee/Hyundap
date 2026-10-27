@@ -5,6 +5,7 @@
 """
 
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -138,7 +139,7 @@ def record_upload_failure(ids, stage, error, backend):
 
 
 def read_attempt_source(ids):
-    """문서·버전 ID로 저장 원본을 확인하고 (파일 경로, 수집용 정보 dict)를 반환한다.
+    """문서·버전 ID로 저장 원본을 확인하고 (파일 경로, 수집 정보, 검증한 해시)를 반환한다.
 
     DB 조회를 끝낸 뒤 파일을 읽는다. 파일의 해시·크기가 저장 당시와 다르면 중단한다.
     """
@@ -161,7 +162,7 @@ def read_attempt_source(ids):
         'doc_type': document['doc_type'],
         'file_name': version['file_name'],
     }
-    return source, info
+    return source, info, version['sha256']
 
 
 def save_ingest_chunks(ids, company_id, result):
@@ -217,10 +218,10 @@ def verify_uploaded_chunks(ids, backend):
     })
 
 
-def ingest_and_save_chunks(source, info, ids, ingest_function):
+def ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None):
     """원본 Path와 수집 정보로 수집 단계를 실행하고 (청크 목록, 오류 코드)를 반환한다.
 
-    성공하면 청크·보고서를 저장하고 (chunks, None)을 반환한다. 수집기가 실패 결과를
+    검증한 해시는 해당 선택 인자를 지원하는 수집기에만 전달한다. 성공하면 청크·보고서를 저장하고 (chunks, None)을 반환한다. 수집기가 실패 결과를
     반환하면 (None, 안전한 오류 코드)다. 실패 후보 정리는 run_attempt가 담당한다.
     """
     def find_by_hash(company_id, sha256):
@@ -230,8 +231,14 @@ def ingest_and_save_chunks(source, info, ids, ingest_function):
         return documents_repo.find_duplicate_document(
             company_id, sha256, exclude_version_id=ids['version_id'])
 
-    raw_result = version_service.call_external(
-        ingest_function, str(source), info, find_by_hash=find_by_hash)
+    kwargs = {'find_by_hash': find_by_hash}
+    try:
+        parameters = inspect.signature(ingest_function).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    if file_hash is not None and 'file_hash' in parameters:
+        kwargs['file_hash'] = file_hash
+    raw_result = version_service.call_external(ingest_function, str(source), info, **kwargs)
     result = version_service.as_mapping(raw_result)
     if result.get('status') != 'success':
         return None, failure_code(result.get('error_code'))
@@ -261,11 +268,11 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
     """
     stage = 'received'
     try:
-        source, info = read_attempt_source(ids)
+        source, info, file_hash = read_attempt_source(ids)
         jobs_repo.record_stage_result(ids['job_id'], {'stage': stage, 'status': 'success'})
 
         stage = 'ingest'
-        chunks, error_code = ingest_and_save_chunks(source, info, ids, ingest_function)
+        chunks, error_code = ingest_and_save_chunks(source, info, ids, ingest_function, file_hash)
         if error_code is not None:
             return record_upload_failure(ids, stage, error_code, backend)
 

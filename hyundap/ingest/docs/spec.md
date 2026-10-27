@@ -82,7 +82,7 @@ flowchart LR
 | ② | 용량 | 1바이트 이상 100MiB(104,857,600바이트) 이하 | `FILE_TOO_LARGE`, 0바이트는 `CORRUPTED_FILE` |
 | ③ | 암호화 | PDF는 `is_encrypted`, DOCX·PPTX는 OLE2 시작값 | `ENCRYPTED_FILE` |
 | ④ | 손상 | PDF는 1쪽 이상 열림, DOCX·PPTX는 압축 정상 + 필수 파일 존재 | `CORRUPTED_FILE` |
-| ⑤ | 해시 | 파일 전체 SHA-256 (1MiB씩 읽음) | — |
+| ⑤ | 해시 | 파일 전체 SHA-256 (1MiB씩 읽음); 호출자가 검증한 해시를 제공하면 재사용 | — |
 | ⑥ | 중복 | 같은 회사에 같은 해시 문서가 있으면 중복 (파일명이 달라도) | `DUPLICATE_FILE` |
 
 - 비밀번호를 받아 푸는 기능은 없습니다.
