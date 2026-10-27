@@ -1,0 +1,97 @@
+{
+  "run_at": "20261027-1604",
+  "categories": [
+    "format",
+    "filter"
+  ],
+  "results": [
+    {
+      "id": "U-PDF",
+      "category": "format",
+      "title": "PDF 업로드·추출 (5건)",
+      "verdict": "PASS",
+      "note": "MVX-PUB-026 섹션 1·청크 1·32.0초; MVX-PUB-025 섹션 1·청크 1·32.7초; MVX-PUB-012 섹션 1·청크 1·32.9초; HEL-PUB-021 섹션 1·청크 1·33.6초; HEL-PUB-027 기대한 거부 EMPTY_DOCUMENT → failed/EMPTY_DOCUMENT; MVX-PUB-026 위치 ['p.1']; MVX-PUB-025 위치 ['p.1']; MVX-PUB-012 위치 ['p.1']",
+      "seconds": 30.7
+    },
+    {
+      "id": "U-DOCX",
+      "category": "format",
+      "title": "DOCX 업로드·추출 (14건)",
+      "verdict": "PASS",
+      "note": "MVX-SYN-MAN-001 섹션 8·청크 8·37.8초; MVX-SYN-MAN-002 섹션 8·청크 8·33.7초; MVX-SYN-MAN-005 섹션 8·청크 8·33.0초; MVX-SYN-MAN-009 섹션 8·청크 8·32.8초; HEL-SYN-MAN-001 섹션 8·청크 8·33.2초; HEL-SYN-MAN-002 섹션 8·청크 8·33.6초; HEL-SYN-MAN-005 섹션 8·청크 8·33.0초; HEL-SYN-MAN-009 섹션 8·청크 8·32.8초; HRI-SYN-MAN-001 섹션 8·청크 8·33.1초; HRI-SYN-MAN-002 섹션 8·청크 8·32.9초; HRI-SYN-MAN-005 섹션 8·청크 8·32.8초; HRI-SYN-MAN-009 섹션 8·청크 8·33.3초; HRI-SYN-MAN-013 섹션 8·청크 8·32.8초; HRI-SYN-BIZ-001 섹션 9·청크 9·32.8초; MVX-SYN-MAN-001 위치 ['섹션 1', '섹션 8 (검색 확인 질문)']; MVX-SYN-MAN-002 위치 ['섹션 1', '섹션 8 (검색 확인 질문)']; MVX-SYN-MAN-005 위치 ['섹션 1', '섹션 8 (검색 확인 질문)']",
+      "seconds": 27.5
+    },
+    {
+      "id": "U-PPTX",
+      "category": "format",
+      "title": "PPTX 업로드·추출 (6건)",
+      "verdict": "PASS",
+      "note": "MVX-SYN-EDU-001 섹션 4·청크 4·32.0초; MVX-SYN-EDU-004 섹션 4·청크 4·32.9초; HEL-SYN-EDU-001 섹션 4·청크 4·32.9초; HEL-SYN-EDU-004 섹션 4·청크 4·33.0초; HRI-SYN-EDU-001 섹션 4·청크 4·33.2초; HRI-SYN-EDU-004 섹션 4·청크 4·32.9초; MVX-SYN-EDU-001 위치 ['슬라이드 1', '슬라이드 2']; MVX-SYN-EDU-004 위치 ['슬라이드 1', '슬라이드 2']; HEL-SYN-EDU-001 위치 ['슬라이드 1']",
+      "seconds": 19.3
+    },
+    {
+      "id": "F1",
+      "category": "filter",
+      "title": "회사 1곳(hri) 필터",
+      "verdict": "PASS",
+      "note": "8건, 회사 ['HRI'], 유형 ['guide', 'manual', 'other']",
+      "seconds": 4.5
+    },
+    {
+      "id": "F2",
+      "category": "filter",
+      "title": "회사 2곳(mvx·hel) 필터",
+      "verdict": "PASS",
+      "note": "10건, 회사 ['HEL', 'MVX'], 유형 ['guide', 'manual']",
+      "seconds": 4.4
+    },
+    {
+      "id": "F3",
+      "category": "filter",
+      "title": "문서 유형 manual 필터",
+      "verdict": "PASS",
+      "note": "10건, 회사 ['HEL', 'HRI', 'MVX'], 유형 ['manual']",
+      "seconds": 4.3
+    },
+    {
+      "id": "F4",
+      "category": "filter",
+      "title": "문서 유형 guide 필터",
+      "verdict": "PASS",
+      "note": "5건, 회사 ['HEL', 'HRI', 'MVX'], 유형 ['guide']",
+      "seconds": 4.3
+    },
+    {
+      "id": "F5",
+      "category": "filter",
+      "title": "회사 hri + 유형 guide 조합",
+      "verdict": "PASS",
+      "note": "2건, 회사 ['HRI'], 유형 ['guide']",
+      "seconds": 4.5
+    },
+    {
+      "id": "F6",
+      "category": "filter",
+      "title": "문서가 없는 유형(policy) 필터",
+      "verdict": "PASS",
+      "note": "0건 (오류 없이 0건 기대)",
+      "seconds": 3.3
+    },
+    {
+      "id": "F7",
+      "category": "filter",
+      "title": "회사 관리자(hri) 필터 없이 검색",
+      "verdict": "PASS",
+      "note": "6건, 회사 ['HRI'], 유형 ['guide', 'manual']",
+      "seconds": 7.9
+    },
+    {
+      "id": "F8",
+      "category": "filter",
+      "title": "질문 범위를 문서 1개로 한정",
+      "verdict": "PASS",
+      "note": "상태 ANSWERED, 출처 문서 ['HRI-SYN-MAN-001'], 답 접수 후 6 업무시간입니다 [1][2].",
+      "seconds": 14.5
+    }
+  ]
+}
