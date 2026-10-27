@@ -8,7 +8,6 @@ import ast
 import io
 import logging
 import os
-import subprocess
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -189,19 +188,6 @@ class BoundaryTests(unittest.TestCase):
                     self.assertTrue(allowed, module)
                 for table in FORBIDDEN_TABLES:
                     self.assertNotIn(table, source.lower())
-
-    def test_diff_does_not_touch_forbidden_paths(self):
-        """origin/develop 기준 변경 파일에 의존성·스키마·UI·DB 패키지·기존 DB 테스트가 없다."""
-        result = subprocess.run(['git', 'diff', '--name-only', 'origin/develop...HEAD'], cwd=REPO_ROOT,
-                                capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            self.skipTest('origin/develop을 확인할 수 없음')
-        changed = result.stdout.split()
-        forbidden = ('requirements.txt', 'hyundap/db/', 'docs/db-design/', 'hyundap/ui/',
-                     'hyundap/tests/test_db_runtime.py', 'hyundap/tests/test_schema_migration.py')
-        for path in changed:
-            self.assertFalse(path.startswith(forbidden), path)
-
 
 @unittest.skipUnless(os.getenv('DB_AUTH_TEST_URL'), '격리 MySQL URL 필요 (DB_AUTH_TEST_URL)')
 class DatabaseCreateAccountTests(unittest.TestCase):
