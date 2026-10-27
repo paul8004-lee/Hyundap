@@ -42,8 +42,12 @@ class IngestError(Exception):
     def __init__(self, code, message=""):
         if message == "":
             message = ERROR_MESSAGES.get(code, code)
+        super().__init__(code, message)   # args에 둘 다 남겨 traceback·로그·pickle에서 사라지지 않게 한다
         self.code = code
         self.message = message
+
+    def __str__(self):
+        return f"{self.code}: {self.message}"
 
 
 @dataclass
