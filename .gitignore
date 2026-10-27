@@ -248,6 +248,10 @@ dist-ssr/
 *.docx
 *.xlsx
 
+# 개인 학습 참고 문서 (저장소 루트에서만 제외)
+/LEARNER_EVIDENCE.md
+/LEARNER_CODE_CONTEXT.md
+
 # Runtime data (originals, vector DB)
 data/
 

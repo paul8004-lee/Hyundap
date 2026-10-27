@@ -6,6 +6,14 @@
 
 ## 1. 책임과 채택 결정
 
+2026-10-27 코드 배치 결정: DB는 기존 일반 함수·dict 중심 구조를 유지한다.
+신규 코드는 기능 책임에 맞는 모듈에 배치하고, 클래스가 없으면 모듈 함수로 명시한다.
+메인/보조 역할과 호출 관계를 [DB 명세의 코드 배치 목록](../../hyundap/db/docs/spec.md)에 기록한다.
+운영 함수와 실제 클래스가 있는 시험 어댑터·테스트는 구분한다. 형식적인 클래스 래퍼는 추가하지 않는다.
+
+후속 구조 개선안은 [DB_V4_SIMPLIFICATION_PLAN.md](DB_V4_SIMPLIFICATION_PLAN.md)에 별도 저장한다.
+현재 호환 코드 유지와 최종 v4 단일화 제안을 구분하며, 운영 DDL 적용은 별도 검토 대상이다.
+
 | 항목 | 채택 내용 | 명세 근거 / 연계 담당 |
 |---|---|---|
 | DB·권한 책임 | 전재경은 DB 저장·조회·접근 권한 재검증·완전성 판정·업로드 처리 연계를 구현한다. 로그인·비밀번호 해싱/검증·세션 발급/폐기는 담당 범위에서 제외한다. 기존 WBS 배정은 자동 변경하지 않는다. | 제약_운영 A9:G9 / 외부 인증 담당과 연계 |
@@ -68,7 +76,7 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 |---|---|---|
 | auth.permissions.get_allowed_company_ids(actor) | UserContext → set[str] | 이준영 FUN-253. 활성 회사만 반환, 허용 범위가 없으면 ACCESS_DENIED. 선택 회사 인자는 받지 않음 |
 | auth.permissions.verify_documents_access(actor, refs) | list[tuple[document_id,version_id]] → None | 소용우 FUN-407. 빈 refs는 INVALID_INPUT. 현재 세션·권한과 모든 참조를 일괄 재확인. 하나라도 실패하면 예외 |
-| db.documents_repo.find_duplicate_document(company_id, sha256) | str,str → {document_id,version_id,version_status,deleted_at} 또는 None | 김혜리 FUN-206. 내부 서버 처리에서 이미 권한 확인된 회사만 사용. 64자 소문자 hex 검증 |
+| db.documents_repo.find_duplicate_document(company_id, sha256, *, exclude_version_id=None, connection=None) | str,str → {document_id,version_id,version_status,deleted_at} 또는 None | 권한 확인된 서버 처리 전용. 제외 ID는 서버가 확정한 현재 후보이며 같은 회사·해시로 존재해야 함. 불일치 INVALID_INPUT. 삭제·실패 포함, 옵션 생략 시 기존 조회 유지. 후보 최종 생성에서는 제외하지 않음 |
 | db.documents_repo.get_documents_with_active_version(document_ids) | list[str] → list[dict] | 이준영 FUN-247. 위 11필드. 빈 목록은 [], 없는 ID 누락. 서버 내부 조회이며 별도 공개 API 아님 |
 | db.documents_repo.create_document_version(actor, metadata) | dict → {document_id,version_id,job_id} | 업로드 서비스. metadata: company_id,doc_type,file_name,storage_path,sha256,file_size,data_category,document_id(기존 문서면 지정). 권한·동시 중복·버전 번호 확인 후 짧은 TX |
 | db.versions_repo.list_document_versions(actor, document_id) | str → list[dict] | 회사 권한이 있는 관리자용 버전 관리. 직원에게 과거·비공개 버전을 노출하지 않음. version_no 오름차순, 내부 경로 제외 |
@@ -105,12 +113,55 @@ verify_documents_access(actor, cited_pairs)  # None 또는 AccessError/DbError
 
 ## 4. 상태·트랜잭션·실패 계약
 
+### DB P1 수집 보고서 저장 보완 (db01, 2026-10-26)
+
+`normalize_report(report)`는 ingest 단계에서 다음 선택 필드를 추가로 받는다.
+parser는 pypdf/python-docx/python-pptx, parser_version은 1~64자의 ASCII 영숫자와
+`._+-`이며 첫 글자는 영숫자다. 두 필드는 각각 생략할 수 있다.
+chunk_size는 bool 제외 양의 정수, chunk_overlap은 bool 제외 0 이상 정수이며
+둘 다 있으면 overlap < size다. section_count/chunk_count/warning_count는
+bool 제외 0 이상 정수다. 명시적 None은 거부하며 다른 단계의 수집 전용 필드도
+INVALID_INPUT이다. 기존 필드 없는 보고서는 계속 허용한다.
+
+warnings 원문은 제거하며 warning_count를 자동으로 만들지 않는다. 생산·호출 담당이
+안전한 개수를 전달한다. 임의 본문·비밀값·원시 오류 문구는 저장하지 않는다.
+
+`record_stage_result`는 수집 성공에 chunk_count가 명시되면 processing 버전의
+양수 expected_chunk_count와 현재 manifest 행 수가 모두 같아야 저장한다.
+부적격 버전 상태는 INVALID_STATE, 개수 모순은 INVALID_INPUT이다.
+버전 → 작업 순서로 잠근 뒤 소속을 재확인하고 청크 수는 현재 잠금 조회로 읽는다.
+REPEATABLE READ에서도 선행 참조 조회의 과거 snapshot을 개수 비교에 사용하지 않는다.
+검사·JSON·stage·오류 열 갱신은 같은 TX이며 호출자 연결을 커밋하지 않는다.
+다른 단계와 `_attempts`는 보존하고 성공 결과 변경·늦은 단계 기록은 CONFLICT다.
+manifest와 보고서의 호출부는 기존처럼 별도 TX이므로 전체 수집 결과의 원자성은
+이 계약으로 추가 보장하지 않는다.
+
+### 문서 메타데이터와 중복 조회 세부 규칙
+
+`validate_metadata`는 공통 `DOC_TYPE_CODES`로 저장 유형을 검사한다. doc_type 키가
+없으면 `DEFAULT_DOC_TYPE`을 사용하고, 명시적 None·빈 문자열·미등록 값은
+`INVALID_INPUT`이다. 입력 dict를 변경하지 않으며 파일을 읽거나 DB에 접속하지 않는다.
+
+중복 조회의 `exclude_version_id`는 외부 공개 요청에서 임의로 받지 않는다.
+서버가 고정한 후보를 같은 DB 연결에서 존재·회사·해시 조건으로 검증한 뒤 제외한다.
+검증 실패는 `INVALID_INPUT`, DB 장애는 `DB_UNAVAILABLE`이다. 옵션을 생략하면
+삭제·실패 포함 기존 정책이다. 현재 v4의 회사+해시 UNIQUE는 동일 회사·해시의
+다른 버전 공존을 차단하므로 자기 후보를 제외하면 보통 None이다.
+이 조회는 쓰기나 동시성 보호를 수행하지 않는다.
+
+`connection` 제공 시 호출자 트랜잭션에 참여하며 커밋·종료하지 않는다.
+생략하면 자체 읽기 트랜잭션을 사용한다. 최종 후보 생성은 제외 옵션 없이
+회사 잠금 아래 검사하며 사전 중복은 `DUPLICATE_FILE`, 고유키 경쟁은
+`CONFLICT`다. 콜백/파일/업로드 흐름 변경은 이 저장소 보완에 포함하지 않는다.
+
 | 대상 | 상태 전이 | 조건·실패 처리 |
 |---|---|---|
 | documents | draft → published / published → blocked | 게시 시 ready·operational 활성 버전 필수. deleted_at이 있으면 항상 접근 거부. 처리 실패 때문에 기존 공개 문서를 draft로 내리지 않음 |
 | document_versions | processing → ready 또는 failed / failed → processing | ready는 양수 예상 수·완전한 manifest·벡터 ID 집합 검증 후 설정. failed 재시도는 같은 ID, 단일 실행자. ready 버전의 파일·manifest는 불변 |
 | index_jobs | queued → running → succeeded 또는 failed / failed → queued | stage는 received/ingest/embedding/verify/publish/complete. 재시도는 같은 후보, attempts 증가. 단일 프로세스가 순차 실행하고 중복 실행은 거부 |
 | sessions 읽기 | 외부 인증 담당이 관리한 상태 검사 | auth_version 불일치·만료·폐기·토큰 없음이면 DB 접근 거부. 상태 변경은 DB 담당 범위 밖 |
+
+실제 v3 작업 컬럼이 있는 경우 P1 종료 상태도 status(SUCCEEDED/FAILED)와 finished_at에 반영한다. 복구 대기 작업은 활성 보호를 유지하고, 외부 정리까지 끝난 restored 작업만 실패 종료한다. 재시도는 기존 status=QUEUED, attempt_no=증가한 attempts로 맞추며 종료·실행·임대 필드를 비운다. 후보의 processing 전환과 이 변경은 같은 TX다. 다른 활성 작업이 있으면 CONFLICT로 전체 롤백한다. 이전 시도 보고서는 _attempts에 보존한다.
 
 업로드의 권한·중복 확인과 문서/후보/작업 생성은 짧은 트랜잭션으로 묶는다. UNIQUE(company_id,sha256)는 동시에 도착한 새 후보의 최종 중복을 차단한다. 기존 문서 행 잠금 안에서 version_no를 할당한다. 파일 저장 실패는 후보·작업을 failed로 기록하고 기존 활성 버전은 유지한다. 외부 파일·ingest·Chroma 호출 중 SQL 행 잠금을 유지하지 않는다.
 
