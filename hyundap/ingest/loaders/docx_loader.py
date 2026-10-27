@@ -8,6 +8,7 @@
 
 
 from zipfile import BadZipFile
+
 from docx import Document as DocxDocument
 from docx.opc.exceptions import PackageNotFoundError
 from docx.table import Table
@@ -37,6 +38,26 @@ def add_docx_section(doc, title, lines):
     )
 
 
+def read_table_rows(table):
+    """표를 행·열 글자 목록으로 읽는다. 병합된 칸은 첫 칸에만 값을 두고 나머지는 빈 칸으로 한다.
+
+    (행·열 목록, 빈 칸으로 바꾼 병합 칸 수)를 돌려준다."""
+    rows = []
+    seen = set()
+    merged_count = 0
+    for row in table.rows:
+        cells = []
+        for cell in row.cells:
+            if cell._tc in seen:
+                cells.append("")
+                merged_count += 1
+            else:
+                seen.add(cell._tc)
+                cells.append(cell.text)
+        rows.append(cells)
+    return rows, merged_count
+
+
 def load_docx(file_path, upload_info):
     """DOCX 본문을 순서대로 읽어 제목 스타일마다 새 섹션으로 나눈다."""
     try:
@@ -47,6 +68,7 @@ def load_docx(file_path, upload_info):
     doc = CommonDocument(header=dict(upload_info))
     title = None
     lines = []
+    table_no = 0
 
     for block in docx_file.iter_inner_content():
         if isinstance(block, Paragraph):
@@ -58,12 +80,10 @@ def load_docx(file_path, upload_info):
             elif text != "":
                 lines.append(text)
         elif isinstance(block, Table):
-            rows = []
-            for row in block.rows:
-                cells = []
-                for cell in row.cells:
-                    cells.append(cell.text)
-                rows.append(cells)
+            table_no += 1
+            rows, merged_count = read_table_rows(block)
+            if merged_count > 0:
+                doc.warnings.append(f"표 {table_no}: 병합 셀 {merged_count}칸은 빈 칸으로 처리함")
             lines.extend(table_to_text(rows))
 
     add_docx_section(doc, title, lines)
