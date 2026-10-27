@@ -76,13 +76,13 @@ class RailwayDdlAccountFlowTests(unittest.TestCase):
         with self.engine.begin() as database:
             database.execute(text('''
                 INSERT INTO companies (id,name,created_at,updated_at)
-                VALUES (:id,:name,UNIX_TIMESTAMP(UTC_TIMESTAMP()),UNIX_TIMESTAMP(UTC_TIMESTAMP()))
+                VALUES (:id,:name,UNIX_TIMESTAMP(),UNIX_TIMESTAMP())
             '''), {'id': self.company, 'name': '합성 회사 ' + uuid4().hex[:8]})
 
     def database_now(self):
         """DB 기준 현재 UTC Unix 초를 반환한다."""
         with self.engine.connect() as database:
-            return int(database.execute(text('SELECT UNIX_TIMESTAMP(UTC_TIMESTAMP())')).scalar_one())
+            return int(database.execute(text('SELECT UNIX_TIMESTAMP()')).scalar_one())
 
     def user_row(self, user_id):
         """users 행 1건을 dict로 반환한다."""

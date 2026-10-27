@@ -493,7 +493,7 @@ class DatabaseSessionTests(unittest.TestCase):
         self.assertEqual(row['idle_expires_at'], row['absolute_expires_at'])
         self.assertEqual(row['idle_expires_at'] - row['created_at'], self.ttl * 60)
         with self.engine.connect() as database:
-            now = database.execute(text('SELECT UNIX_TIMESTAMP(UTC_TIMESTAMP())')).scalar_one()
+            now = database.execute(text('SELECT UNIX_TIMESTAMP()')).scalar_one()
         self.assertLessEqual(abs(int(now) - row['created_at']), 60)
         self.assertEqual(session_service.validate_session(session=result), result)
         self.assertIsNone(session_service.logout(session=result))
