@@ -1,0 +1,239 @@
+{
+  "source_root": "G:/.shortcut-targets-by-id/1YhbkqVbEwGcxlczbdRbz4L5exCoFEIsA/1차 프로젝트_3팀/구버전/목업 데이터",
+  "documents": [
+    {
+      "key": "MVX-SYN-MAN-001",
+      "company": "mvx",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대무벡스/업무매뉴얼/MVX-SYN-MAN-001_가상_WMS 입고 데이터 접수와 등록.docx"
+    },
+    {
+      "key": "MVX-SYN-MAN-002",
+      "company": "mvx",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대무벡스/업무매뉴얼/MVX-SYN-MAN-002_가상_WMS 입고 데이터 변경 요청과 승인.docx"
+    },
+    {
+      "key": "MVX-SYN-EDU-001",
+      "company": "mvx",
+      "doc_type": "guide",
+      "path": "02_가상자료/현대무벡스/교육자료/MVX-SYN-EDU-001_가상_WMS 입고 데이터 신규 담당자 실습.pptx"
+    },
+    {
+      "key": "MVX-PUB-026",
+      "company": "mvx",
+      "doc_type": "other",
+      "path": "01_공개자료/현대무벡스/웹본문PDF/MVX-PUB-026_WMS 주요 장점.pdf"
+    },
+    {
+      "key": "MVX-SYN-MAN-005",
+      "company": "mvx",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대무벡스/업무매뉴얼/MVX-SYN-MAN-005_가상_WCS 작업 이력 접수와 등록.docx"
+    },
+    {
+      "key": "MVX-SYN-MAN-009",
+      "company": "mvx",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대무벡스/업무매뉴얼/MVX-SYN-MAN-009_가상_AGV 배차 요청 접수와 등록.docx"
+    },
+    {
+      "key": "MVX-SYN-EDU-004",
+      "company": "mvx",
+      "doc_type": "guide",
+      "path": "02_가상자료/현대무벡스/교육자료/MVX-SYN-EDU-004_가상_WCS 작업 이력 신규 담당자 실습.pptx"
+    },
+    {
+      "key": "MVX-PUB-025",
+      "company": "mvx",
+      "doc_type": "other",
+      "path": "01_공개자료/현대무벡스/웹본문PDF/MVX-PUB-025_WCS (Warehouse Control System) 주요 장점.pdf"
+    },
+    {
+      "key": "MVX-PUB-012",
+      "company": "mvx",
+      "doc_type": "other",
+      "path": "01_공개자료/현대무벡스/웹본문PDF/MVX-PUB-012_AGV 주요 장점.pdf"
+    },
+    {
+      "key": "HEL-SYN-MAN-001",
+      "company": "hel",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대엘리베이터/업무매뉴얼/HEL-SYN-MAN-001_가상_유지관리 요청 분류 접수와 등록.docx"
+    },
+    {
+      "key": "HEL-SYN-MAN-002",
+      "company": "hel",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대엘리베이터/업무매뉴얼/HEL-SYN-MAN-002_가상_유지관리 요청 분류 변경 요청과 승인.docx"
+    },
+    {
+      "key": "HEL-SYN-EDU-001",
+      "company": "hel",
+      "doc_type": "guide",
+      "path": "02_가상자료/현대엘리베이터/교육자료/HEL-SYN-EDU-001_가상_유지관리 요청 분류 신규 담당자 실습.pptx"
+    },
+    {
+      "key": "HEL-SYN-MAN-005",
+      "company": "hel",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대엘리베이터/업무매뉴얼/HEL-SYN-MAN-005_가상_정기점검 일정 조정 접수와 등록.docx"
+    },
+    {
+      "key": "HEL-SYN-MAN-009",
+      "company": "hel",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대엘리베이터/업무매뉴얼/HEL-SYN-MAN-009_가상_부품 이력 문서 대조 접수와 등록.docx"
+    },
+    {
+      "key": "HEL-SYN-EDU-004",
+      "company": "hel",
+      "doc_type": "guide",
+      "path": "02_가상자료/현대엘리베이터/교육자료/HEL-SYN-EDU-004_가상_정기점검 일정 조정 신규 담당자 실습.pptx"
+    },
+    {
+      "key": "HEL-PUB-021",
+      "company": "hel",
+      "doc_type": "other",
+      "path": "01_공개자료/현대엘리베이터/원본PDF/HEL-PUB-021_초·미세먼지 공기청정기.pdf"
+    },
+    {
+      "key": "HEL-PUB-027",
+      "company": "hel",
+      "doc_type": "other",
+      "path": "01_공개자료/현대엘리베이터/원본PDF/HEL-PUB-027_디엘듀오(The EL Duo) - 더블데크 엘리베이터.pdf",
+      "expect_error": "EMPTY_DOCUMENT",
+      "note": "4쪽 모두 추출 가능한 글자가 없는 이미지 카탈로그. 거부되는 것이 정상"
+    },
+    {
+      "key": "HRI-SYN-MAN-001",
+      "company": "hri",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대경제연구원/업무매뉴얼/HRI-SYN-MAN-001_가상_경제지표 원천 등록 접수와 등록.docx"
+    },
+    {
+      "key": "HRI-SYN-MAN-002",
+      "company": "hri",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대경제연구원/업무매뉴얼/HRI-SYN-MAN-002_가상_경제지표 원천 등록 변경 요청과 승인.docx"
+    },
+    {
+      "key": "HRI-SYN-EDU-001",
+      "company": "hri",
+      "doc_type": "guide",
+      "path": "02_가상자료/현대경제연구원/교육자료/HRI-SYN-EDU-001_가상_경제지표 원천 등록 신규 담당자 실습.pptx"
+    },
+    {
+      "key": "HRI-SYN-MAN-005",
+      "company": "hri",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대경제연구원/업무매뉴얼/HRI-SYN-MAN-005_가상_통계 시계열 정합성 접수와 등록.docx"
+    },
+    {
+      "key": "HRI-SYN-MAN-009",
+      "company": "hri",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대경제연구원/업무매뉴얼/HRI-SYN-MAN-009_가상_산업 인터뷰 자료 정리 접수와 등록.docx"
+    },
+    {
+      "key": "HRI-SYN-EDU-004",
+      "company": "hri",
+      "doc_type": "guide",
+      "path": "02_가상자료/현대경제연구원/교육자료/HRI-SYN-EDU-004_가상_통계 시계열 정합성 신규 담당자 실습.pptx"
+    },
+    {
+      "key": "HRI-SYN-MAN-013",
+      "company": "hri",
+      "doc_type": "manual",
+      "path": "02_가상자료/현대경제연구원/업무매뉴얼/HRI-SYN-MAN-013_가상_보고서 인용 검수 접수와 등록.docx"
+    },
+    {
+      "key": "HRI-SYN-BIZ-001",
+      "company": "hri",
+      "doc_type": "other",
+      "path": "02_가상자료/현대경제연구원/신사업기획안/HRI-SYN-BIZ-001_가상_중소기업 경기 대시보드 소규모 단일 조직 기획안.docx"
+    }
+  ],
+  "accuracy_questions": [
+    {
+      "id": "Q001",
+      "company": "mvx",
+      "gold": [
+        "MVX-SYN-MAN-001"
+      ],
+      "query": "무벡스 신입인데요. WMS에 입고 자료를 처음 접수하고 등록하는 순서가 나온 매뉴얼 찾아주세요."
+    },
+    {
+      "id": "Q011",
+      "company": "mvx",
+      "gold": [
+        "MVX-SYN-MAN-002"
+      ],
+      "query": "무벡스 WMS 입고 데이터를 등록한 뒤 수정 요청이 들어왔어요. 변경 전후 내용과 승인 절차를 확인할 매뉴얼 찾아줘."
+    },
+    {
+      "id": "Q031",
+      "company": "mvx",
+      "gold": [
+        "MVX-SYN-EDU-001"
+      ],
+      "query": "무벡스 WMS 입고 데이터 등록을 연습할 수 있는 신규 담당자용 교육 슬라이드 찾아주세요."
+    },
+    {
+      "id": "Q085",
+      "company": "mvx",
+      "gold": [
+        "MVX-PUB-026"
+      ],
+      "query": "무벡스 WMS 제품 특징을 소개하는 공개 자료 찾아주세요. 입고 등록 실습자료와 구분해서 찾고 있어요."
+    },
+    {
+      "id": "Q004",
+      "company": "hel",
+      "gold": [
+        "HEL-SYN-MAN-001"
+      ],
+      "query": "엘리베이터 유지관리 요청을 접수하는 업무를 맡았어요. 요청을 분류하고 등록하는 매뉴얼 있나요?"
+    },
+    {
+      "id": "Q014",
+      "company": "hel",
+      "gold": [
+        "HEL-SYN-MAN-002"
+      ],
+      "query": "엘리베이터 유지관리 요청의 분류를 바꿔야 해요. 변경 요청부터 승인까지 다룬 매뉴얼 찾아주세요."
+    },
+    {
+      "id": "Q034",
+      "company": "hel",
+      "gold": [
+        "HEL-SYN-EDU-001"
+      ],
+      "query": "엘리베이터 유지관리 요청을 분류하는 신규 담당자 실습 슬라이드 찾아주세요."
+    },
+    {
+      "id": "Q007",
+      "company": "hri",
+      "gold": [
+        "HRI-SYN-MAN-001"
+      ],
+      "query": "경제연구원 신입입니다. 경제지표 원본과 출처를 처음 등록하는 매뉴얼 찾아주세요."
+    },
+    {
+      "id": "Q017",
+      "company": "hri",
+      "gold": [
+        "HRI-SYN-MAN-002"
+      ],
+      "query": "경제연구원에 등록한 경제지표 출처 정보를 바꾸려는데 변경 승인 절차가 나온 매뉴얼 찾아줘."
+    },
+    {
+      "id": "Q037",
+      "company": "hri",
+      "gold": [
+        "HRI-SYN-EDU-001"
+      ],
+      "query": "경제연구원에서 지표 출처를 등록하는 연습을 하려고 해요. 발표일과 단위도 확인하는 신규 담당자 실습자료 찾아줘."
+    }
+  ]
+}
