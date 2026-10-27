@@ -22,7 +22,6 @@ from hyundap.auth.errors import AccessError
 from hyundap.auth.permissions import get_allowed_company_ids, verify_documents_access
 from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, versions_repo
 from hyundap.db.errors import DbError
-from .test_schema_migration import BASELINE, execute_script
 
 
 def session_fixture(engine, user_id, company_id):
@@ -31,8 +30,10 @@ def session_fixture(engine, user_id, company_id):
     token = 'synthetic-session-' + str(uuid4())
     with engine.begin() as database:
         database.execute(text('''
-            INSERT INTO sessions (id,user_id,token_hash,auth_version,expires_at)
-            SELECT :id,id,:digest,auth_version,DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 1 HOUR)
+            INSERT INTO sessions (id,user_id,token_hash,csrf_token_hash,auth_version,expires_at,
+                created_at,last_seen_at,idle_expires_at,absolute_expires_at)
+            SELECT :id,id,:digest,:digest,auth_version,DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 1 HOUR),
+                UNIX_TIMESTAMP(),UNIX_TIMESTAMP(),UNIX_TIMESTAMP()+1800,UNIX_TIMESTAMP()+3600
             FROM users WHERE id=:user_id
         '''), {'id': session_id, 'user_id': user_id,
                'digest': hashlib.sha256(token.encode('utf-8')).hexdigest()})
@@ -87,13 +88,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
         cls.engine = create_engine(url, isolation_level='READ COMMITTED', hide_parameters=True,
                                    connect_args={'init_command': "SET time_zone='+00:00'"})
         cls.addClassCleanup(cls.engine.dispose)
-        with cls.engine.begin() as database:
-            if inspect(database).get_table_names():
-                raise RuntimeError('기존 테이블이 있는 DB에는 실행하지 않습니다.')
-            execute_script(database, BASELINE)
-            migration = schema.prepare_sql(schema.snapshot(database))
-            execute_script(database, migration)
-            database.execute(text('UPDATE schema_migrations SET version=4 WHERE version=3'))
+        schema.create_v4_schema(cls.engine)
 
     def setUp(self):
         """테스트마다 서로 다른 회사·관리자·세션을 만들고 연결 풀을 격리한다."""
@@ -108,7 +103,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
                               {'id': self.other_company, 'name': '합성 회사 B'}])
             database.execute(text('''
                 INSERT INTO users (id,company_id,email,role)
-                VALUES (:id,:company,:email,'COMPANY_ADMIN')
+                VALUES (:id,:company,:email,'company_admin')
             '''), {'id': self.user_id, 'company': self.company, 'email': self.email})
         self.actor = session_fixture(self.engine, self.user_id, self.company)
         self.metadata = {'company_id': self.company, 'doc_type': 'manual', 'file_name': '합성.pdf',
@@ -129,6 +124,44 @@ class DatabaseRuntimeTests(unittest.TestCase):
                              {'id': version_id})
             database.execute(text("UPDATE documents SET publication_status='published',active_version_id=:version WHERE id=:id"),
                              {'id': candidate['document_id'], 'version': version_id})
+            jobs_repo.record_stage_result(candidate['job_id'], {'stage': 'complete', 'status': 'success'},
+                                          connection=database)
+
+    def test_business_storage_does_not_reflect_table_structure(self):
+        """초기 구조 검증 후 업무 저장은 고정 SQL만 사용한다."""
+        statements = []
+        def capture(conn, cursor, statement, parameters, context, many):
+            statements.append(statement.lower())
+        event.listen(self.engine, 'before_cursor_execute', capture)
+        try:
+            candidate = self.candidate()
+            version = candidate['version_id']
+            chunks_repo.save_manifest(version, [{'id': version + ':00000', 'chunk_index': 0,
+                                               'content_hash': 'b' * 64}])
+            jobs_repo.record_stage_result(candidate['job_id'], {'status': 'success', 'chunk_count': 1})
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', capture)
+        self.assertFalse(any('information_schema' in sql or 'show create' in sql
+                             or 'show full columns' in sql for sql in statements))
+
+    def test_manifest_expected_count_failure_rolls_back_inserted_rows(self):
+        """목록 저장 뒤 예상 개수 갱신에 실패하면 청크 INSERT도 취소된다."""
+        candidate = self.candidate()
+        version = candidate['version_id']
+        def fail(conn, cursor, statement, parameters, context, many):
+            if statement.lstrip().startswith('UPDATE document_versions SET expected_chunk_count'):
+                raise OperationalError('synthetic', {}, Exception('synthetic'))
+        event.listen(self.engine, 'before_cursor_execute', fail)
+        try:
+            with self.assertRaises(DbError):
+                chunks_repo.save_manifest(version, [{'id': version + ':00000', 'chunk_index': 0,
+                                                    'content_hash': 'b' * 64}])
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', fail)
+        with self.engine.connect() as database:
+            self.assertEqual(database.scalar(text('SELECT expected_chunk_count FROM document_versions WHERE id=:id'),
+                                             {'id': version}), 0)
+        self.assertEqual(chunks_repo.get_expected_chunk_ids(version), [])
 
     def test_forged_role_and_company_cannot_expand_scope(self):
         """전달 문맥의 역할·회사·권한 버전 위조를 무시하고 DB의 현재 값을 사용한다."""
@@ -166,7 +199,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
     def test_inactive_account_company_and_current_role(self):
         """계정·회사 비활성과 DB에서 변경한 현재 역할을 다시 확인한다."""
         with self.engine.begin() as database:
-            database.execute(text("UPDATE users SET role='EMPLOYEE' WHERE id=:id"), {'id': self.user_id})
+            database.execute(text("UPDATE users SET role='employee' WHERE id=:id"), {'id': self.user_id})
         with self.assertRaises(AccessError):
             self.candidate()
         with self.engine.begin() as database:
@@ -182,7 +215,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
     def test_platform_admin_sees_only_active_companies(self):
         """전체 관리자는 소속 회사 없이 유효한 회사들을 조회하고 비활성 회사는 제외한다."""
         with self.engine.begin() as database:
-            database.execute(text("UPDATE users SET role='SUPER_ADMIN',company_id=NULL WHERE id=:id"),
+            database.execute(text("UPDATE users SET role='platform_admin',company_id=NULL WHERE id=:id"),
                              {'id': self.user_id})
             database.execute(text('UPDATE companies SET is_active=0 WHERE id=:id'), {'id': self.other_company})
         allowed = get_allowed_company_ids(self.actor)
@@ -271,7 +304,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
             self.candidate()
         self.assertEqual(caught.exception.code, 'DUPLICATE_FILE')
         with self.engine.begin() as database:
-            database.execute(text("UPDATE users SET role='SUPER_ADMIN',company_id=NULL WHERE id=:id"),
+            database.execute(text("UPDATE users SET role='platform_admin',company_id=NULL WHERE id=:id"),
                              {'id': self.user_id})
         other = documents_repo.create_document_version(self.actor, dict(self.metadata, company_id=self.other_company))
         self.assertNotEqual(other['version_id'], candidate['version_id'])
@@ -317,12 +350,13 @@ class DatabaseRuntimeTests(unittest.TestCase):
     def test_version_history_does_not_expose_storage_path(self):
         """관리자 이력은 버전 순서로 반환하고 서버 파일 경로는 노출하지 않는다."""
         candidate = self.candidate()
+        jobs_repo.record_stage_result(candidate['job_id'], {'stage': 'complete', 'status': 'success'})
         self.candidate(document_id=candidate['document_id'], sha256='b' * 64)
         versions = versions_repo.list_document_versions(self.actor, candidate['document_id'])
         self.assertEqual([row['version_no'] for row in versions], [1, 2])
         self.assertNotIn('storage_path', versions[0])
         with self.engine.begin() as database:
-            database.execute(text("UPDATE users SET role='EMPLOYEE' WHERE id=:id"), {'id': self.user_id})
+            database.execute(text("UPDATE users SET role='employee' WHERE id=:id"), {'id': self.user_id})
         with self.assertRaises(AccessError):
             versions_repo.list_document_versions(self.actor, candidate['document_id'])
 
@@ -428,21 +462,27 @@ class DatabaseRuntimeTests(unittest.TestCase):
     def test_concurrent_versions_receive_distinct_numbers(self):
         """동일 문서의 동시 새 버전에 서로 다른 증가 번호를 할당한다."""
         first = self.candidate()
+        jobs_repo.record_stage_result(first['job_id'], {'stage': 'complete', 'status': 'success'})
         barrier = Barrier(2)
         def upload(digest):
             """문서 ID를 유지하고 다른 파일 해시의 후보를 동시에 생성한다."""
             barrier.wait(timeout=10)
-            return self.candidate(document_id=first['document_id'], sha256=digest)
+            with self.engine.begin() as database:
+                result = documents_repo.create_document_version(self.actor,
+                    dict(self.metadata, document_id=first['document_id'], sha256=digest), connection=database)
+                jobs_repo.record_stage_result(result['job_id'], {'stage': 'complete', 'status': 'success'},
+                                              connection=database)
+                return result
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(upload, ['b' * 64, 'c' * 64]))
         versions = versions_repo.list_document_versions(self.actor, first['document_id'])
         self.assertEqual([row['version_no'] for row in versions], [1, 2, 3])
 
-    def test_unmigrated_legacy_document_blocks_new_upload(self):
+    def test_document_without_versions_blocks_new_upload(self):
         """아직 버전으로 가져오지 않은 레거시가 있으면 중복 검사 누락을 막기 위해 업로드를 거부한다."""
         with self.engine.begin() as database:
-            database.execute(text('INSERT INTO documents (id,company_id) VALUES (:id,:company)'),
-                             {'id': str(uuid4()), 'company': self.company})
+            database.execute(text('INSERT INTO documents (id,company_id,uploaded_by) VALUES (:id,:company,:user)'),
+                             {'id': str(uuid4()), 'company': self.company, 'user': self.user_id})
         with self.assertRaises(DbError) as caught:
             self.candidate()
         self.assertEqual(caught.exception.code, 'INVALID_STATE')

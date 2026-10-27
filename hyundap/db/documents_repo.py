@@ -1,6 +1,5 @@
 """회사별 중복 조회·문서/후보 버전 생성·검색용 원시 행 일괄 조회."""
 
-import mimetypes
 from uuid import uuid4
 
 from sqlalchemy import bindparam, text
@@ -8,9 +7,8 @@ from sqlalchemy import bindparam, text
 from hyundap.auth.errors import AccessError
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
-from .runtime import get_table_columns, require_hash, require_id, transaction
+from .runtime import require_hash, require_id, transaction
 from .sessions_repo import current_actor
-from . import legacy
 
 
 DOCUMENT_INFO_SQL = '''
@@ -107,7 +105,7 @@ def create_document_version(actor, metadata, *, connection=None):
 
     반환값은 document_id/version_id/job_id dict다. 문서 ID를 주면 새 버전을 만든다.
     회사 행을 잠가 동시 중복 확인·생성을 직렬화하고 문서 잠금으로 버전 번호를 할당한다.
-    미이행 레거시 문서가 있는 회사는 계약대로 신규 업로드를 거부한다. 원본 저장은 #122다.
+    버전 없는 문서가 남은 회사는 신규 업로드를 거부한다. 원본 저장은 #122다.
     """
     data = validate_metadata(metadata)
     with transaction(connection) as database:
@@ -133,12 +131,12 @@ def _check_candidate_creation(database, actor, data):
                               {'id': data['company_id']}).scalar_one_or_none()
     if not active:
         raise AccessError('ACCESS_DENIED')
-    legacy = database.execute(text('''
+    orphan_document = database.execute(text('''
         SELECT d.id FROM documents d WHERE d.company_id=:company
           AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.document_id=d.id)
         LIMIT 1
     '''), {'company': data['company_id']}).first()
-    if legacy:
+    if orphan_document:
         raise DbError('INVALID_STATE')
     duplicate = find_duplicate_document(data['company_id'], data['sha256'], connection=database)
     if duplicate:
@@ -167,13 +165,10 @@ def _prepare_document(database, data):
         if document['doc_type'] != data['doc_type']:
             raise DbError('INVALID_INPUT')
     else:
-        legacy.insert(database, 'documents',
-                      {'id': document_id, 'company_id': data['company_id'], 'doc_type': data['doc_type']},
-                      {'filename': data['file_name'], 'storage_key': data['storage_path'],
-                       'media_type': mimetypes.guess_type(data['file_name'])[0] or 'application/octet-stream',
-                       'size_bytes': data['file_size'], 'sha256': data['sha256'],
-                       'uploaded_by': data['uploaded_by'], 'created_at': legacy.epoch_now,
-                       'updated_at': legacy.epoch_now})
+        database.execute(text('''
+            INSERT INTO documents (id,company_id,doc_type,uploaded_by)
+            VALUES (:id,:company_id,:doc_type,:uploaded_by)
+        '''), dict(data, id=document_id))
     return document_id
 
 
@@ -194,15 +189,9 @@ def _insert_version_and_job(database, document_id, data):
          (id,document_id,company_id,version_no,file_name,storage_path,sha256,file_size,data_category)
         VALUES (:id,:document_id,:company_id,:version_no,:file_name,:storage_path,:sha256,:file_size,:data_category)
     '''), values)
-    legacy_columns = {column['name'] for column in get_table_columns(database, 'documents')}
-    revision = {'generation': 0, 'content_revision': 0}
-    if {'generation', 'content_revision'} <= legacy_columns:
-        database.execute(text('UPDATE documents SET generation=generation+1 WHERE id=:id'), {'id': document_id})
-        revision = database.execute(text('SELECT generation,content_revision FROM documents WHERE id=:id'),
-                                    {'id': document_id}).mappings().one()
-    legacy.insert(database, 'index_jobs', {'id': job_id, 'version_id': version_id},
-                  {'document_id': document_id, 'company_id': data['company_id'],
-                   'generation': revision['generation'], 'content_revision': revision['content_revision'],
-                   'attempt_no': 1, 'requested_by': data['uploaded_by'],
-                   'created_at': legacy.epoch_now, 'updated_at': legacy.epoch_now})
+    database.execute(text('''
+        INSERT INTO index_jobs (id,version_id,document_id,company_id,requested_by)
+        VALUES (:id,:version_id,:document_id,:company_id,:requested_by)
+    '''), {'id': job_id, 'version_id': version_id, 'document_id': document_id,
+          'company_id': data['company_id'], 'requested_by': data['uploaded_by']})
     return {'document_id': document_id, 'version_id': version_id, 'job_id': job_id}

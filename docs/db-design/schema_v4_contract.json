@@ -1,0 +1,203 @@
+{
+  "audit_logs": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "actor_user_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "company_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "document_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "action": ["longtext", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "result": ["varchar(32)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "request_id": ["longtext", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "details_json": ["longtext", "NO", "utf8mb4", "utf8mb4_0900_bin", "_utf8mb4\\'{}\\'", "", "default_generated"],
+      "created_at": ["bigint", "NO", null, null, null, "", ""]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {},
+    "indexes": {"fk_audit_actor": [["actor_user_id"], false], "fk_audit_document": [["document_id"], false], "ix_audit_company": [["company_id", "created_at"], false]},
+    "foreign": {"fk_audit_actor": [["actor_user_id"], "users", ["id"], {}], "fk_audit_company": [["company_id"], "companies", ["id"], {}], "fk_audit_document": [["document_id"], "documents", ["id"], {}]},
+    "checks": {"ck_audit_result": ["(resultin('SUCCESS','DENIED','FAILED'))", "YES"]}
+  },
+  "companies": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "name": ["varchar(100)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "is_active": ["tinyint(1)", "NO", null, null, "1", "", ""],
+      "created_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"],
+      "updated_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {},
+    "indexes": {},
+    "foreign": {},
+    "checks": {"ck_company_active": ["(is_activein(0,1))", "YES"], "ck_company_name": ["(char_length(trim(name))between1and100)", "YES"]}
+  },
+  "document_chunks": {
+    "columns": {
+      "id": ["varchar(64)", "NO", "ascii", "ascii_bin", null, "", ""],
+      "version_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "chunk_index": ["int", "NO", null, null, null, "", ""],
+      "content_hash": ["char(64)", "NO", "ascii", "ascii_bin", null, "", ""]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_v4_chunk_order": ["version_id", "chunk_index"]},
+    "indexes": {"uq_v4_chunk_order": [["version_id", "chunk_index"], true]},
+    "foreign": {"fk_v4_chunk_version": [["version_id"], "document_versions", ["id"], {}]},
+    "checks": {"ck_v4_chunk_id": ["(id=concat(version_id,':',lpad(chunk_index,5,'0')))", "YES"], "ck_v4_chunk_index": ["(chunk_indexbetween0and99999)", "YES"], "ck_v4_content_hash": ["regexp_like(content_hash,'^[0-9a-f]{64}$')", "YES"]}
+  },
+  "document_versions": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "document_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "company_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "version_no": ["int", "NO", null, null, null, "", ""],
+      "file_name": ["varchar(255)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "storage_path": ["varchar(1024)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "sha256": ["char(64)", "NO", "ascii", "ascii_bin", null, "", ""],
+      "file_size": ["bigint", "NO", null, null, null, "", ""],
+      "version_status": ["varchar(16)", "NO", "utf8mb4", "utf8mb4_0900_bin", "processing", "", ""],
+      "data_category": ["varchar(16)", "NO", "utf8mb4", "utf8mb4_0900_bin", "operational", "", ""],
+      "expected_chunk_count": ["int", "NO", null, null, "0", "", ""],
+      "created_at": ["datetime(6)", "NO", null, null, "CURRENT_TIMESTAMP(6)", "", "default_generated"]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_v4_company_hash": ["company_id", "sha256"], "uq_v4_version_identity": ["id", "document_id", "company_id"], "uq_v4_version_number": ["document_id", "version_no"]},
+    "indexes": {"fk_v4_version_document": [["document_id", "company_id"], false], "uq_v4_company_hash": [["company_id", "sha256"], true], "uq_v4_version_identity": [["id", "document_id", "company_id"], true], "uq_v4_version_number": [["document_id", "version_no"], true]},
+    "foreign": {"fk_v4_version_document": [["document_id", "company_id"], "documents", ["id", "company_id"], {}]},
+    "checks": {"ck_v4_data_category": ["(data_categoryin('operational','evaluation'))", "YES"], "ck_v4_expected_count": ["(expected_chunk_countbetween0and100000)", "YES"], "ck_v4_file_size": ["(file_sizebetween1and104857600)", "YES"], "ck_v4_ready_count": ["((version_status<>'ready')or(expected_chunk_count>0))", "YES"], "ck_v4_sha256": ["regexp_like(sha256,'^[0-9a-f]{64}$')", "YES"], "ck_v4_version_number": ["(version_no>=1)", "YES"], "ck_v4_version_status": ["(version_statusin('processing','ready','failed'))", "YES"]}
+  },
+  "documents": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "company_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "doc_type": ["varchar(50)", "NO", "utf8mb4", "utf8mb4_0900_bin", "other", "", ""],
+      "publication_status": ["varchar(16)", "NO", "utf8mb4", "utf8mb4_0900_bin", "draft", "", ""],
+      "deleted_at": ["datetime(6)", "YES", null, null, null, "", ""],
+      "active_version_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "uploaded_by": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "created_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"],
+      "updated_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_v4_document_company": ["id", "company_id"]},
+    "indexes": {"fk_document_uploader": [["uploaded_by"], false], "fk_v4_active_version": [["active_version_id", "id", "company_id"], false], "fk_v4_document_company": [["company_id"], false], "uq_v4_document_company": [["id", "company_id"], true]},
+    "foreign": {"fk_document_uploader": [["uploaded_by"], "users", ["id"], {}], "fk_v4_active_version": [["active_version_id", "id", "company_id"], "document_versions", ["id", "document_id", "company_id"], {}], "fk_v4_document_company": [["company_id"], "companies", ["id"], {}]},
+    "checks": {"ck_v4_doc_type": ["(doc_typein('manual','policy','guide','other'))", "YES"], "ck_v4_publication": ["(publication_statusin('draft','published','blocked'))", "YES"], "ck_v4_published_pointer": ["((publication_status<>'published')or(active_version_idisnotnull))", "YES"]}
+  },
+  "index_jobs": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "version_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "document_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "company_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "requested_by": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "status": ["varchar(32)", "NO", "utf8mb4", "utf8mb4_0900_bin", "QUEUED", "", ""],
+      "stage": ["varchar(32)", "NO", "utf8mb4", "utf8mb4_0900_bin", "received", "", ""],
+      "attempts": ["int", "NO", null, null, "1", "", ""],
+      "report": ["json", "YES", null, null, null, "", ""],
+      "error_code": ["varchar(64)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "error_message": ["varchar(1000)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "started_at": ["bigint", "YES", null, null, null, "", ""],
+      "finished_at": ["bigint", "YES", null, null, null, "", ""],
+      "created_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"],
+      "updated_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"],
+      "active_document_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "(casewhen(statusin(_utf8mb4\\'QUEUED\\',_utf8mb4\\'RUNNING\\'))thendocument_idelsenullend)", "virtual generated"]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_active_job": ["active_document_id"], "uq_job_version": ["version_id"]},
+    "indexes": {"fk_job_requester": [["requested_by"], false], "fk_job_version_identity": [["version_id", "document_id", "company_id"], false], "uq_active_job": [["active_document_id"], true], "uq_job_version": [["version_id"], true]},
+    "foreign": {"fk_job_requester": [["requested_by"], "users", ["id"], {}], "fk_job_version_identity": [["version_id", "document_id", "company_id"], "document_versions", ["id", "document_id", "company_id"], {}]},
+    "checks": {"ck_job_attempts": ["(attempts>=1)", "YES"], "ck_job_finished": ["((statusnotin('SUCCEEDED','FAILED','CANCELLED'))or(finished_atisnotnull))", "YES"], "ck_job_running": ["((status<>'RUNNING')or(started_atisnotnull))", "YES"], "ck_job_stage": ["(stagein('received','ingest','embedding','verify','publish','complete'))", "YES"], "ck_job_status": ["(statusin('QUEUED','RUNNING','SUCCEEDED','FAILED','CANCELLED'))", "YES"]}
+  },
+  "login_attempts": {
+    "columns": {
+      "key_hash": ["varchar(64)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "attempts": ["bigint", "NO", null, null, null, "", ""],
+      "window_started_at": ["bigint", "NO", null, null, null, "", ""]
+    },
+    "engine": "InnoDB",
+    "primary": ["key_hash"],
+    "unique": {},
+    "indexes": {},
+    "foreign": {},
+    "checks": {"ck_login_attempts": ["(attempts>=0)", "YES"]}
+  },
+  "oauth_states": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "state_hash": ["varchar(64)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "browser_binding_hash": ["varchar(64)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "nonce_hash": ["varchar(64)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "redirect_path": ["longtext", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "created_at": ["bigint", "NO", null, null, null, "", ""],
+      "expires_at": ["bigint", "NO", null, null, null, "", ""],
+      "consumed_at": ["bigint", "YES", null, null, null, "", ""]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_state_hash": ["state_hash"]},
+    "indexes": {"uq_state_hash": [["state_hash"], true]},
+    "foreign": {},
+    "checks": {"ck_binding_hash": ["(char_length(browser_binding_hash)=64)", "YES"], "ck_nonce_hash": ["(char_length(nonce_hash)=64)", "YES"], "ck_state_expiry": ["(expires_at>created_at)", "YES"], "ck_state_hash": ["(char_length(state_hash)=64)", "YES"]}
+  },
+  "schema_migrations": {
+    "columns": {
+      "version": ["bigint", "NO", null, null, null, "", ""]
+    },
+    "engine": "InnoDB",
+    "primary": ["version"],
+    "unique": {},
+    "indexes": {},
+    "foreign": {},
+    "checks": {"ck_current_version": ["(version=4)", "YES"]}
+  },
+  "sessions": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "user_id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "token_hash": ["char(64)", "NO", "ascii", "ascii_bin", null, "", ""],
+      "csrf_token_hash": ["char(64)", "NO", "ascii", "ascii_bin", null, "", ""],
+      "auth_version": ["int", "NO", null, null, null, "", ""],
+      "selected_document_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "created_at": ["bigint", "NO", null, null, null, "", ""],
+      "last_seen_at": ["bigint", "NO", null, null, null, "", ""],
+      "idle_expires_at": ["bigint", "NO", null, null, null, "", ""],
+      "absolute_expires_at": ["bigint", "NO", null, null, null, "", ""],
+      "expires_at": ["datetime(6)", "NO", null, null, null, "", ""],
+      "revoked_at": ["datetime(6)", "YES", null, null, null, "", ""],
+      "revoke_reason": ["varchar(255)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_v4_session_token": ["token_hash"]},
+    "indexes": {"fk_session_document": [["selected_document_id"], false], "fk_session_user": [["user_id"], false], "uq_v4_session_token": [["token_hash"], true]},
+    "foreign": {"fk_session_document": [["selected_document_id"], "documents", ["id"], {"ondelete": "SET NULL"}], "fk_session_user": [["user_id"], "users", ["id"], {}]},
+    "checks": {"ck_session_auth": ["(auth_version>=1)", "YES"], "ck_session_csrf": ["regexp_like(csrf_token_hash,'^[0-9a-f]{64}$')", "YES"], "ck_session_token": ["regexp_like(token_hash,'^[0-9a-f]{64}$')", "YES"], "sessions_ck_3": ["((created_at<=last_seen_at)and(last_seen_at<=idle_expires_at)and(idle_expires_at<=absolute_expires_at))", "YES"]}
+  },
+  "users": {
+    "columns": {
+      "id": ["varchar(36)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "company_id": ["varchar(36)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "email": ["varchar(254)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "login_identifier": ["varchar(254)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "lower(trim(email))", "stored generated"],
+      "google_sub": ["varchar(255)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "password_hash": ["varchar(255)", "YES", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "role": ["varchar(32)", "NO", "utf8mb4", "utf8mb4_0900_bin", null, "", ""],
+      "is_active": ["tinyint(1)", "NO", null, null, "1", "", ""],
+      "auth_version": ["int", "NO", null, null, "1", "", ""],
+      "created_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"],
+      "updated_at": ["bigint", "NO", null, null, "unix_timestamp()", "", "default_generated"]
+    },
+    "engine": "InnoDB",
+    "primary": ["id"],
+    "unique": {"uq_google_sub": ["google_sub"], "uq_v4_login_identifier": ["login_identifier"]},
+    "indexes": {"fk_user_company": [["company_id"], false], "uq_google_sub": [["google_sub"], true], "uq_v4_login_identifier": [["login_identifier"], true]},
+    "foreign": {"fk_user_company": [["company_id"], "companies", ["id"], {}]},
+    "checks": {"ck_user_active": ["(is_activein(0,1))", "YES"], "ck_user_auth_version": ["(auth_version>=1)", "YES"], "ck_user_company": ["(((role='platform_admin')and(company_idisnull))or((rolein('company_admin','employee'))and(company_idisnotnull)))", "YES"], "ck_user_email": ["(char_length(trim(email))between3and254)", "YES"], "ck_user_role": ["(rolein('platform_admin','company_admin','employee'))", "YES"]}
+  }
+}

@@ -30,14 +30,14 @@ class AccessQueryTests(unittest.TestCase):
             for sql in (
                 'CREATE TABLE companies (id TEXT PRIMARY KEY,name TEXT,is_active INTEGER)',
                 'CREATE TABLE users (id TEXT PRIMARY KEY,company_id TEXT,role TEXT,auth_version INTEGER,is_active INTEGER)',
-                'CREATE TABLE sessions (id TEXT PRIMARY KEY,user_id TEXT,token_hash TEXT,auth_version INTEGER,expires_at TEXT,revoked_at TEXT)',
+                'CREATE TABLE sessions (id TEXT PRIMARY KEY,user_id TEXT,token_hash TEXT,auth_version INTEGER,expires_at TEXT,revoked_at TEXT,idle_expires_at INTEGER,absolute_expires_at INTEGER)',
                 'CREATE TABLE documents (id TEXT PRIMARY KEY,company_id TEXT,doc_type TEXT,publication_status TEXT,deleted_at TEXT,active_version_id TEXT)',
                 'CREATE TABLE document_versions (id TEXT PRIMARY KEY,document_id TEXT,company_id TEXT,version_no INTEGER,version_status TEXT,data_category TEXT,file_name TEXT)',
             ):
                 db.execute(text(sql))
             db.execute(text("INSERT INTO companies VALUES ('company-a','Company A',1),('company-b','Company B',1),('inactive','Inactive',0)"))
-            db.execute(text("INSERT INTO users VALUES ('user','company-a','COMPANY_ADMIN',1,1)"))
-            db.execute(text("INSERT INTO sessions VALUES ('session','user',:digest,1,'2099-01-01 00:00:00',NULL)"),
+            db.execute(text("INSERT INTO users VALUES ('user','company-a','company_admin',1,1)"))
+            db.execute(text("INSERT INTO sessions VALUES ('session','user',:digest,1,'2099-01-01 00:00:00',NULL,4102444800,4102444800)"),
                        {'digest': hashlib.sha256(self.token.encode()).hexdigest()})
             db.execute(text("INSERT INTO documents VALUES ('document','company-a','manual','published',NULL,'version'),('draft','company-a','other','draft',NULL,NULL)"))
             db.execute(text("INSERT INTO document_versions VALUES ('version','document','company-a',1,'ready','operational','sample.pdf')"))
@@ -56,7 +56,7 @@ class AccessQueryTests(unittest.TestCase):
         self.assertEqual(get_allowed_company_ids(self.actor), {'company-a'})
 
     def test_platform_admin_and_unknown_role_use_current_database_values(self):
-        self.change("UPDATE users SET role='SUPER_ADMIN',company_id=NULL")
+        self.change("UPDATE users SET role='platform_admin',company_id=NULL")
         self.assertEqual(get_allowed_company_ids(self.actor), {'company-a', 'company-b'})
         self.change("UPDATE users SET role='unknown'")
         with self.assertRaises(AccessError) as caught:

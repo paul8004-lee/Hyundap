@@ -1,4 +1,6 @@
-# DB·접근 권한 연동 계약 v1 — #118
+# DB·접근 권한 연동 계약 — 최종 v4 / #168
+
+현재 물리 계약은 [최종 v4 직접 생성](V4_INITIALIZATION.md)이다. 아래 공개 함수·DTO·오류·TX 계약은 유지하며 v3 이행·기존 큐 호환은 폐기했다. 과거 WBS와 담당 협의 기록은 경위로 보존한다.
 
 상태: 2026-10-26 사용자 지시에 따라 우리 측 제안을 채택했다. 각 팀원이 별도로 승인했다는 의미는 아니다. 미정 함수명·타입·정책은 아래 계약으로 결정한다. 구현은 #120~#122이며 이 문서는 실행 코드가 아니다.
 
@@ -12,7 +14,7 @@
 운영 함수와 실제 클래스가 있는 시험 어댑터·테스트는 구분한다. 형식적인 클래스 래퍼는 추가하지 않는다.
 
 후속 구조 개선안은 [DB_V4_SIMPLIFICATION_PLAN.md](DB_V4_SIMPLIFICATION_PLAN.md)에 별도 저장한다.
-현재 호환 코드 유지와 최종 v4 단일화 제안을 구분하며, 운영 DDL 적용은 별도 검토 대상이다.
+최종 v4 단일화를 feature/db에서 구현한다. Railway 변경과 운영 전환은 이번 범위에 포함하지 않는다.
 
 | 항목 | 채택 내용 | 명세 근거 / 연계 담당 |
 |---|---|---|
@@ -24,8 +26,8 @@
 
 | 결정 대상 | 채택안 | 원문 대비 |
 |---|---|---|
-| ID | 기존 PK `id VARCHAR(36)`를 유지하고 UUID 문자열을 자르지 않는다. DTO의 document_id로 alias한다. 모든 새 FK는 참조 키의 문자셋·collation을 그대로 사용한다. 실제 기존 키가 다르면 준비 도구가 중단한다. | 데이터정의 A6:I7의 VARCHAR(32)에 대한 우리 측 변경안 |
-| 역할 | 앱은 platform_admin/company_admin/employee. 기존 SUPER_ADMIN/COMPANY_ADMIN/EMPLOYEE는 입출력 경계에서 각각 매핑하고 저장 enum을 강제 변환하지 않는다. 알 수 없는 역할은 거부한다. | F81, 기존 호환성 보완 |
+| ID | PK는 `id VARCHAR(36)`이며 UUID 문자열을 자르지 않는다. DTO의 document_id로 alias한다. 모든 FK 키는 최종 DDL의 utf8mb4_0900_bin을 사용한다. | 데이터정의 A6:I7의 VARCHAR(32)에 대한 채택 변경안 |
+| 역할 | DB와 앱 모두 platform_admin/company_admin/employee다. 이전 대문자 코드는 지원하지 않으며 알 수 없는 역할은 거부한다. | F81, #168 및 인증 #167 연결 계약 |
 | 문서 유형 | DB는 VARCHAR(50)의 업무 코드 저장. 공통 DOC_TYPES는 manual/policy/guide/other로 제안 채택한다. MIME과 분리하며 미분류 기존 문서는 other. search가 코드 검증하고 공통 설정 담당이 목록 제공한다. | 미정_목록 A123:G123 구체화 / 이준영·이성민 |
 | 해시 중복 | 같은 회사+같은 SHA-256은 삭제·실패 포함 중복이다. 실패는 동일 후보 ID로 명시적 재시도하며 새 후보를 만들지 않는다. 다른 회사는 허용한다. 삭제 후 같은 파일의 새 업로드는 P0에서 허용하지 않는다. | F63의 삭제·실패 경계 구체화 / 김혜리 |
 | 버전·청크 | version_no는 문서 안에서 1부터 증가. chunk_index는 버전 안에서 0부터 연속. chunk_id는 `{version_id}:{chunk_index:05d}`. 최대 100,000개(0~99,999); DB ID 길이는 64. 해시는 정규화된 최종 청크 text의 UTF-8 SHA-256. | 제약_운영 A34:G34 및 관련 미정 항목 구체화 / 김혜리·박영준 |
@@ -88,7 +90,7 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 
 물리 경로는 저장소 루트를 실행 기준으로 사용하며 sys.path나 PYTHONPATH를 조작하지 않는다. `db.get_documents_with_active_version`이라는 원문 가정명은 위 documents_repo 경로로 확정한다. 구체적 클래스 구현은 #120/#121에서 제공한다.
 
-DB 접근 재검증·저장 함수를 구현했다. 로그인·비밀번호 처리와 세션 발급/폐기 코드는 DB 작업에서 제거했다. 함수의 선택 인자 `connection=`은 내부 서비스가 하나의 트랜잭션으로 묶을 때만 사용한다. 제공한 연결은 호출자가 커밋·롤백하고, 생략하면 함수가 자체 TX를 관리한다. 실제 공유 DB의 기존 NOT NULL 컬럼·작업 상태 enum은 #119 실측 전이므로 호환 적용을 완료했다고 보지 않는다. 게시·벡터 연계는 아래 #122 계약에서 다룬다.
+DB 접근 재검증·저장 함수를 구현했다. 로그인·비밀번호 처리와 세션 발급/폐기는 별도 인증 책임이다. 선택 인자 `connection=`을 제공하면 호출자가 커밋·롤백하고, 생략하면 함수가 자체 TX를 관리한다. 업무 저장은 최종 v4의 명시적 SQL만 사용한다. 기존 Railway 구조에 맞춘 동적 저장은 제공하지 않는다.
 
 #122의 DB 업로드·완전성·게시·복구 서비스도 db02 로컬에서 구현했다. 상세 API·원본 저장·재시도·복구 원장은 [WORKFLOW_122.md](WORKFLOW_122.md)를 따른다. 입력 Chunk 객체를 보존하고 실제 VectorHit의 소속·본문 해시를 확인한다. 실제 팀 수집/embedding 함수는 아직 뼈대이므로 기본 연동은 미준비 오류로 거부한다. 테스트 대역의 성공을 실제 외부 연동 완료로 간주하지 않는다.
 
@@ -161,7 +163,7 @@ manifest와 보고서의 호출부는 기존처럼 별도 TX이므로 전체 수
 | index_jobs | queued → running → succeeded 또는 failed / failed → queued | stage는 received/ingest/embedding/verify/publish/complete. 재시도는 같은 후보, attempts 증가. 단일 프로세스가 순차 실행하고 중복 실행은 거부 |
 | sessions 읽기 | 외부 인증 담당이 관리한 상태 검사 | auth_version 불일치·만료·폐기·토큰 없음이면 DB 접근 거부. 상태 변경은 DB 담당 범위 밖 |
 
-실제 v3 작업 컬럼이 있는 경우 P1 종료 상태도 status(SUCCEEDED/FAILED)와 finished_at에 반영한다. 복구 대기 작업은 활성 보호를 유지하고, 외부 정리까지 끝난 restored 작업만 실패 종료한다. 재시도는 기존 status=QUEUED, attempt_no=증가한 attempts로 맞추며 종료·실행·임대 필드를 비운다. 후보의 processing 전환과 이 변경은 같은 TX다. 다른 활성 작업이 있으면 CONFLICT로 전체 롤백한다. 이전 시도 보고서는 _attempts에 보존한다.
+작업 결과는 jobs_repo.store_job_result에서 status·stage·report·오류·finished_at을 같은 UPDATE로 저장한다. pending_activation/restore_pending은 QUEUED로 활성 보호를 유지하고 restored/superseded는 FAILED로 종료한다. 재시도는 jobs_repo.reset_job_for_retry에서 QUEUED·received·attempts 증가·종료/시작 시각 초기화를 한 번에 저장한다. 후보의 processing 전환도 같은 TX다. 다른 활성 작업과 충돌하면 CONFLICT로 전체 롤백하며 이전 시도 보고서는 _attempts에 보존한다. attempt_no·이전 임대 필드는 없다.
 
 업로드의 권한·중복 확인과 문서/후보/작업 생성은 짧은 트랜잭션으로 묶는다. UNIQUE(company_id,sha256)는 동시에 도착한 새 후보의 최종 중복을 차단한다. 기존 문서 행 잠금 안에서 version_no를 할당한다. 파일 저장 실패는 후보·작업을 failed로 기록하고 기존 활성 버전은 유지한다. 외부 파일·ingest·Chroma 호출 중 SQL 행 잠금을 유지하지 않는다.
 
@@ -171,9 +173,9 @@ manifest와 보고서의 호출부는 기존처럼 별도 TX이므로 전체 수
 
 DB 기준 공개 조건은 published, deleted_at IS NULL, hit version=active_version_id, ready, operational, 허용 회사, hit 회사=DB 회사이다. 회사·계정 활성 상태도 auth에서 확인한다. 검색·답변의 최종 제어 코드는 각 담당자 책임이다.
 
-## 5. 이행·검증·남은 범위
+## 5. 초기화·검증·남은 범위
 
-스키마 준비는 #119, 회사 격리·접근 재검증은 #120, 저장 함수는 #121, 처리 흐름은 #122다. 레거시 문서는 새 컬럼 기본값 draft/active_version_id=NULL로 격리한다. 기존 파일·해시·벡터의 의미를 추측해 ready 버전으로 자동 변환하지 않는다. #122에서 명시적으로 가져오기 전에는 해당 회사의 신규 업로드를 막아 레거시 해시 중복 누락을 방지한다. 스키마 버전 4는 앱 전체 구현 완료나 데이터 이행 완료를 뜻하지 않는다.
+스키마 초기화는 #168, 회사 격리·접근 재검증의 기존 계약은 #120, 저장은 #121, 처리 흐름은 #122를 따른다. 새 빈 DB에 최종 구조를 직접 만들며 기존 DB 이행은 제공하지 않는다. 버전 없는 문서가 남아 있는 비정상 입력은 업로드를 차단한다. 스키마 버전 4는 앱 전체 구현·실제 인증 바인딩 완료를 뜻하지 않는다.
 
 검증은 회사 격리·빈 ID·일괄 조회 장애·동시 해시 중복·다른 회사 활성 버전 지정·청크 순번/ID 중복·권한 변경 재검증·부분 적재·게시 경쟁·외부 호출 실패를 대상으로 한다. #118은 계약 확정만 완료하며 런타임 검증 성공을 주장하지 않는다.
 
