@@ -69,7 +69,7 @@ def render_login_error(message: str, code: str) -> str:
     if code == "INVALID_CREDENTIALS":
         return ('<p id="hd-login-error" class="hd-login-error" '
                 'data-login-invalid="credentials" role="alert">'
-                '아이디 또는 비밀번호가 맞지 않아요.</p>')
+                '아이디 또는 비밀번호가 올바르지 않습니다.</p>')
     return show_feedback(message, "error")
 
 

@@ -120,6 +120,9 @@ def to_feedback(error) -> dict:
 
     code = getattr(error, "code", None)
     if _is_error(error, access, "AccessError"):
+        if code == "INVALID_CREDENTIALS":
+            # 없는 계정·잘못된 비밀번호 등 인증 실패의 구체적인 원인은 구분하지 않는다.
+            return {"status": "input_error", "message": "아이디 또는 비밀번호가 올바르지 않습니다.", "error_code": code}
         if code == "STATE_CHANGED":
             return {"status": "failed", "message": "문서 상태가 변경되었습니다. 문서를 다시 선택해 주세요.", "error_code": code}
         if code == "ACCESS_DENIED":
