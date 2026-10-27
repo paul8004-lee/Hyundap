@@ -31,6 +31,19 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 
 
+def company_choices(user: dict, *, demo: bool = False) -> list[tuple[str, str]]:
+    """인증 결과의 허용 회사만 표시한다. 실제 회사 ID에 예시 이름을 붙이지 않는다."""
+    allowed = list(dict.fromkeys(user.get("allowed_company_ids") or []))
+    names = dict((code, name) for name, code in COMPANIES) if demo else {}
+    for company in user.get("companies") or []:
+        if isinstance(company, dict) and company.get("company_id") in allowed:
+            names[company["company_id"]] = str(company.get("company_name") or company["company_id"])
+    own_company = user.get("company_id")
+    if own_company in allowed and user.get("company_name"):
+        names[own_company] = str(user["company_name"])
+    return [(names.get(code, code), code) for code in allowed]
+
+
 class UIServiceError(Exception):
     """B17~B23: 화면에 안전하게 보여 줄 오류 코드·메시지·상태."""
 
@@ -134,6 +147,7 @@ class BackendBindings:
     filters_factory: Callable | None = None
     to_feedback: Callable | None = None
     normalizers: dict[str, Callable] = field(default_factory=dict)
+    temporary_auth: bool = False
 
 
 class BackendServices:
@@ -143,6 +157,7 @@ class BackendServices:
 
     def __init__(self, bindings: BackendBindings | None = None):
         self.bindings = bindings or BackendBindings()
+        self.temporary_auth = self.bindings.temporary_auth
 
     async def _call(self, name: str, **kwargs) -> Any:
         function = getattr(self.bindings, name, None)

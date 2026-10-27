@@ -9,10 +9,12 @@ from sqlalchemy import text
 
 from .errors import DbError
 from .runtime import require_id, transaction
+from . import legacy
 
 
 STAGES = ('received', 'ingest', 'embedding', 'verify', 'publish', 'complete')
 COUNT_FIELDS = ('total', 'skipped_existing', 'embedded', 'stored', 'truncated_count')
+INGEST_COUNT_FIELDS = ('chunk_size', 'chunk_overlap', 'section_count', 'chunk_count', 'warning_count')
 
 
 def normalize_report(report):
@@ -24,6 +26,7 @@ def normalize_report(report):
     report = _report_dict(report)
     clean = _report_identity(report)
     clean.update(_report_metrics(report))
+    clean.update(_ingest_metrics(report, clean['stage']))
     clean.update(_report_failures(report))
 
     # 성공 보고서에 실패 내용이 함께 있으면 서로 모순되므로 저장하지 않는다.
@@ -81,6 +84,34 @@ def _report_metrics(report):
     return clean
 
 
+def _ingest_metrics(report, stage):
+    """수집 전용 필드의 타입·범위를 검사한다. 경고 원문은 읽거나 저장하지 않는다."""
+    fields = ('parser', 'parser_version') + INGEST_COUNT_FIELDS
+    if any(field in report for field in fields) and stage != 'ingest':
+        raise DbError('INVALID_INPUT')
+    clean = {}
+    if 'parser' in report:
+        parser = report['parser']
+        if not isinstance(parser, str) or parser not in ('pypdf', 'python-docx', 'python-pptx'):
+            raise DbError('INVALID_INPUT')
+        clean['parser'] = parser
+    if 'parser_version' in report:
+        value = report['parser_version']
+        if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+\-]{0,63}', value):
+            raise DbError('INVALID_INPUT')
+        clean['parser_version'] = value
+    for field in INGEST_COUNT_FIELDS:
+        if field in report:
+            value = report[field]
+            if type(value) is not int or value < (1 if field == 'chunk_size' else 0):
+                raise DbError('INVALID_INPUT')
+            clean[field] = value
+    if 'chunk_size' in clean and 'chunk_overlap' in clean:
+        if clean['chunk_overlap'] >= clean['chunk_size']:
+            raise DbError('INVALID_INPUT')
+    return clean
+
+
 def _report_failures(report):
     """보고서 dict에서 안전한 오류 코드와 실패 목록만 새 dict로 반환한다."""
     clean = {}
@@ -123,12 +154,16 @@ def record_stage_result(job_id, report, *, connection=None):
 
     앞 단계 보고서를 보존하고 이미 성공한 단계는 동일 결과만 재호출할 수 있다.
     실패·부분 성공은 같은 단계의 재시도 결과로 갱신 가능하다. 작업자는 P0에서 하나다.
+    수집 성공의 명시적 chunk_count는 processing 버전의 양수 예상·실제 수와 같아야 한다.
+    연결 제공 시 호출자 TX에 참여하며 직접 커밋하지 않는다.
     """
     clean = normalize_report(report)
     with transaction(connection) as database:
         # 조회 → 입력과 작업의 일치 검사 → 보고서 갱신 → 저장을 같은 잠금 안에서 처리한다.
         job, identity = _read_stage_target(database, job_id)
         _check_stage_result(job, identity, clean)
+        if clean['stage'] == 'ingest' and clean['status'] == 'success' and 'chunk_count' in clean:
+            _check_ingest_count(database, job['version_id'], clean['chunk_count'])
         reports = _merge_stage_reports(job['report'], clean)
         _store_stage_result(database, job_id, clean, reports)
 
@@ -136,17 +171,38 @@ def record_stage_result(job_id, report, *, connection=None):
 def _read_stage_target(database, job_id):
     """작업 ID로 저장 대상을 조회하고 (작업 행, 문서·버전·회사 ID dict)를 반환한다.
 
-    작업 행을 잠그므로 다른 요청이 검사 도중 단계를 변경하지 못한다.
+    버전 → 작업 순서로 잠가 manifest·게시·복구와 잠금 순서를 맞춘다.
     전달받은 연결만 사용하며 커밋과 잠금 해제는 트랜잭션을 연 호출자가 담당한다.
     """
+    reference = database.execute(text('SELECT version_id FROM index_jobs WHERE id=:id'),
+                                 {'id': require_id(job_id)}).scalar_one_or_none()
+    if reference is None:
+        raise DbError('INVALID_STATE')
+    # manifest·게시·복구와 동일하게 버전 → 작업 순서로 잠근다.
+    version = database.execute(text('SELECT document_id,company_id FROM document_versions WHERE id=:id FOR UPDATE'),
+                               {'id': reference}).mappings().one_or_none()
+    if version is None:
+        raise DbError('INVALID_STATE')
     job = database.execute(text('SELECT version_id,stage,report FROM index_jobs WHERE id=:id FOR UPDATE'),
                            {'id': require_id(job_id)}).mappings().one_or_none()
-    if not job or job['version_id'] is None:
+    if not job or job['version_id'] != reference:
         raise DbError('INVALID_STATE')
-    version = database.execute(text('SELECT document_id,company_id FROM document_versions WHERE id=:id'),
-                               {'id': job['version_id']}).mappings().one()
     identity = dict(version, version_id=job['version_id'])
     return job, identity
+
+
+def _check_ingest_count(database, version_id, count):
+    """잠근 버전의 예상·실제 청크 수와 보고서를 비교한다. 데이터는 변경하지 않는다."""
+    version = database.execute(text('SELECT version_status,expected_chunk_count FROM document_versions WHERE id=:id FOR UPDATE'),
+                               {'id': version_id}).mappings().one()
+    if version['version_status'] != 'processing':
+        raise DbError('INVALID_STATE')
+    # REPEATABLE READ에서도 선행 참조 조회의 과거 snapshot 대신 현재 목록을 확인한다.
+    rows = database.execute(text('SELECT id FROM document_chunks WHERE version_id=:id FOR UPDATE'),
+                            {'id': version_id}).scalars()
+    actual = sum(1 for _ in rows)
+    if count <= 0 or count != version['expected_chunk_count'] or count != actual:
+        raise DbError('INVALID_INPUT')
 
 
 def _check_stage_result(job, identity, clean):
@@ -175,7 +231,7 @@ def _merge_stage_reports(stored_report, clean):
     if isinstance(stored_report, str):
         reports = json.loads(stored_report)
     elif stored_report:
-        reports = stored_report
+        reports = dict(stored_report)
     else:
         reports = {}
     if not isinstance(reports, dict):
@@ -201,3 +257,5 @@ def _store_stage_result(database, job_id, clean, reports):
         WHERE id=:id
     '''), {'stage': clean['stage'], 'report': json.dumps(reports, ensure_ascii=False),
           'code': code, 'message': message, 'id': job_id})
+    legacy.finish_job(database, job_id, complete=clean['stage'] == 'complete' and clean['status'] == 'success',
+                      failed=clean['status'] in ('failed', 'partial'))

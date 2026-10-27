@@ -15,9 +15,9 @@ from threading import RLock
 from sqlalchemy import text
 
 from hyundap.common.config import get_settings
-from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
+from . import chunks_repo, documents_repo, jobs_repo, legacy, versions_repo, version_service
 from .errors import DbError
-from .runtime import require_id, transaction
+from .runtime import get_table_columns, require_id, transaction
 
 
 # ponytail: P0의 단일 앱 프로세스에서 업로드·같은 후보 재시도를 순차 실행한다.
@@ -181,6 +181,13 @@ def save_ingest_chunks(ids, company_id, result):
         })
     chunks_repo.save_manifest(ids['version_id'], manifest)
     report = version_service.as_mapping(result.get('report') or {})
+    report = dict(report)
+    if 'warnings' in report:
+        warnings = report['warnings']
+        if not isinstance(warnings, list) or any(not isinstance(value, str) for value in warnings):
+            raise DbError('INVALID_INPUT')
+        report['warning_count'] = len(warnings)
+        report.pop('warnings')
     jobs_repo.record_stage_result(
         ids['job_id'], dict(report, stage='ingest', status='success'))
     return chunks
@@ -203,7 +210,15 @@ def ingest_and_save_chunks(source, info, ids, ingest_function):
     성공하면 청크·보고서를 저장하고 (chunks, None)을 반환한다. 수집기가 실패 결과를
     반환하면 (None, 안전한 오류 코드)다. 실패 후보 정리는 run_attempt가 담당한다.
     """
-    raw_result = version_service.call_external(ingest_function, str(source), info)
+    def find_by_hash(company_id, sha256):
+        """서버의 현재 후보 문맥에만 묶인 조회다. 임의 회사·해시 제외를 허용하지 않는다."""
+        if company_id != info['company_id']:
+            raise DbError('INVALID_INPUT')
+        return documents_repo.find_duplicate_document(
+            company_id, sha256, exclude_version_id=ids['version_id'])
+
+    raw_result = version_service.call_external(
+        ingest_function, str(source), info, find_by_hash=find_by_hash)
     result = version_service.as_mapping(raw_result)
     if result.get('status') != 'success':
         return None, failure_code(result.get('error_code'))
@@ -281,7 +296,7 @@ def prepare_upload_source(source_path, metadata, upload_dir):
     values['file_name'] = metadata.get('file_name', source.name)
     values['sha256'] = digest
     values['file_size'] = size
-    values['storage_path'] = 'pending'
+    values['storage_path'] = 'pending/' + uuid4().hex
     values['data_category'] = metadata.get('data_category', 'operational')
     return source, root, values
 
@@ -308,6 +323,11 @@ def create_upload_candidate(actor, company_id, values, source, root):
             text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
             {'path': str(destination), 'id': ids['version_id']},
         )
+        # 기존 문서의 첫 원본 포인터는 보존하고 새 문서만 최종 경로로 확정한다.
+        if not values.get('document_id') and 'storage_key' in {
+                column['name'] for column in get_table_columns(database, 'documents')}:
+            database.execute(text('UPDATE documents SET storage_key=:path WHERE id=:id'),
+                             {'path': str(destination), 'id': ids['document_id']})
         database.execute(
             text('UPDATE index_jobs SET attempts=1,report=:report WHERE id=:id'),
             {'id': ids['job_id'], 'report': json.dumps({'_upload_root': str(root)})},
@@ -435,6 +455,7 @@ def reset_retry_records(database, version_id, job_id, report):
                               error_code=NULL, error_message=NULL
         WHERE id=:id
     '''), {'id': job_id, 'report': json.dumps(report, ensure_ascii=False)})
+    legacy.reset_job_for_retry(database, job_id)
 
 
 def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):

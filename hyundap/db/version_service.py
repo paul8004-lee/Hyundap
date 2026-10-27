@@ -15,6 +15,7 @@ from hyundap.auth.errors import AccessError
 from .errors import DbError
 from .runtime import require_id, transaction
 from .sessions_repo import current_actor
+from . import legacy
 
 
 # ponytail: P0 단일 프로세스의 게시/복구를 직렬화한다. 다중 작업자는 외부 작업 임대가 필요하다.
@@ -242,6 +243,7 @@ def write_publication(database, job, reports, publication, *, complete=False, er
         UPDATE index_jobs SET stage=:stage,report=:report,error_code=:code,error_message=:message WHERE id=:id
     '''), {'stage': 'complete' if complete else 'publish', 'report': json.dumps(reports, ensure_ascii=False),
           'code': error_code, 'message': '게시 상태 복구 필요' if error_code else None, 'id': job['id']})
+    legacy.finish_job(database, job['id'], complete=complete)
 
 
 def ensure_no_pending_publication(database, document_id, *, except_job=None):
@@ -574,3 +576,4 @@ def finish_recovery(document_id, version_id):
         database.execute(text("UPDATE document_versions SET version_status='failed' WHERE id=:id"), {'id': version_id})
         publication['phase'] = 'restored'
         write_publication(database, job, reports, publication, error_code='ACTIVATION_FAILED')
+        legacy.finish_job(database, job['id'], failed=True)
