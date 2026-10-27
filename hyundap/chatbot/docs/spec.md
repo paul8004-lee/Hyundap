@@ -42,7 +42,7 @@
 | A1 | 화면이 질문 전달 | ui `on_question_submit` → `ask` | 질문, 필터, 사용자 | - |
 | A2 | 질문 검사 | `validate_question` | 질문 → 공백 정리된 질문 | EMPTY_QUESTION / QUESTION_TOO_LONG |
 | A3 | 근거 받기 | `retrieve_evidence` → `search.search_chunks` | 질문·필터·사용자 → ChunkHit 목록(점수순) | RETRIEVAL_FAILED / ACCESS_DENIED |
-| A4 | 근거 고르기 | `select_evidence` | 같은 청크 하나만, 문서당 4·전체 8개 (문서 하나 선택 시 전체 8개) | - |
+| A4 | 근거 고르기 | `select_evidence` | 같은 청크 하나만, 문서당 4·전체 8개 | - |
 | A5 | 근거 없으면 끝 | `build_no_evidence_response` | 0개면 LLM을 부르지 않고 유보 응답 | - |
 | A6 | 이름표 붙이기 | `assign_aliases` → `format_evidence` | 근거 → `[E1] A사 · 교육안내.pdf · p.2` + 본문 | - |
 | A7 | 답변 생성 | `generate_answer` → `build_answer_chain` → OpenAI | 질문 + 근거 → `…[E1]…` | LLM_FAILED / CONFIG_MISSING |
@@ -135,7 +135,7 @@ ui.services.BackendServices.summarize (박경환)
 | 401 보조 | `ask_build_response` | `answer`, `used`, `citations` | ChatResponse(`ANSWERED`) | `render_answer`·`group_citations_by_company`, 답변에 쓰인 문서 ID |
 | FUN-402 | `validate_question` | `question`, `max_chars=2000` | 공백 정리된 질문 | 문자열 아님·공백뿐 → EMPTY_QUESTION, 2000자 초과 → QUESTION_TOO_LONG |
 | FUN-403 | `retrieve_evidence` | `question`, `ChatFilters`, `user` | `list[ChunkHit]` | `search_chunks(user=, query=, company_ids=, doc_types=, document_ids=, top_k=TOP_K×2)`. min_score는 넘기지 않음(search 설정 0.3). import도 try 안에서 해 search가 없을 때(ImportError)도 FUN-427로 RETRIEVAL_FAILED |
-| FUN-404 | `select_evidence` | `hits`, 선택 문서 ID | `list[ChunkHit]` | 같은 chunk_id는 점수 높은 것 하나 → 점수순 → 문서당 4개 → 전체 8개. 문서를 하나 선택하면 문서당 제한을 적용하지 않음 |
+| FUN-404 | `select_evidence` | `hits` | `list[ChunkHit]` | 같은 chunk_id는 점수 높은 것 하나 → 점수순 → 문서당 4개 → 전체 8개 |
 | 404 보조 | `select_evidence_dedupe` | `hits` | `list[ChunkHit]` | chunk_id마다 점수가 가장 높은 것 1개 |
 | 404 보조 | `select_evidence_limit` | 점수순 `hits` | `list[ChunkHit]` | 문서당 MAX_PER_DOCUMENT(4), 전체 TOP_K(8) |
 | FUN-405 | `generate_answer` | `question`, `evidence_text` | 답변 원문(str) | 체인 실행. 시간 초과·속도 제한 → LLM_FAILED(재시도 가능), 인증 오류 → CONFIG_MISSING |
