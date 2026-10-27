@@ -4,6 +4,7 @@
 테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_ingest -v이다."""
 import base64
 import io
+import pickle
 import tempfile
 import unittest
 import zipfile
@@ -282,6 +283,28 @@ class NormalizerTests(unittest.TestCase):
     def test_symbols_and_digits_are_kept(self):
         """기호·숫자는 바꾸지 않는 기존 규칙이 유지되는지 확인한다."""
         self.assertEqual(normalize_text('① 50%  ABC-1234'), '① 50% ABC-1234')
+
+
+class IngestErrorTests(unittest.TestCase):
+    """IngestError가 코드와 message를 부모 예외에도 남겨야 한다 (#150)."""
+
+    def test_default_message_is_passed_to_parent(self):
+        """message를 주지 않아도 기본 문구가 args·문자열 표현에 남는지 확인한다."""
+        error = IngestError(CORRUPTED_FILE)
+        self.assertEqual(error.args, (CORRUPTED_FILE, error.message))
+        self.assertIn(CORRUPTED_FILE, str(error))
+        self.assertIn(error.message, str(error))
+
+    def test_custom_message_is_kept(self):
+        """직접 준 message가 속성과 문자열 표현에 모두 남는지 확인한다."""
+        error = IngestError(UNSUPPORTED_FORMAT, '직접 쓴 문구')
+        self.assertEqual((error.code, error.message), (UNSUPPORTED_FORMAT, '직접 쓴 문구'))
+        self.assertIn('직접 쓴 문구', str(error))
+
+    def test_error_survives_pickle(self):
+        """프로세스 사이를 오갈 때(pickle) 코드와 message가 그대로인지 확인한다."""
+        restored = pickle.loads(pickle.dumps(IngestError(CORRUPTED_FILE, '문구')))
+        self.assertEqual((restored.code, restored.message), (CORRUPTED_FILE, '문구'))
 
 
 if __name__ == '__main__':
