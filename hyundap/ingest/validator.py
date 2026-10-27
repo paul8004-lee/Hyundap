@@ -17,6 +17,7 @@ import hashlib
 import os
 import re
 import zipfile
+import zlib
 
 from pypdf import PdfReader
 
@@ -32,6 +33,13 @@ from .models import (
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx")
 MAX_FILE_BYTES = 104857600
 OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+# 확장자별 필수 파일과, 다른 형식임을 알려 주는 파일 (확장자만 바꾼 파일을 UNSUPPORTED_FORMAT으로 구분)
+ZIP_REQUIRED = {".docx": "word/document.xml", ".pptx": "ppt/presentation.xml"}
+ZIP_OTHER_FORMAT_MARKERS = ("word/document.xml", "ppt/presentation.xml", "xl/workbook.xml")
+ZIP_MACRO_MARKER = "vbaProject.bin"
+# zip을 읽다가 파일이 깨졌을 때 라이브러리가 내는 예외 (BadZipFile만 잡으면 zlib.error 등이 그대로 올라온다)
+ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError)
 
 
 def check_file_format(file_path):
@@ -64,12 +72,20 @@ def check_file_size(file_path, max_bytes=MAX_FILE_BYTES):
     return size
 
 
-def check_not_encrypted(file_path, extension):
-    """암호가 걸린 문서를 걸러낸다."""
+def open_pdf(file_path):
+    """PDF를 열어 reader를 돌려준다. 열 수 없으면 None을 돌려준다."""
+    try:
+        return PdfReader(file_path)
+    except Exception:
+        return None
+
+
+def check_not_encrypted(file_path, extension, reader=None):
+    """암호가 걸린 문서를 걸러낸다. PDF는 열어 둔 reader를 넘기면 다시 열지 않는다."""
     if extension == ".pdf":
-        try:
-            reader = PdfReader(file_path)
-        except Exception:
+        if reader is None:
+            reader = open_pdf(file_path)
+        if reader is None:
             return
         if reader.is_encrypted:
             raise IngestError(ENCRYPTED_FILE)
@@ -80,29 +96,37 @@ def check_not_encrypted(file_path, extension):
         raise IngestError(ENCRYPTED_FILE)
 
 
-def check_not_corrupted(file_path, extension):
-    """깨진 파일을 걸러낸다."""
+def check_not_corrupted(file_path, extension, reader=None):
+    """깨진 파일을 걸러낸다. PDF는 열어 둔 reader를 넘기면 다시 열지 않는다."""
     if extension == ".pdf":
+        if reader is None:
+            reader = open_pdf(file_path)
+        if reader is None:
+            raise IngestError(CORRUPTED_FILE)
         try:
-            page_count = len(PdfReader(file_path).pages)
+            page_count = len(reader.pages)
         except Exception:
             raise IngestError(CORRUPTED_FILE)
         if page_count < 1:
             raise IngestError(CORRUPTED_FILE)
         return
 
-    if extension == ".docx":
-        required = "word/document.xml"
-    else:
-        required = "ppt/presentation.xml"
+    required = ZIP_REQUIRED[extension]
     try:
         with zipfile.ZipFile(file_path) as z:
             bad = z.testzip()
             names = z.namelist()
-    except zipfile.BadZipFile:
+    except ZIP_READ_ERRORS:
         raise IngestError(CORRUPTED_FILE)
-    if bad is not None or required not in names:
+    if bad is not None:
         raise IngestError(CORRUPTED_FILE)
+    if required not in names:
+        # 다른 Office 형식(xlsx, pptx↔docx)이면 손상이 아니라 형식 오류다
+        if any(marker in names for marker in ZIP_OTHER_FORMAT_MARKERS):
+            raise IngestError(UNSUPPORTED_FORMAT)
+        raise IngestError(CORRUPTED_FILE)
+    if any(name.endswith(ZIP_MACRO_MARKER) for name in names):
+        raise IngestError(UNSUPPORTED_FORMAT)   # 매크로 포함 문서(.docm/.pptm)는 범위 밖
 
 
 def compute_file_hash(file_path):
@@ -126,16 +150,22 @@ def check_duplicate(file_hash, company_id, find_by_hash=None):
 
 
 def validate_upload(file_path, company_id, find_by_hash=None, file_hash=None):
-    """업로드 파일 검사를 정해진 순서(형식→용량→암호화→손상→해시→중복)로 실행한다."""
+    """업로드 파일 검사를 정해진 순서(형식→용량→암호화→손상→해시→중복)로 실행한다.
+
+    중복 조회가 있을 때 검증된 해시를 재사용하고, 없으면 파일에서 계산한다."""
     extension = check_file_format(file_path)
     size_bytes = check_file_size(file_path)
-    check_not_encrypted(file_path, extension)
-    check_not_corrupted(file_path, extension)
+    reader = None
+    if extension == ".pdf":
+        reader = open_pdf(file_path)
+    check_not_encrypted(file_path, extension, reader)
+    check_not_corrupted(file_path, extension, reader)
     if file_hash is not None and (not isinstance(file_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", file_hash)):
         raise ValueError("file_hash must be a lowercase SHA-256 digest")
-    if file_hash is None:
-        file_hash = compute_file_hash(file_path)
-    check_duplicate(file_hash, company_id, find_by_hash)
+    if find_by_hash is not None:
+        if file_hash is None:
+            file_hash = compute_file_hash(file_path)
+        check_duplicate(file_hash, company_id, find_by_hash)
     return {
         "file_name": os.path.basename(file_path),
         "extension": extension,

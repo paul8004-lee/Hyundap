@@ -19,6 +19,7 @@ class IngestInputTests(unittest.TestCase):
     def test_verified_hash_reused_and_invalid_hash_rejected(self):
         with patch.object(validator, 'check_file_format', return_value='.pdf'), \
              patch.object(validator, 'check_file_size', return_value=1), \
+             patch.object(validator, 'open_pdf') as open_pdf, \
              patch.object(validator, 'check_not_encrypted'), \
              patch.object(validator, 'check_not_corrupted'), \
              patch.object(validator, 'compute_file_hash') as compute:
@@ -30,7 +31,10 @@ class IngestInputTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validator.validate_upload('x.pdf', 'c', file_hash='invalid')
             validator.validate_upload('x.pdf', 'c')
+            compute.assert_not_called()
+            validator.validate_upload('x.pdf', 'c', lambda company, digest: False)
             compute.assert_called_once()
+            self.assertEqual(open_pdf.call_count, 4)
 
     def test_invalid_doc_type_and_missing_file_are_failed_results(self):
         header = dict(document_id='d', version_id='v', company_id='c',
