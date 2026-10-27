@@ -63,12 +63,20 @@ def check_file_size(file_path, max_bytes=MAX_FILE_BYTES):
     return size
 
 
-def check_not_encrypted(file_path, extension):
-    """암호가 걸린 문서를 걸러낸다."""
+def open_pdf(file_path):
+    """PDF를 열어 reader를 돌려준다. 열 수 없으면 None을 돌려준다."""
+    try:
+        return PdfReader(file_path)
+    except Exception:
+        return None
+
+
+def check_not_encrypted(file_path, extension, reader=None):
+    """암호가 걸린 문서를 걸러낸다. PDF는 열어 둔 reader를 넘기면 다시 열지 않는다."""
     if extension == ".pdf":
-        try:
-            reader = PdfReader(file_path)
-        except Exception:
+        if reader is None:
+            reader = open_pdf(file_path)
+        if reader is None:
             return
         if reader.is_encrypted:
             raise IngestError(ENCRYPTED_FILE)
@@ -79,11 +87,15 @@ def check_not_encrypted(file_path, extension):
         raise IngestError(ENCRYPTED_FILE)
 
 
-def check_not_corrupted(file_path, extension):
-    """깨진 파일을 걸러낸다."""
+def check_not_corrupted(file_path, extension, reader=None):
+    """깨진 파일을 걸러낸다. PDF는 열어 둔 reader를 넘기면 다시 열지 않는다."""
     if extension == ".pdf":
+        if reader is None:
+            reader = open_pdf(file_path)
+        if reader is None:
+            raise IngestError(CORRUPTED_FILE)
         try:
-            page_count = len(PdfReader(file_path).pages)
+            page_count = len(reader.pages)
         except Exception:
             raise IngestError(CORRUPTED_FILE)
         if page_count < 1:
@@ -125,13 +137,21 @@ def check_duplicate(file_hash, company_id, find_by_hash=None):
 
 
 def validate_upload(file_path, company_id, find_by_hash=None):
-    """업로드 파일 검사를 정해진 순서(형식→용량→암호화→손상→해시→중복)로 실행한다."""
+    """업로드 파일 검사를 정해진 순서(형식→용량→암호화→손상→해시→중복)로 실행한다.
+
+    해시·중복 검사는 find_by_hash를 넘겼을 때만 하고, 넘기지 않으면 건너뛴다(db가 전담)."""
     extension = check_file_format(file_path)
     size_bytes = check_file_size(file_path)
-    check_not_encrypted(file_path, extension)
-    check_not_corrupted(file_path, extension)
-    file_hash = compute_file_hash(file_path)
-    check_duplicate(file_hash, company_id, find_by_hash)
+    reader = None
+    if extension == ".pdf":
+        reader = open_pdf(file_path)
+    check_not_encrypted(file_path, extension, reader)
+    check_not_corrupted(file_path, extension, reader)
+    # 해시·중복 검사는 find_by_hash를 받았을 때만 한다. 없으면 file_hash는 None이다.
+    file_hash = None
+    if find_by_hash is not None:
+        file_hash = compute_file_hash(file_path)
+        check_duplicate(file_hash, company_id, find_by_hash)
     return {
         "file_name": os.path.basename(file_path),
         "extension": extension,
