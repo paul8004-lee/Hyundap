@@ -23,7 +23,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 import gradio as gr
 
 from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page
-from hyundap.ui.chat_page import CHAT_CSS, build_chat_page
+from hyundap.ui.chat_page import CHAT_CSS
 from hyundap.ui.components import brand_html, footer_html, get_css, get_theme
 from hyundap.ui.controller import UIController
 from hyundap.ui.login_page import build_login_page
@@ -51,7 +51,6 @@ APP_CSS = """
 #hd-type {padding:0!important;border:0!important;border-radius:10px!important;margin:0!important;}
 #hd-filter-reset {border:1px solid #dfe4ed;border-radius:10px;background:transparent;font-size:12px;}
 #hd-shell .hd-notice span {color:inherit;}
-#hd-result-table td * {font-size:12px;}
 #hd-search-submit {background:#032b5c!important;border-color:#032b5c!important;color:white!important;}
 #hd-results-card.hd-card {padding:0!important;}
 #hd-modal {position:fixed!important;z-index:1000;inset:0;width:100%;height:100dvh;background:rgb(8 20 35 / 42%);display:flex;align-items:center;justify-content:center;padding:24px!important;box-sizing:border-box;}
@@ -133,8 +132,8 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
             gr.HTML(mode_note, elem_id="hd-mode")
             with gr.Column(elem_id="hd-content", elem_classes=["hd-content"]):
                 search = build_search_page(companies, DOC_TYPES, demo_mode)
-                chat = build_chat_page()
-                chat["container"].visible = False
+                # 질문은 검색 입력으로 받으며 답변·출처는 검색 스플릿뷰에 표시한다.
+                chat = {}
                 admin = build_admin_page(companies, DOC_TYPES, demo_mode)
             gr.HTML(footer_html(mode_note), elem_classes=["hd-footer", "hd-plain-html"])
         with gr.Column(visible=False, elem_id="hd-modal") as modal:
@@ -183,10 +182,6 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
         bind(search["summarize"].click, "summarize", [])
         bind(search["source"].click, "source", [])
         bind(search["download"].click, "download", [])
-        bind(chat["submit"].click, "ask", [chat["question"], chat["scope"]])
-        bind(chat["scope"].input, "scope", [chat["scope"]], trigger_mode="always_last")
-        bind(chat["citation_choice"].input, "citation", [chat["citation_choice"]])
-        bind(chat["open_source"].click, "open_citation", [chat["citation_choice"]])
         bind(admin["submit"].click, "upload", [admin["file"], admin["company"], admin["doc_type"]])
         bind(modal_close.click, "close", [])
 
