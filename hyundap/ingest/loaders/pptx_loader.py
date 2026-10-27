@@ -28,13 +28,31 @@ UNREAD_SHAPE_TYPES = (
     MSO_SHAPE_TYPE.LINKED_OLE_OBJECT,
 )
 MAX_LISTED_SLIDES = 10
+# 위쪽 끝이 이 값(EMU, 0.1인치) 이내로 다른 도형은 같은 줄로 본다. 나란히 놓은 도형의 높이가 조금 어긋나도 왼쪽부터 읽기 위함이다.
+ROW_TOLERANCE_EMU = 91440
+
+
+def reading_order(shapes):
+    """도형을 위→아래 줄 단위로, 같은 줄 안에서는 왼→오른쪽으로 정렬한다.
+
+    줄의 기준은 그 줄 첫 도형의 위쪽 끝이다. 도형마다 기준을 옮기면 오차가 쌓여 줄이 끝없이 이어질 수 있다."""
+    rows = []   # (줄 기준 top, 도형 목록)
+    for shape in sorted(shapes, key=lambda item: item.top or 0):
+        top = shape.top or 0
+        if rows and top - rows[-1][0] <= ROW_TOLERANCE_EMU:
+            rows[-1][1].append(shape)
+        else:
+            rows.append((top, [shape]))
+    ordered = []
+    for _, row in rows:
+        ordered.extend(sorted(row, key=lambda item: item.left or 0))
+    return ordered
 
 
 def collect_shape_texts(shapes):
-    """도형들을 위→아래, 왼→오른쪽 순서로 훑어 글자와 표 조각을 모은다."""
+    """도형들을 위→아래, 왼→오른쪽 순서로 훑어 글자와 표 조각을 모은다. 위치 오차는 허용한다."""
     texts = []
-    ordered = sorted(shapes, key=lambda shape: (shape.top or 0, shape.left or 0))
-    for shape in ordered:
+    for shape in reading_order(shapes):
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             texts.extend(collect_shape_texts(shape.shapes))
         elif shape.has_table:

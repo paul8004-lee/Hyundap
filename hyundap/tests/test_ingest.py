@@ -239,6 +239,47 @@ class PptxTests(IngestTestCase):
         self.assertNotIn('발표자 노트', warnings[1])
 
 
+class PptxReadingOrderTests(IngestTestCase):
+    """나란히 놓은 도형은 위치가 조금 어긋나도 왼쪽부터 읽어야 한다 (#150)."""
+
+    def read_slide(self, boxes):
+        """(글, 위, 왼쪽) 목록으로 슬라이드를 만들어 청크 본문을 돌려준다. 단위는 EMU다."""
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        for text, top, left in boxes:
+            box = slide.shapes.add_textbox(left, top, Inches(2), Inches(0.5))
+            box.text_frame.text = text
+        presentation.save(self.path('a.pptx'))
+        return self.ingest('a.pptx').chunks[0].text
+
+    def test_slightly_misaligned_boxes_read_left_to_right(self):
+        """오른쪽 도형이 조금 더 위에 있어도 같은 줄이면 왼쪽 도형을 먼저 읽는지 확인한다."""
+        text = self.read_slide([('오른쪽', Inches(1), Inches(5)),
+                                ('왼쪽', Inches(1) + 5000, Inches(1))])
+        self.assertLess(text.index('왼쪽'), text.index('오른쪽'))
+
+    def test_rows_are_still_read_top_to_bottom(self):
+        """줄이 다르면 위쪽 줄을 먼저 읽는 기존 순서가 유지되는지 확인한다."""
+        text = self.read_slide([('아래', Inches(3), Inches(1)),
+                                ('위 오른쪽', Inches(1), Inches(5)),
+                                ('위 왼쪽', Inches(1) + 5000, Inches(1))])
+        self.assertEqual([text.index(word) for word in ('위 왼쪽', '위 오른쪽', '아래')],
+                         sorted(text.index(word) for word in ('위 왼쪽', '위 오른쪽', '아래')))
+
+    def test_tolerance_does_not_chain_across_rows(self):
+        """조금씩 내려가는 도형이 한 줄로 이어지지 않고 위에서 아래로 읽히는지 확인한다."""
+        step = 70000   # 허용 오차(91440)보다 작은 간격으로 계단식 배치
+        boxes = [(f'칸{i}', Inches(1) + step * i, Inches(5) - Inches(1) * i) for i in range(4)]
+        text = self.read_slide(boxes)
+        order = [text.index(f'칸{i}') for i in range(4)]
+        # 줄 기준은 그 줄 첫 도형이다: 칸0·칸1이 윗줄, 칸2·칸3이 아랫줄(각 줄은 왼쪽부터).
+        # 오차가 이어져 한 줄로 합쳐졌다면 가장 왼쪽인 칸3이 맨 먼저 나왔을 것이다.
+        self.assertLess(order[0], order[3])
+        self.assertLess(order[1], order[2])
+        self.assertLess(order[1], order[0])   # 윗줄 안에서는 왼쪽(칸1)이 먼저
+        self.assertLess(order[3], order[2])   # 아랫줄 안에서도 왼쪽(칸3)이 먼저
+
+
 class UnreadObjectTests(IngestTestCase):
     """글자를 읽지 않은 그림·차트는 개수를 경고로 남겨야 한다 (#170)."""
 
