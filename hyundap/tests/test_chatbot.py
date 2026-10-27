@@ -78,6 +78,13 @@ class AskFiltersTests(unittest.TestCase):
             with self.subTest(filters=type(filters).__name__):
                 self.assertEqual(ask_module.ask('질문', filters, user=None).status, 'NO_EVIDENCE')
 
+    def test_single_document_retains_lower_ranked_evidence(self):
+        hits = [types.SimpleNamespace(chunk_id=str(i), document_id='doc', score=1 - i / 100)
+                for i in range(8)]
+        self.assertEqual(len(ask_module.select_evidence(hits)), 4)
+        self.assertEqual(len(ask_module.select_evidence(hits, ['doc'])), 8)
+        self.assertEqual(len(ask_module.select_evidence(hits, ['doc', 'other'])), 4)
+
 
 if __name__ == '__main__':
     unittest.main()

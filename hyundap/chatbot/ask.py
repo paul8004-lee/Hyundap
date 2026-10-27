@@ -31,7 +31,7 @@ def ask(question, filters, user):
     질문 검사 → 근거 받기·고르기 → 답변 생성 → 인용 검사 → 출처 → 반환 직전 재검증 → 화면용 정리."""
     question = validate_question(question)
     filters = ask_normalize_filters(filters)
-    hits = select_evidence(retrieve_evidence(question, filters, user))
+    hits = select_evidence(retrieve_evidence(question, filters, user), filters.document_ids)
     if not hits:
         return build_no_evidence_response(filters)
     aliases = cit.assign_aliases(hits)
@@ -100,10 +100,10 @@ def retrieve_evidence(question, filters, user):
         raise map_dependency_error(error, stage='retrieve') from error
 
 
-def select_evidence(hits):
+def select_evidence(hits, document_ids=None):
     """받는 것: ChunkHit 목록 / 돌려주는 것: 같은 청크는 하나만, 문서당·전체 개수를 줄인 목록 (점수 높은 순)"""
     best = select_evidence_dedupe(hits)
-    return select_evidence_limit(sorted(best, key=lambda h: h.score or 0, reverse=True))
+    return select_evidence_limit(sorted(best, key=lambda h: h.score or 0, reverse=True), document_ids)
 
 
 def select_evidence_dedupe(hits):
@@ -116,8 +116,10 @@ def select_evidence_dedupe(hits):
     return list(best.values())
 
 
-def select_evidence_limit(hits):
+def select_evidence_limit(hits, document_ids=None):
     """받는 것: 점수 높은 순 ChunkHit 목록 / 돌려주는 것: 문서당 MAX_PER_DOCUMENT(4)개, 전체 TOP_K(8)개까지"""
+    if document_ids and len(set(document_ids)) == 1:
+        return hits[:TOP_K]
     picked, per_document = [], {}
     for hit in hits:
         count = per_document.get(hit.document_id, 0)
