@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from hyundap.auth import session_columns
+from hyundap.db import legacy
 from hyundap.db.errors import DbError
 
 V3 = ('csrf_token_hash', 'created_at', 'last_seen_at', 'idle_expires_at', 'absolute_expires_at')
@@ -24,8 +25,7 @@ NOW_NS = 1_700_000_000_123_456_789
 def build(present, unit=None, ttl=480):
     """환경 단위와 현재 시각을 고정하고 INSERT SQL·인자를 만든다."""
     environ = {} if unit is None else {'DB_LEGACY_TIME_UNIT': unit}
-    with patch.dict(os.environ, environ), patch.object(session_columns.time, 'time_ns',
-                                                       return_value=NOW_NS):
+    with patch.dict(os.environ, environ), patch.object(legacy.time, 'time_ns', return_value=NOW_NS):
         if unit is None:
             os.environ.pop('DB_LEGACY_TIME_UNIT', None)
         return session_columns.build_session_insert(present, dict(BASE), ttl)
@@ -93,27 +93,43 @@ class BuildSessionInsertTests(unittest.TestCase):
         self.assertEqual(set(params), set(BASE) | {'ttl', 'created_at', 'last_seen_at'})
 
 
+class ReuseTests(unittest.TestCase):
+    """시간 값은 legacy.epoch_now()를 재사용한다(자체 시간 계산 없음)."""
+
+    def test_time_comes_from_legacy_epoch_now(self):
+        """legacy.epoch_now() 값을 기준으로 TTL을 더한다."""
+        with patch.object(session_columns.legacy, 'epoch_now', return_value=1000) as now:
+            _, params = session_columns.build_session_insert(set(V3), dict(BASE), 5)
+        now.assert_called_once_with()
+        self.assertEqual((params['created_at'], params['idle_expires_at']), (1000, 1000 + 5 * 60))
+
+    def test_milliseconds_ttl_scale_follows_unit(self):
+        """밀리초 단위면 TTL도 밀리초로 더한다."""
+        with patch.dict(os.environ, {'DB_LEGACY_TIME_UNIT': 'milliseconds'}), \
+                patch.object(session_columns.legacy, 'epoch_now', return_value=1000):
+            _, params = session_columns.build_session_insert(set(V3), dict(BASE), 5)
+        self.assertEqual(params['idle_expires_at'], 1000 + 5 * 60 * 1000)
+
+
 class PresentLegacyColumnsTests(unittest.TestCase):
-    """information_schema 결과에서 v3 세션 컬럼만 골라낸다."""
+    """runtime.get_table_columns() 결과에서 v3 세션 컬럼만 골라낸다."""
 
     def test_detects_only_known_v3_columns(self):
-        """같은 트랜잭션 연결로 조회하고 대소문자와 무관하게 알려진 컬럼만 반환한다."""
+        """호출자 연결로 구조 캐시를 조회하고 대소문자와 무관하게 알려진 컬럼만 반환한다."""
         connection = MagicMock()
-        connection.exec_driver_sql.return_value = [('id',), ('TOKEN_HASH',), ('csrf_token_hash',),
-                                                   ('Created_At',), ('revoke_reason',)]
-        present = session_columns.present_legacy_columns(connection)
+        columns = [{'name': name} for name in ('id', 'TOKEN_HASH', 'csrf_token_hash', 'Created_At',
+                                                'revoke_reason')]
+        with patch.object(session_columns, 'get_table_columns', return_value=columns) as lookup:
+            present = session_columns.present_legacy_columns(connection)
         self.assertEqual(present, {'csrf_token_hash', 'created_at'})
-        sql = connection.exec_driver_sql.call_args.args[0]
-        self.assertIn('information_schema.columns', sql)
-        self.assertIn("table_name='sessions'", sql)
-        self.assertIn('table_schema=DATABASE()', sql)
+        lookup.assert_called_once_with(connection, 'sessions')
 
     def test_v4_only_table_has_no_legacy_columns(self):
         """v4 컬럼만 있으면 빈 집합이다."""
-        connection = MagicMock()
-        connection.exec_driver_sql.return_value = [('id',), ('user_id',), ('token_hash',),
-                                                   ('auth_version',), ('expires_at',), ('revoked_at',)]
-        self.assertEqual(session_columns.present_legacy_columns(connection), set())
+        columns = [{'name': name} for name in ('id', 'user_id', 'token_hash', 'auth_version',
+                                                'expires_at', 'revoked_at')]
+        with patch.object(session_columns, 'get_table_columns', return_value=columns):
+            self.assertEqual(session_columns.present_legacy_columns(MagicMock()), set())
 
 
 if __name__ == '__main__':

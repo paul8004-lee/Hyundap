@@ -23,7 +23,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
-from hyundap.auth import session_service
+from hyundap.auth import session_columns, session_service
 from hyundap.auth.errors import AccessError
 from hyundap.auth.passwords import hash_password
 from hyundap.common import config
@@ -205,9 +205,9 @@ class OfflineLoginFailureTests(unittest.TestCase):
         database = MagicMock()
         database.execute.return_value.mappings.return_value.one_or_none.return_value = {
             'id': 'user-id', 'password_hash': hash_password(PASSWORD), 'auth_version': 1}
-        database.exec_driver_sql.return_value = []
         denied = patch.object(session_service, 'current_actor', side_effect=AccessError('ACCESS_DENIED'))
-        with fake_transaction(database), denied, \
+        v4_only = patch.object(session_columns, 'get_table_columns', return_value=[])
+        with fake_transaction(database), denied, v4_only, \
                 patch.object(hashlib, 'scrypt', side_effect=REAL_SCRYPT) as spy, \
                 self.assertRaises(AccessError) as caught:
             session_service.login(username='user@test.invalid', password=PASSWORD)
@@ -470,6 +470,8 @@ class DatabaseSessionTests(unittest.TestCase):
                   ADD CONSTRAINT sessions_ck_3 CHECK (created_at <= last_seen_at
                     AND last_seen_at <= idle_expires_at AND idle_expires_at <= absolute_expires_at)
             '''))
+        # 구조 캐시는 DDL을 모르므로 ALTER 전후로 비운다.
+        runtime.clear_schema_cache()
 
         def drop_v3_columns():
             with self.engine.begin() as database:
@@ -478,6 +480,7 @@ class DatabaseSessionTests(unittest.TestCase):
                     ALTER TABLE sessions DROP COLUMN csrf_token_hash, DROP COLUMN created_at,
                       DROP COLUMN last_seen_at, DROP COLUMN idle_expires_at, DROP COLUMN absolute_expires_at
                 '''))
+            runtime.clear_schema_cache()
         self.addCleanup(drop_v3_columns)
         _, email = make_user(self.engine, company_id=self.company)
         result = self.login(email)
