@@ -117,11 +117,15 @@ def select_evidence_dedupe(hits):
 
 
 def select_evidence_limit(hits):
-    """받는 것: 점수 높은 순 ChunkHit 목록 / 돌려주는 것: 문서당 MAX_PER_DOCUMENT(4)개, 전체 TOP_K(8)개까지"""
+    """받는 것: 점수 높은 순 ChunkHit 목록 / 돌려주는 것: 문서당 상한까지, 전체 TOP_K(8)개까지
+    문서당 상한은 근거에 나온 문서 수로 정한다: max(MAX_PER_DOCUMENT, TOP_K // 문서 수).
+    '선택 문서'처럼 문서 1개로 좁히면 8개까지 쓰고, 여러 문서면 지금처럼 문서당 4개다 (#182)."""
+    documents = len({hit.document_id for hit in hits}) or 1
+    cap = max(MAX_PER_DOCUMENT, TOP_K // documents)
     picked, per_document = [], {}
     for hit in hits:
         count = per_document.get(hit.document_id, 0)
-        if count < MAX_PER_DOCUMENT:
+        if count < cap:
             per_document[hit.document_id] = count + 1
             picked.append(hit)
     return picked[:TOP_K]
