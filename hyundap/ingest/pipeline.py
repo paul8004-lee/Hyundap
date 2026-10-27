@@ -36,6 +36,8 @@ def ingest_document(file_path, upload_info, find_by_hash=None):
     for key in HEADER_KEYS:
         if key not in upload_info:
             raise ValueError(f"upload_info에 {key} 가 없습니다")
+        if not isinstance(upload_info[key], str) or not upload_info[key].strip():
+            raise ValueError(f"upload_info의 {key} 값이 올바르지 않습니다")
 
     try:
         validate_upload(file_path, upload_info["company_id"], find_by_hash)
