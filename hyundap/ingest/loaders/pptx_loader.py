@@ -6,6 +6,7 @@
 함수:
     FUN-210 load_pptx — PPTX 슬라이드 텍스트·표를 공통 문서로 읽는다."""
 
+import zlib
 from zipfile import BadZipFile
 
 from lxml.etree import XMLSyntaxError
@@ -44,14 +45,18 @@ def load_pptx(file_path, upload_info):
     """PPTX 슬라이드를 차례로 읽어 슬라이드마다 섹션 1개로 만든다."""
     try:
         presentation = Presentation(file_path)
-    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError):   # 괄호 () 중 하나면 같은 처리를 한다.
+    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError, zlib.error):   # 괄호 () 중 하나면 같은 처리를 한다.
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))
     for number, slide in enumerate(presentation.slides, start=1):
         texts = collect_shape_texts(slide.shapes)
         if len(texts) == 0:
-            doc.warnings.append(f"슬라이드 {number}: 글자가 없어 건너뜀")
+            # 발표자 노트는 읽지 않는다(명세). 노트에만 글자가 있으면 그 사실을 경고에 구분해 남긴다.
+            notes_frame = slide.notes_slide.notes_text_frame if slide.has_notes_slide else None
+            has_notes_text = notes_frame is not None and notes_frame.text.strip() != ""
+            reason = "본문 글자가 없어 건너뜀(발표자 노트에만 글자가 있음, 노트는 제외)" if has_notes_text else "글자가 없어 건너뜀"
+            doc.warnings.append(f"슬라이드 {number}: {reason}")
             continue
         doc.sections.append(
             Section(
