@@ -16,10 +16,10 @@ def list_document_versions(actor, document_id, *, connection=None):
     """
     with transaction(connection) as database:
         current = current_actor(actor, connection=database)
-        allowed = allowed_companies(current, connection=database)
-        company = database.execute(text('SELECT company_id FROM documents WHERE id=:id'),
-                                   {'id': require_id(document_id)}).scalar_one_or_none()
-        if current['role'] not in ('platform_admin', 'company_admin') or company not in allowed:
+        allowed_company_ids = allowed_companies(current, connection=database)
+        document_company_id = database.execute(text('SELECT company_id FROM documents WHERE id=:id'),
+                                               {'id': require_id(document_id)}).scalar_one_or_none()
+        if current['role'] not in ('platform_admin', 'company_admin') or document_company_id not in allowed_company_ids:
             raise AccessError('ACCESS_DENIED')
         return [dict(row) for row in database.execute(text('''
             SELECT id AS version_id,document_id,version_no,file_name,file_size,version_status,
@@ -39,11 +39,11 @@ def mark_failed(version_id, *, connection=None):
                                        {'id': require_id(version_id)}).scalar_one_or_none()
         if document_id is None:
             raise DbError('INVALID_STATE')
-        active = database.execute(text('SELECT active_version_id FROM documents WHERE id=:id FOR UPDATE'),
-                                  {'id': document_id}).scalar_one_or_none()
-        status = database.execute(text('SELECT version_status FROM document_versions WHERE id=:id FOR UPDATE'),
-                                  {'id': version_id}).scalar_one_or_none()
-        if active == version_id or status not in ('processing', 'failed'):
+        active_version_id = database.execute(text('SELECT active_version_id FROM documents WHERE id=:id FOR UPDATE'),
+                                             {'id': document_id}).scalar_one_or_none()
+        version_status = database.execute(text('SELECT version_status FROM document_versions WHERE id=:id FOR UPDATE'),
+                                          {'id': version_id}).scalar_one_or_none()
+        if active_version_id == version_id or version_status not in ('processing', 'failed'):
             raise DbError('INVALID_STATE')
         database.execute(text("UPDATE document_versions SET version_status='failed' WHERE id=:id"),
                          {'id': version_id})

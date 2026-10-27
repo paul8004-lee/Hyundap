@@ -77,10 +77,10 @@ def validate_metadata(metadata):
     """
     if not isinstance(metadata, dict):
         raise DbError('INVALID_INPUT')
-    fields = ('company_id', 'file_name', 'storage_path', 'sha256', 'file_size', 'data_category')
-    if not set(fields) <= metadata.keys():
+    required_fields = ('company_id', 'file_name', 'storage_path', 'sha256', 'file_size', 'data_category')
+    if not set(required_fields) <= metadata.keys():
         raise DbError('INVALID_INPUT')
-    result = {name: metadata[name] for name in fields}
+    result = {name: metadata[name] for name in required_fields}
     result['doc_type'] = metadata.get('doc_type', DEFAULT_DOC_TYPE)
     require_id(result['company_id'])
     require_hash(result['sha256'])
@@ -88,12 +88,12 @@ def validate_metadata(metadata):
         raise DbError('INVALID_INPUT')
     if result['data_category'] not in ('operational', 'evaluation'):
         raise DbError('INVALID_INPUT')
-    for name, limit in (('file_name', 255), ('storage_path', 1024)):
-        value = result[name]
-        if not isinstance(value, str) or not value.strip() or len(value) > limit or '\x00' in value:
+    for field_name, max_length in (('file_name', 255), ('storage_path', 1024)):
+        value = result[field_name]
+        if not isinstance(value, str) or not value.strip() or len(value) > max_length or '\x00' in value:
             raise DbError('INVALID_INPUT')
-    size = result['file_size']
-    if type(size) is not int or not 1 <= size <= 104857600:
+    file_size = result['file_size']
+    if type(file_size) is not int or not 1 <= file_size <= 104857600:
         raise DbError('INVALID_INPUT')
     if metadata.get('document_id') is not None:
         result['document_id'] = require_id(metadata['document_id'])
@@ -150,10 +150,8 @@ def _prepare_document(database, data):
     기존 문서는 회사·상태·유형이 맞아야 한다. 문서 잠금은 버전 번호를 저장할 때까지
     호출자의 트랜잭션에서 유지하므로 같은 문서에 버전 번호가 중복되지 않는다.
     """
-    document_id = data.get('document_id')
-    if not document_id:
-        document_id = str(uuid4())
     if 'document_id' in data:
+        document_id = data['document_id'] or str(uuid4())
         document = database.execute(text('''
             SELECT company_id,doc_type,deleted_at,publication_status FROM documents
             WHERE id=:id FOR UPDATE
@@ -165,6 +163,7 @@ def _prepare_document(database, data):
         if document['doc_type'] != data['doc_type']:
             raise DbError('INVALID_INPUT')
     else:
+        document_id = str(uuid4())
         database.execute(text('''
             INSERT INTO documents (id,company_id,doc_type,uploaded_by)
             VALUES (:id,:company_id,:doc_type,:uploaded_by)

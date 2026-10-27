@@ -228,6 +228,7 @@ def _merge_stage_reports(stored_report, clean):
     다른 단계 기록은 보존한다. 이미 성공한 단계는 같은 결과만 다시 받을 수 있다.
     이 함수는 메모리의 보고서만 갱신하며 DB 저장은 하지 않는다.
     """
+    # DB에서 읽은 JSON 문자열은 파싱하고, dict는 원본을 바꾸지 않도록 복사한다.
     if isinstance(stored_report, str):
         reports = json.loads(stored_report)
     elif stored_report:
@@ -236,8 +237,9 @@ def _merge_stage_reports(stored_report, clean):
         reports = {}
     if not isinstance(reports, dict):
         raise DbError('INVALID_STATE')
-    previous = reports.get(clean['stage'])
-    if previous and previous.get('status') == 'success' and previous != clean:
+    previous_stage_report = reports.get(clean['stage'])
+    if (previous_stage_report and previous_stage_report.get('status') == 'success'
+            and previous_stage_report != clean):
         raise DbError('CONFLICT')
     reports[clean['stage']] = clean
     return reports

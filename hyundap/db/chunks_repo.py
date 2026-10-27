@@ -48,22 +48,24 @@ def _normalize_manifest(version_id, chunks):
     if not isinstance(chunks, list) or not 1 <= len(chunks) <= 100000:
         raise DbError('INVALID_INPUT')
     normalized = []
+    # 각 항목의 필수 값과 버전에 속한 청크 ID를 확인한다.
     for chunk in chunks:
         if not isinstance(chunk, dict):
             raise DbError('INVALID_INPUT')
         for field in ('id', 'chunk_index', 'content_hash'):
             if field not in chunk:
                 raise DbError('INVALID_INPUT')
-        index = chunk['chunk_index']
-        if type(index) is not int:
+        chunk_index = chunk['chunk_index']
+        if type(chunk_index) is not int:
             raise DbError('INVALID_INPUT')
-        if not 0 <= index < 100000:
+        if not 0 <= chunk_index < 100000:
             raise DbError('INVALID_INPUT')
-        expected_id = f'{version_id}:{index:05d}'
+        expected_id = f'{version_id}:{chunk_index:05d}'
         if chunk['id'] != expected_id:
             raise DbError('INVALID_INPUT')
-        normalized.append({'id': chunk['id'], 'chunk_index': index,
+        normalized.append({'id': chunk['id'], 'chunk_index': chunk_index,
                            'content_hash': require_hash(chunk['content_hash'])})
+    # 입력 순서와 관계없이 정렬한 뒤 순번의 누락과 중복을 검사한다.
     normalized.sort(key=_chunk_index)
     for expected_index, chunk in enumerate(normalized):
         if chunk['chunk_index'] != expected_index:

@@ -26,12 +26,14 @@ PENDING_PHASES = ('pending_activation', 'restore_pending')
 def get_embedding_backend(embedding=None):
     """벡터 처리 함수 5개를 이름으로 찾을 수 있는 dict로 반환한다.
 
+    필요한 이름은 embed_and_store, get_version_chunk_ids, get_document_chunks,
+    activate_version, delete_vectors다. 모두 호출 가능한 함수여야 한다.
     입력이 없으면 팀 모듈을 연결한다. 테스트용 객체나 함수 dict도 받을 수 있다.
     getattr는 객체에서 이름에 해당하는 함수를 읽으며, 함수가 없으면 None을 준다.
     준비되지 않은 함수는 아래 반복문에서 미준비 오류로 거부한다.
     """
-    names = ('embed_and_store', 'get_version_chunk_ids', 'get_document_chunks',
-             'activate_version', 'delete_vectors')
+    required_names = ('embed_and_store', 'get_version_chunk_ids', 'get_document_chunks',
+                      'activate_version', 'delete_vectors')
     if embedding is None:
         from hyundap.embedding import embedder, vector_store
         backend = {
@@ -46,9 +48,9 @@ def get_embedding_backend(embedding=None):
     else:
         # 기존 테스트 객체도 계속 사용할 수 있도록 메서드를 함수 dict로 옮긴다.
         backend = {}
-        for name in names:
+        for name in required_names:
             backend[name] = getattr(embedding, name, None)
-    for name in names:
+    for name in required_names:
         function = backend.get(name)
         if not callable(function):
             raise DbError('INTEGRATION_UNAVAILABLE')
@@ -89,8 +91,11 @@ def read_candidate(database, document_id, version_id, *, lock=False):
                                 {'id': require_id(document_id)}).mappings().one_or_none()
     version = database.execute(text('SELECT * FROM document_versions WHERE id=:id' + suffix),
                                {'id': require_id(version_id)}).mappings().one_or_none()
-    if (not document or not version or version['document_id'] != document_id
-            or version['company_id'] != document['company_id']):
+    if not document or not version:
+        raise DbError('INVALID_STATE')
+    if version['document_id'] != document_id:
+        raise DbError('INVALID_STATE')
+    if version['company_id'] != document['company_id']:
         raise DbError('INVALID_STATE')
     return dict(document), dict(version)
 
@@ -161,16 +166,16 @@ def compare_stored_chunks(identity, version, manifest, seal, ids, hits):
     바뀌지 않았는지 다시 확인할 때 사용하므로 결과에 그대로 포함한다.
     """
     comparison = collect_chunk_comparison(identity, manifest, ids, hits)
-    count = version['expected_chunk_count']
-    counts_match = (count == len(manifest) == len(ids) == len(comparison['actual_ids'])
+    expected_count = version['expected_chunk_count']
+    counts_match = (expected_count == len(manifest) == len(ids) == len(comparison['actual_ids'])
                     == len(hits) == len(comparison['seen_ids']))
-    indexes_match = comparison['indexes'] == list(range(count))
-    contents_match = (comparison['seen_ids'] == comparison['actual_ids']
-                      and not comparison['missing_ids'] and not comparison['unexpected_ids']
-                      and not comparison['invalid_ids'])
-    version_is_ready = version['version_status'] in ('processing', 'ready') and count > 0
+    indexes_match = comparison['indexes'] == list(range(expected_count))
+    ids_match = comparison['seen_ids'] == comparison['actual_ids']
+    no_missing_or_extra = not comparison['missing_ids'] and not comparison['unexpected_ids']
+    contents_match = ids_match and no_missing_or_extra and not comparison['invalid_ids']
+    version_is_ready = version['version_status'] in ('processing', 'ready') and expected_count > 0
     ok = version_is_ready and counts_match and indexes_match and contents_match
-    return {'ok': bool(ok), 'expected_count': count, 'actual_count': len(ids),
+    return {'ok': bool(ok), 'expected_count': expected_count, 'actual_count': len(ids),
             'missing_ids': comparison['missing_ids'], 'unexpected_ids': comparison['unexpected_ids'],
             'invalid_ids': comparison['invalid_ids'], '_seal': seal}
 
@@ -188,17 +193,18 @@ def collect_chunk_comparison(identity, manifest, ids, hits):
         if not isinstance(identifier, str):
             raise DbError('INVALID_INPUT')
 
-    expected = {}
-    indexes = []
+    expected_chunks_by_id = {}
+    chunk_indexes = []
     for row in manifest:
-        expected[row['id']] = row
-        indexes.append(row['chunk_index'])
-    actual = set(ids)
-    seen, invalid = inspect_chunk_contents(identity, expected, hits)
+        expected_chunks_by_id[row['id']] = row
+        chunk_indexes.append(row['chunk_index'])
+    actual_chunk_ids = set(ids)
+    seen_chunk_ids, invalid_chunk_ids = inspect_chunk_contents(identity, expected_chunks_by_id, hits)
     return {
-        'indexes': indexes, 'actual_ids': actual, 'seen_ids': seen,
-        'missing_ids': sorted(expected.keys() - actual),
-        'unexpected_ids': sorted(actual - expected.keys()), 'invalid_ids': invalid,
+        'indexes': chunk_indexes, 'actual_ids': actual_chunk_ids, 'seen_ids': seen_chunk_ids,
+        'missing_ids': sorted(expected_chunks_by_id.keys() - actual_chunk_ids),
+        'unexpected_ids': sorted(actual_chunk_ids - expected_chunks_by_id.keys()),
+        'invalid_ids': invalid_chunk_ids,
     }
 
 
@@ -240,8 +246,14 @@ def write_publication(database, job, reports, publication, *, complete=False, er
     """복구에 필요한 이전 포인터·공개 상태·단계를 작업 JSON에 원자적으로 저장한다."""
     reports['_publication'] = publication
     phase = publication['phase']
-    status = ('SUCCEEDED' if complete else 'FAILED' if phase in ('restored', 'superseded')
-              else 'QUEUED' if phase in ('pending_activation', 'restore_pending') else None)
+    if complete:
+        status = 'SUCCEEDED'
+    elif phase in ('restored', 'superseded'):
+        status = 'FAILED'
+    elif phase in ('pending_activation', 'restore_pending'):
+        status = 'QUEUED'
+    else:
+        status = None
     jobs_repo.store_job_result(database, job['id'], 'complete' if complete else 'publish', reports,
         status=status, error_code=error_code, error_message='게시 상태 복구 필요' if error_code else None)
 
@@ -502,19 +514,23 @@ def prepare_recovery(document_id, version_id):
         if phase not in PENDING_PHASES:
             return {'phase': phase or 'not_pending'}
         previous_id = publication.get('previous_active_id')
-        eligible, previous_count = check_previous_version(database, document, document_id, previous_id)
+        previous_is_eligible, previous_count = check_previous_version(
+            database, document, document_id, previous_id)
+        # 다른 게시가 포인터를 변경했다면 그 값을 덮어쓰지 않는다.
         allowed_pointers = (version_id, previous_id, publication.get('restore_target_id'))
         if document['active_version_id'] not in allowed_pointers:
             publication['phase'] = 'superseded'
             write_publication(database, job, reports, publication, error_code='CONFLICT')
             return {'phase': 'superseded'}
 
-        target = restore_database_pointer(
+        restore_target_id = restore_database_pointer(
             database=database, document=document, version_id=version_id,
-            publication=publication, eligible=eligible,
+            publication=publication, eligible=previous_is_eligible,
         )
 
-        restore_previous = eligible and previous_id is not None and target == previous_id
+        restore_previous = (previous_is_eligible and previous_id is not None
+                            and restore_target_id == previous_id)
+        # DB 복구 대상과 외부 복구 대기 상태를 같은 트랜잭션에서 저장한다.
         publication['phase'] = 'restore_pending'
         write_publication(database, job, reports, publication, error_code='RECOVERY_REQUIRED')
     return {'phase': 'restore_pending', 'previous_id': previous_id,
@@ -528,20 +544,21 @@ def restore_database_pointer(*, database, document, version_id, publication, eli
     문서를 blocked로 둔다. publication dict에는 None도 복구 대상으로 기록한다.
     작업 기록 저장은 호출자가 맡으며, 같은 트랜잭션에서 함께 확정된다.
     """
-    target = document['active_version_id']
-    if target != version_id:
-        return target
+    current_active_id = document['active_version_id']
+    if current_active_id != version_id:
+        return current_active_id
     if eligible:
-        target = publication.get('previous_active_id')
-        status = publication['previous_publication_status']
+        restore_target_id = publication.get('previous_active_id')
+        restore_status = publication['previous_publication_status']
     else:
-        target = None
-        status = 'blocked'
+        restore_target_id = None
+        restore_status = 'blocked'
     database.execute(text('''
         UPDATE documents SET active_version_id=:previous,publication_status=:status WHERE id=:id
-    '''), {'previous': target, 'status': status, 'id': document['id']})
-    publication['restore_target_id'] = target
-    return target
+    '''), {'previous': restore_target_id, 'status': restore_status, 'id': document['id']})
+    # 호출자가 이 사전을 같은 트랜잭션에서 작업 기록에 저장한다.
+    publication['restore_target_id'] = restore_target_id
+    return restore_target_id
 
 
 def restore_vectors(backend, document_id, version_id, recovery):
