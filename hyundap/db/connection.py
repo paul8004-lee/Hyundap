@@ -19,18 +19,22 @@ def create_db_engine() -> Engine:
     PyMySQL, UTF-8, UTC 시간대, 엄격한 SQL 모드로 연결하도록 설정한다.
     설정 누락·잘못된 URL은 비밀값 없는 ValueError로 알린다.
     Engine 생성만으로 DB에 접속하지 않으며 사용 후 호출자가 dispose()해야 한다."""
+    # 환경변수와 로컬 설정을 읽고 실제 연결 전에 MySQL URL을 검사한다.
     load_dotenv(Path(__file__).resolve().parents[2] / '.env', override=False)
     value = os.environ.get('DATABASE_URL', '').strip()
     if not value:
         raise ValueError('Set DATABASE_URL in your local .env or process environment')
     try:
+        # URL의 드라이버, 호스트, 계정, 비밀번호, DB 이름과 포트를 검사한다.
         url = make_url(value)
+        # URL 파싱이 성공해도 필요한 값이 비었거나 포트가 범위 밖이면 사용하지 않는다.
         if (url.drivername not in ('mysql', 'mysql+pymysql') or not url.host
                 or not url.username or not url.password or not url.database
                 or (url.port is not None and not 0 < url.port < 65536)):
             raise ValueError
     except (ArgumentError, ValueError, TypeError):
         raise ValueError('DATABASE_URL must be a valid MySQL URL; check URL-encoded credentials') from None
+    # 연결 풀, 타임아웃, UTF-8, UTC와 엄격한 SQL 모드를 설정한다.
     return create_engine(
         url.set(drivername='mysql+pymysql'),
         pool_pre_ping=True,
@@ -54,6 +58,7 @@ def main() -> int:
     최종 v4 물리 계약을 검증한 뒤에만 성공으로 판정한다.
     표준 출력에 접속 URL·DB 예외 원문을 노출하지 않고 성공 시 0, 실패 시 1을 반환한다.
     생성한 Engine은 성공·실패와 관계없이 닫으며 스키마 변경은 실행하지 않는다."""
+    # 생성한 엔진은 finally에서 정리하고 오류 출력에 접속 정보를 넣지 않는다.
     engine = None
     try:
         engine = create_db_engine()

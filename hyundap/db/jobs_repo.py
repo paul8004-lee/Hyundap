@@ -23,6 +23,7 @@ def normalize_report(report):
     기본 정보 → 처리 수치 → 실패 상세 순서로 검사한다. 입력은 수정하지 않는다.
     원문·토큰·예외 메시지는 복사하지 않으며 잘못된 값은 INVALID_INPUT으로 거부한다.
     """
+    # 원본 보고서를 바꾸지 않고 저장이 허용된 값만 새 사전에 모은다.
     report = _report_dict(report)
     clean = _report_identity(report)
     clean.update(_report_metrics(report))
@@ -38,6 +39,7 @@ def normalize_report(report):
 
 def _report_dict(report):
     """dict 또는 dataclass 입력을 dict로 반환하고 나머지 자료형은 거부한다."""
+    # dataclass는 사전으로 변환하고 나머지는 사전인지 확인한다.
     if is_dataclass(report) and not isinstance(report, type):
         report = asdict(report)
     if not isinstance(report, dict):
@@ -47,6 +49,8 @@ def _report_dict(report):
 
 def _report_identity(report):
     """보고서 dict에서 단계·상태·문서 식별자를 검사해 새 dict로 반환한다."""
+    # 단계와 상태를 먼저 확인한 뒤 포함된 식별자를 검증한다.
+    # 단계가 없으면 기본값을 사용하며 모델명이 있으면 embedding으로 본다.
     default_stage = 'ingest'
     if 'model_name' in report:
         default_stage = 'embedding'
@@ -55,6 +59,8 @@ def _report_identity(report):
     if stage not in STAGES or status not in ('success', 'partial', 'failed'):
         raise DbError('INVALID_INPUT')
     clean = {'stage': stage, 'status': status}
+    # 문서·버전·회사 ID를 하나씩 살펴본다. 없는 필드는 생략하고 있는 ID만 검사한다.
+    # 예: document_id만 들어오면 그 값만 clean에 추가한다.
     for field in ('document_id', 'version_id', 'company_id'):
         if field in report:
             clean[field] = require_id(report[field])
@@ -63,10 +69,14 @@ def _report_identity(report):
 
 def _report_metrics(report):
     """보고서 dict에서 개수·모델명·소요 시간을 검사해 새 dict로 반환한다."""
+    # 개수, 모델명, 시간은 각 필드에 허용된 형식과 범위를 검사한다.
     clean = {}
+    # total, embedded 등 개수 필드를 순회한다. 보고서에 있는 필드만 확인한다.
+    # 이번 반복의 value는 현재 field의 값이며, 앞선 ID 반복과 별개다.
     for field in COUNT_FIELDS:
         if field in report:
             value = report[field]
+            # bool을 개수로 받지 않도록 정확한 int 타입과 음수 여부를 확인한다.
             if type(value) is not int or value < 0:
                 raise DbError('INVALID_INPUT')
             clean[field] = value
@@ -86,6 +96,7 @@ def _report_metrics(report):
 
 def _ingest_metrics(report, stage):
     """수집 전용 필드의 타입·범위를 검사한다. 경고 원문은 읽거나 저장하지 않는다."""
+    # 수집 전용 필드가 다른 단계에 섞이지 않도록 먼저 검사한다.
     fields = ('parser', 'parser_version') + INGEST_COUNT_FIELDS
     if any(field in report for field in fields) and stage != 'ingest':
         raise DbError('INVALID_INPUT')
@@ -100,12 +111,17 @@ def _ingest_metrics(report, stage):
         if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+\-]{0,63}', value):
             raise DbError('INVALID_INPUT')
         clean['parser_version'] = value
+    # chunk_size, chunk_count 등 수집 단계 전용 숫자를 하나씩 검사한다.
+    # 현재 필드가 chunk_size일 때만 최소값 1을 적용하고 나머지는 0을 허용한다.
     for field in INGEST_COUNT_FIELDS:
         if field in report:
             value = report[field]
-            if type(value) is not int or value < (1 if field == 'chunk_size' else 0):
+            # chunk_size는 최소 1이고 다른 수집 개수는 0부터 허용한다.
+            minimum = 1 if field == 'chunk_size' else 0
+            if type(value) is not int or value < minimum:
                 raise DbError('INVALID_INPUT')
             clean[field] = value
+    # 두 값이 있으면 겹침 길이는 청크 크기보다 작아야 한다.
     if 'chunk_size' in clean and 'chunk_overlap' in clean:
         if clean['chunk_overlap'] >= clean['chunk_size']:
             raise DbError('INVALID_INPUT')
@@ -117,6 +133,7 @@ def _ingest_metrics(report, stage):
 
 def _report_failures(report):
     """보고서 dict에서 안전한 오류 코드와 실패 목록만 새 dict로 반환한다."""
+    # 오류 코드와 실패 항목을 검증하고 안전한 정보만 남긴다.
     clean = {}
     code = report.get('error_code')
     if code is not None:
@@ -128,6 +145,8 @@ def _report_failures(report):
         raise DbError('INVALID_INPUT')
     clean['failure_count'] = len(failures)
     clean['failures'] = []
+    # 실패 목록의 각 항목을 _failure_detail에 넘긴다.
+    # 원본 항목 전체가 아니라 검사된 코드·청크 ID·재시도 여부만 저장한다.
     for failure in failures:
         clean['failures'].append(_failure_detail(failure))
     return clean
@@ -135,6 +154,7 @@ def _report_failures(report):
 
 def _failure_detail(failure):
     """실패 항목 하나에서 코드·청크 ID·재시도 여부만 새 dict로 반환한다."""
+    # 실패 항목에서는 허용한 코드, 청크 ID, 재시도 여부만 가져온다.
     failure = _report_dict(failure)
     failure_code = failure.get('code', failure.get('error_code'))
     if not isinstance(failure_code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', failure_code):
@@ -214,6 +234,9 @@ def _check_stage_result(job, identity, clean):
     식별자 생략은 허용한다. 값을 전달했다면 DB와 같아야 하며, 이미 진행한 단계보다
     앞선 단계의 결과는 늦게 도착한 기록이므로 거부한다. DB를 변경하지 않는다.
     """
+    # 보고서의 식별자와 단계가 현재 작업과 일치하는지 확인한다.
+    # identity의 각 ID 이름과 DB에서 읽은 값을 한 쌍씩 확인한다.
+    # 보고서에 해당 ID가 없으면 건너뛰고, 있으면 DB 값과 같은지 비교한다.
     for key, expected_value in identity.items():
         if key in clean and clean[key] != expected_value:
             raise DbError('INVALID_INPUT')
@@ -240,6 +263,7 @@ def _merge_stage_reports(stored_report, clean):
         reports = {}
     if not isinstance(reports, dict):
         raise DbError('INVALID_STATE')
+    # 이미 성공한 단계의 내용이 달라지는 재기록은 충돌로 처리한다.
     previous_stage_report = reports.get(clean['stage'])
     if (previous_stage_report and previous_stage_report.get('status') == 'success'
             and previous_stage_report != clean):
@@ -253,6 +277,7 @@ def _store_stage_result(database, job_id, clean, reports):
 
     호출자가 넘긴 같은 트랜잭션에서만 갱신한다. 예외 원문은 오류 문구에 넣지 않는다.
     """
+    # 안전한 오류 코드와 단계 상태를 작업 저장 형식으로 바꾼다.
     code = clean.get('error_code')
     message = None
     if code:
@@ -273,6 +298,7 @@ def store_job_result(database, job_id, stage, report, *, status=None,
     내부 서비스 전용 보조 함수이며 상태 전이 권한은 호출자가 검사한다.
     status 생략은 현재 상태·종료 시간을 보존한다. 직접 커밋하지 않는다.
     """
+    # status가 생략되면 SQL의 COALESCE가 기존 작업 상태를 보존한다.
     if status not in (None, 'QUEUED', 'SUCCEEDED', 'FAILED', 'CANCELLED') or stage not in STAGES:
         raise DbError('INVALID_INPUT')
     database.execute(text('''
@@ -291,6 +317,7 @@ def reset_job_for_retry(database, job_id, report):
     다른 활성 작업과 UNIQUE 충돌하면 버전 변경까지 호출자의 TX에서 취소된다.
     시도 이력은 호출자가 만든 report에 보존하고 attempts만 한 번 증가시킨다.
     """
+    # 기존 시도 횟수를 한 번 올리고 종료 상태와 오류 정보를 비운다.
     database.execute(text('''
         UPDATE index_jobs SET status='QUEUED',stage='received',attempts=attempts+1,
             report=:report,error_code=NULL,error_message=NULL,started_at=NULL,

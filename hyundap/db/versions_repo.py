@@ -14,8 +14,10 @@ def list_document_versions(actor, document_id, *, connection=None):
 
     일반 직원에게 비공개·과거 버전 관리 이력을 공개하지 않는다. 검색 정보 조회는 별도다.
     """
+    # 현재 세션과 접근 가능한 회사 목록을 확인한 뒤 버전 이력을 조회한다.
     with transaction(connection) as database:
         current = current_actor(actor, connection=database)
+        # 조회 가능한 회사 범위를 가져와 대상 문서 회사와 비교한다.
         allowed_company_ids = allowed_companies(current, connection=database)
         document_company_id = database.execute(text('SELECT company_id FROM documents WHERE id=:id'),
                                                {'id': require_id(document_id)}).scalar_one_or_none()
@@ -34,6 +36,7 @@ def mark_failed(version_id, *, connection=None):
     게시 흐름과 동일하게 문서→버전 순서로 잠근다. 상세 실패 사유는 jobs_repo가 기록한다.
     이미 실패한 후보의 재호출은 성공으로 처리한다.
     """
+    # 문서와 버전을 순서대로 잠가 현재 활성 버전이 실패 처리되지 않게 한다.
     with transaction(connection) as database:
         document_id = database.execute(text('SELECT document_id FROM document_versions WHERE id=:id'),
                                        {'id': require_id(version_id)}).scalar_one_or_none()
@@ -43,6 +46,7 @@ def mark_failed(version_id, *, connection=None):
                                              {'id': document_id}).scalar_one_or_none()
         version_status = database.execute(text('SELECT version_status FROM document_versions WHERE id=:id FOR UPDATE'),
                                           {'id': version_id}).scalar_one_or_none()
+        # 활성 버전이나 허용된 상태가 아닌 버전은 변경하지 않는다.
         if active_version_id == version_id or version_status not in ('processing', 'failed'):
             raise DbError('INVALID_STATE')
         database.execute(text("UPDATE document_versions SET version_status='failed' WHERE id=:id"),
