@@ -20,6 +20,7 @@ langchain-openai==1.7.2
 openai==3.37.0
 tiktoken==0.14.0
 chromadb==1.5.9
+langchain-chroma==1.1.0
 
 # common/ (이성민), db/·auth/ (전재경)
 python-dotenv==1.2.4
