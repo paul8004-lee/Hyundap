@@ -9,6 +9,7 @@ from __future__ import annotations
 from importlib import import_module
 
 from .backend_documents import get_document, upload_document
+from .backend_companies import list_company_names
 from .backend_feedback import to_feedback
 from .services import BackendBindings, UIServiceError
 
@@ -93,4 +94,5 @@ def create_bindings(authentication=None) -> BackendBindings:
         user_factory=validated_session_to_actor,
         to_feedback=to_feedback,
         temporary_auth=temporary_auth,
+        company_names=None if temporary_auth else list_company_names,
     )

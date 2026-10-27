@@ -18,9 +18,8 @@ from typing import Any
 
 import gradio as gr
 
+from .services import DOC_TYPES, MAX_UPLOAD_BYTES, ALLOWED_EXTENSIONS
 
-MAX_UPLOAD_BYTES = 104_857_600
-ALLOWED_EXTENSIONS = (".pdf", ".docx", ".pptx")
 
 ADMIN_CSS = """
 #hd-upload-page { max-width: 760px; margin: 30px auto 72px; gap: 20px; }
@@ -64,6 +63,8 @@ _STAGE_LABELS = {
     "validate": "파일 확인", "extract": "내용 추출",
     "normalize": "내용 정리", "chunk": "내용 분할",
     "embed": "검색 데이터 생성", "store": "저장", "publish": "공개 준비",
+    "received": "접수", "ingest": "내용 추출·정리", "embedding": "검색 데이터 생성",
+    "verify": "등록 결과 확인", "complete": "처리 완료",
 }
 
 
@@ -95,10 +96,13 @@ def render_upload_result(result: Any) -> str:
     rows: list[tuple[str, str]] = []
     for label, key in (("파일명", "file_name"), ("회사", "company_name"), ("문서 유형", "doc_type")):
         if data.get(key) is not None:
-            rows.append((label, str(data[key])))
+            value = str(data[key])
+            if key == "doc_type":
+                value = {code: name for name, code in DOC_TYPES}.get(value, "문서 유형 확인 필요")
+            rows.append((label, value))
     stage = data.get("stage") or data.get("step")
     if stage:
-        rows.append(("진행 단계", _STAGE_LABELS.get(str(stage), str(stage))))
+        rows.append(("진행 단계", _STAGE_LABELS.get(str(stage), "진행 상태 확인 필요")))
     searchable = data.get("searchable")
     if searchable is True:
         rows.append(("검색 상태", "검색 가능"))
@@ -167,7 +171,8 @@ def build_admin_page(
                 )
             file = gr.File(
                 label="업로드할 파일", type="filepath", file_count="single",
-                file_types=list(ALLOWED_EXTENSIONS),
+                # 형식은 선택 직후와 제출 시 공통 검증한다. Gradio의 영문 선행 오류를 피한다.
+                file_types=None,
                 elem_id="hd-upload-file",
             )
             gr.HTML(
@@ -180,11 +185,11 @@ def build_admin_page(
                     '<div class="hd-upload-demo">화면 확인용 모드입니다. 선택한 파일로 입력 검증과 예시 결과를 확인할 수 있으며, 실제 문서로 등록되지는 않아요.</div>'
                 )
             submit = gr.Button(
-                "문서 등록", variant="primary", elem_id="hd-upload-submit",
+                "문서 등록", variant="primary", interactive=False, elem_id="hd-upload-submit",
                 elem_classes=["hd-button"],
             )
-            feedback = gr.HTML("", elem_classes=["hd-feedback"])
-        result = gr.HTML("")
+            feedback = gr.HTML("", elem_id="hd-upload-feedback", elem_classes=["hd-feedback"])
+        result = gr.HTML("", elem_id="hd-upload-result")
     return {
         "container": container, "company": company, "doc_type": doc_type,
         "file": file, "submit": submit, "feedback": feedback, "result": result,

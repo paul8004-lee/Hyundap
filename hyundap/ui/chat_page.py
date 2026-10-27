@@ -16,7 +16,7 @@ from html import escape
 import re
 from typing import Any
 
-from .services import DOC_TYPES
+from .services import DOC_TYPES, UIServiceError
 
 
 CHAT_CSS = """
@@ -26,6 +26,7 @@ CHAT_CSS = """
 .hd-citation-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; color: #667389; font-size: 12px; line-height: 20px; margin-top: 6px; }
 .hd-citation blockquote { margin: 12px 0 0; padding: 0 0 0 12px; border-left: 3px solid #bdcde1; color: #39465a; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
 .hd-citation-empty { font-size: 13px; line-height: 21px; color: #667389; margin: 0; }
+.hd-citation-list { display: grid; gap: 12px; }
 """
 
 
@@ -43,8 +44,8 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 def render_answer(response: Any) -> str:
     """B13: preserve the backend answer and its citation numbering exactly.
 
-    This text goes into gr.Markdown(sanitize_html=True); it is never inserted into
-    gr.HTML. Citation choices are built from the same response by app.py.
+    render_compact_answer가 이 문자열을 짧게 가공하고 HTML 이스케이프한다.
+    출처 메타정보는 같은 응답에서 controller가 기존 상세·모달에 연결한다.
     """
     if not response:
         return ""
@@ -57,6 +58,39 @@ def render_answer(response: Any) -> str:
     if str(data.get("status", "")).upper() == "NO_EVIDENCE":
         return str(data.get("message") or "이 질문에 답할 근거를 찾지 못했어요. 질문이나 검색 범위를 바꿔 주세요.")
     return ""
+
+
+def checked_answer_citations(response: Any) -> list[dict]:
+    """#188: 표시 전에 답변의 고유 인용 번호와 실제 출처를 대조한다.
+
+    반복 인용은 허용한다. 누락된 출처를 추측하거나 번호를 다시 매기지
+    않는다. 짧은 답변에서 번호를 숨기더라도 원본 응답을 먼저 검사한다.
+    """
+    data = _mapping(response)
+    if str(data.get("status", "")).upper() != "ANSWERED":
+        return []
+    answer, citations = data.get("answer"), data.get("citations")
+    invalid = UIServiceError(
+        "INVALID_CITATION",
+        "답변과 출처 정보가 일치하지 않아 답변을 표시하지 못했어요. 다시 검색해 주세요.",
+        "failed",
+    )
+    if not isinstance(answer, str) or not isinstance(citations, list) or not citations:
+        raise invalid
+    sources, numbers = [], set()
+    for citation in citations:
+        source = dict(_mapping(citation))
+        number = source.get("number")
+        if (type(number) is not int or number < 1 or number in numbers
+                or not source.get("document_id") or not source.get("version_id")):
+            raise invalid
+        numbers.add(number)
+        sources.append(source)
+    cited = {int(number) for group in re.findall(r"\[([0-9]+(?:\s*[,，]\s*[0-9]+)*)\]", answer)
+             for number in re.split(r"\s*[,，]\s*", group)}
+    if cited != numbers or re.search(r"\[E[0-9]+\]", answer):
+        raise invalid
+    return sources
 
 
 def render_compact_answer(response: Any) -> str:
@@ -116,15 +150,3 @@ def render_citation(citation: Any) -> str:
         f'<blockquote>{excerpt}</blockquote>'
         '</article>'
     )
-
-
-def render_scope_hint(scope: str, selected_name: str | None = None) -> str:
-    """B06/B22: make the active question boundary visible before submission."""
-    if scope == "선택 문서":
-        message = (
-            f"선택한 문서 ‘{selected_name}’에서 답변의 근거를 찾아요."
-            if selected_name else "검색 결과에서 문서를 선택해 주세요. 선택한 문서에 관해 질문할 수 있어요."
-        )
-    else:
-        message = "현재 적용한 회사·문서 유형 범위에서 답변의 근거를 찾아요."
-    return f'<p class="hd-scope-hint">{escape(message)}</p>'

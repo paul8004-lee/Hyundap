@@ -133,7 +133,6 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
             with gr.Column(elem_id="hd-content", elem_classes=["hd-content"]):
                 search = build_search_page(companies, DOC_TYPES, demo_mode)
                 # 질문은 검색 입력으로 받으며 답변·출처는 검색 스플릿뷰에 표시한다.
-                chat = {}
                 admin = build_admin_page(companies, DOC_TYPES, demo_mode)
             gr.HTML(footer_html(mode_note), elem_classes=["hd-footer", "hd-plain-html"])
         with gr.Column(visible=False, elem_id="hd-modal") as modal:
@@ -142,10 +141,10 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
                 modal_body = gr.HTML("")
                 modal_close = gr.Button("닫기", elem_id="hd-modal-close")
         shell = dict(container=container, nav_search=nav_search, upload_nav=upload_nav, account=account, logout=logout, modal=modal, modal_body=modal_body, modal_close=modal_close)
-        controller = UIController(service, login, search, chat, admin, shell)
+        controller = UIController(service, login, search, admin, shell)
         key.delete_callback = controller.discard
         # 반환 dict의 일부 항목만 갱신한다. 다른 화면/입력은 그대로 유지한다.
-        outputs = list(dict.fromkeys(component for refs in [login, search, chat, admin, shell] for component in refs.values() if isinstance(component, (gr.components.Component, gr.layouts.Column, gr.layouts.Row))))
+        outputs = list(dict.fromkeys(component for refs in [login, search, admin, shell] for component in refs.values() if isinstance(component, (gr.components.Component, gr.layouts.Column, gr.layouts.Row))))
 
         def handler(action):
             async def callback(session_key, *values):
@@ -183,6 +182,17 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
         bind(search["source"].click, "source", [])
         bind(search["download"].click, "download", [])
         bind(admin["submit"].click, "upload", [admin["file"], admin["company"], admin["doc_type"]])
+        async def on_upload_input(session_key, file_path):
+            # 큐를 거치지 않는 입력 검사는 스트리밍 대신 최종 변경을 한 번에 반환한다.
+            result = {}
+            async for patch in controller.run("upload_input", session_key, file_path):
+                result.update(patch)
+            return result
+
+        # 파일 교체·제거와 메타정보 변경은 이전 처리 결과를 즉시 지운다.
+        for event in (admin["file"].change, admin["company"].input, admin["doc_type"].input):
+            event(on_upload_input, inputs=[key, admin["file"]], outputs=outputs,
+                  trigger_mode="always_last", queue=False, api_visibility="private", show_progress="hidden")
         bind(modal_close.click, "close", [])
 
         def navigation(destination):

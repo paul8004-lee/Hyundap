@@ -23,11 +23,13 @@ VS Code에서도 저장소 최상위가 작업 경로인 터미널에서 위 명
 브라우저에서 `http://127.0.0.1:7860`을 엽니다. 포트가 사용 중이면 `python -m hyundap.app --port 7861`로 실행합니다.
 기본 실행은 **백엔드 연결 모드(`backend`)**이며 외부 공유 링크를 만들지 않습니다. 사용자 요청에 따라 로그인만 기존 체험 계정 3개를 임시로 유지합니다. 실제 서버 세션이 없는 체험 계정으로 검색·질문·요약·상세·업로드·다운로드를 요청하면 `AUTH_BACKEND_PENDING`을 안내하고 요청을 차단합니다. 임시 로그인은 유지되며 실제 업무 데이터로 바뀌지 않습니다.
 
-| 로그인 화면 선택 | 아이디 | 역할·범위 |
+| 로그인 후 표시 탭 | 아이디 | 역할·범위 |
 |---|---|---|
 | 일반 사용자 | `employee` | 소속 회사 문서 검색 |
 | 관리자 | `manager` | 소속 회사 검색·문서 업로드 |
 | 관리자 | `admin` | 허용 회사 전체 검색·문서 업로드 |
+
+로그인 탭은 표시용입니다. 어느 탭에서 입력하든 인증에 성공하면 계정의 실제 역할에 맞춰 탭과 메뉴를 자동으로 맞춥니다.
 
 공통 예시 비밀번호는 `demo1234`입니다. 위 역할·회사 범위는 임시 화면 확인용이며 실제 서버 권한이 아닙니다. 전체 화면 흐름을 예시 데이터로 확인하려면 다음 명령을 사용합니다. 이 모드에서 로그인 후 `점검`을 검색하면 결과·짧은 AI 답변·오른쪽 문서 상세/출처·요약 흐름을 확인할 수 있습니다.
 
@@ -58,9 +60,20 @@ python -m hyundap.app --check-backend
 
 - 검색 입력칸은 최대 2,000자이며 검색 버튼 또는 Enter로 실행합니다. 검색 결과를 먼저 표시한 뒤, 같은 입력 문장과 **이번에 반환된 문서 ID 목록**을 `ask`에 전달합니다. 회사·유형 조건도 유지하며, 결과가 없으면 질문 함수를 호출하지 않습니다.
 - 맨 아래의 별도 AI 질답 영역과 질문 범위 선택은 제거했습니다. 답변의 첫 문장을 최대 80자로 발췌해 검색창 바로 아래에 짧게 표시하며, 답변 안에는 출처 번호·출처 칩을 넣지 않습니다. 이는 UI 표시 길이를 줄이는 처리이고 백엔드 LLM에 전달하는 질문이나 생성 지시를 바꾸지 않습니다.
-- 왼쪽 결과 목록과 오른쪽 문서 상세·요약·근거 문장·출처 확인은 기존 스플릿뷰를 유지합니다. 답변 출처는 선택 문서와 버전이 일치할 때 사용하며, 출처를 열 때 문서 접근 권한과 버전을 다시 확인합니다.
+- 왼쪽 결과 목록과 오른쪽 문서 상세·요약·근거 문장·출처 확인은 기존 스플릿뷰를 유지합니다. 선택 문서·버전과 일치하는 답변 출처를 모두 표시하고 기존 출처 번호를 보존합니다. 출처를 열 때 문서 접근 권한과 버전을 다시 확인합니다.
+- `ANSWERED` 응답은 저장·표시 전에 `chat_page.checked_answer_citations()`로 원본문의 고유 숫자 인용번호와 `citations.number`가 일치하는지 확인합니다. 반복 인용은 허용하지만 출처의 번호·문서·버전 정보 누락, 중복 번호, 본문과 목록의 불일치는 `INVALID_CITATION`으로 안내합니다. 이때 검색 목록은 유지하고 한국어로 재검색을 안내하며 출처를 임의로 만들지 않습니다. 짧은 답변에서 번호를 숨기는 처리는 이 검증 이후에 적용합니다.
 - 다른 결과 행을 선택해도 같은 검색의 답변과 진행 중인 답변 요청은 유지합니다. 새 검색·필터 변경·초기화·세션 변경·메뉴 이동은 이전 답변 요청을 무효화해 늦게 도착한 결과가 화면을 덮지 않게 합니다.
 - 결과 표의 파일명·유형·원문 위치·색인(KST) 네 열은 그대로입니다. 본문은 13px 공통 글꼴, 긴 파일명은 말줄임과 전체 이름 툴팁, 날짜·시간은 두 줄로 표시합니다. 왼쪽 카드는 내용 높이에 맞추며, 960px 이하에서는 목록과 상세를 세로로 배치합니다.
+
+## 사용성 버그 반영 — #187~#193
+
+- #187: 잘못된 비밀번호·없는 계정의 `INVALID_CREDENTIALS`를 그대로 유지하고 “아이디 또는 비밀번호가 올바르지 않습니다.”를 표시합니다. 실제 인증 함수를 사용하고 DB 경계만 대체한 로그인 흐름을 재검증했습니다. 세션 만료·접근 거부·DB 장애는 별도 안내를 유지합니다.
+- #188: 답변의 본문 인용번호와 출처 목록을 검증하고, 동일 문서·버전의 근거를 스플릿뷰와 기존 출처 모달에 모두 표시합니다. 숫자 인용이 섞인 백엔드 응답의 불일치 재현 경로는 확인했으나 실사용 당시 LLM 원문은 없어 보고 건의 원인을 확정하지 않았습니다. 이번 변경은 UI 표시 전 검증이며 원천 생성·인용 검증의 수정은 챗봇 담당 범위입니다.
+- #189: `gr.File(file_types=None)`으로 Gradio의 확장자 영문 오류가 먼저 표시되는 경로를 제거했습니다. 파일 선택 직후와 제출 시 `validate_upload_file()`로 PDF/DOCX/PPTX·빈 파일·크기를 검사하고 한국어로 안내합니다. 유효하지 않은 파일은 문서 등록 버튼을 비활성화하며 직접 제출해도 검증을 우회하지 못합니다. 파일 선택은 Gradio 임시 전송 단계이며 업무 문서 등록은 아닙니다. 앱의 100MiB 전송 제한도 별도로 유지합니다.
+- #190: 업로드 결과의 문서 유형·진행 단계는 한국어로 표시합니다. 회사 표시명이 인증 결과에 부족하면 서버측 UI 어댑터가 세션과 허용 회사를 다시 검증해 실제 회사명을 읽습니다. 표시명을 가져오지 못하면 `회사명 확인 필요`로 안내하며 ID·UUID를 표시명으로 노출하지 않습니다.
+- #191: 선택한 탭과 계정 역할이 다르다는 이유로 로그인을 거부하지 않습니다. 메뉴와 회사 범위는 인증 결과의 실제 역할을 따릅니다.
+- #192: 파일·회사·문서 유형이 바뀌면 이전 업로드 결과와 알림을 비우고, 진행 중이던 이전 업로드의 늦은 응답도 표시하지 않습니다. 백엔드 작업 자체를 취소하는 기능은 아닙니다.
+- #193: 제거된 별도 질답 화면의 `do_scope`, `do_ask`, `do_citation`, `do_open_citation`과 전용 상태·컴포넌트 연결을 정리했습니다. 검색창 아래 답변과 기존 스플릿뷰·출처 모달은 유지합니다.
 
 ## 파일별 역할
 
@@ -70,11 +83,12 @@ python -m hyundap.app --check-backend
 | `hyundap/ui/controller.py` | 세션별 화면 상태·요청 처리·늦은 응답 방지 | B07/B17~B23/B29~B32 |
 | `hyundap/ui/login_page.py` | 로그인 입력·일반/관리자 화면 | B08/B17 |
 | `hyundap/ui/search_page.py` | 통합 검색/질문 입력·짧은 답변 영역·필터·목록·상세·요약 | B04/B05/B06/B07/B09/B10/B18/B20 |
-| `hyundap/ui/chat_page.py` | 짧은 답변 발췌·출처 표시 도우미 | B13/B14/B22/B23 |
+| `hyundap/ui/chat_page.py` | 답변 인용번호·출처 목록 검증, 짧은 답변 발췌·출처 표시 도우미 | B13/B14/B22/B23 |
 | `hyundap/ui/admin_page.py` | 관리자 업로드 폼·현재 결과 | B11/B12/B16/B21 |
 | `hyundap/ui/components.py`, `tokens.css`, `common.css`, `login.css`, `assets/` | 공통 스타일·안내·디자인 자산 | B01/B02/B17~B23 |
 | `hyundap/ui/services.py` | 화면용 입력/반환 규격·실제 함수 호출 어댑터 | B24~B28 |
 | `hyundap/ui/backend_bindings.py` | 실제 함수 등록·임시 인증 제공자·서버 세션 확인 | B24~B28 |
+| `hyundap/ui/backend_companies.py` | 실제 서버 세션·허용 회사를 확인한 뒤 회사 표시명만 읽는 UI 어댑터 | B16/B24 |
 | `hyundap/ui/backend_documents.py` | 권한·활성 버전을 재확인하는 상세 조회, DB 업로드 함수의 응답 변환 | B25/B26/B28 |
 | `hyundap/ui/backend_feedback.py` | 검색·챗봇·DB 오류를 안전한 화면 안내로 변환, 세션 만료 원인 보존 | B17~B23/B24~B28 |
 | `hyundap/ui/backend_check.py` | 외부 호출 없이 함수·설치 목록·설정 준비 상태 점검 | B29~B32 검수 지원 |
@@ -91,6 +105,7 @@ python -m hyundap.app --check-backend
 | 질문 | `hyundap.chatbot.ask.ask(question=, filters=, user=)`; dict 필터 전달, `filters_factory` 불필요 |
 | 요약 | `hyundap.chatbot.summary.summarize_document(document_id=, user=)`; 반환 버전 비교 |
 | 문서 상세 | `backend_documents.get_document()`가 DB 활성 버전·auth 접근 권한·벡터 저장소의 실제 발췌문을 조회 |
+| 회사 표시명 | `backend_companies.list_company_names()`가 `current_actor`·`allowed_companies`로 재검증한 허용 범위와 세션의 허용 ID 교집합에서 활성 회사 이름만 조회 |
 | 수동 업로드 | `backend_documents.upload_document()` → `hyundap.db.upload_service.upload_document(actor=, source_path=, metadata=)` |
 | 원문 다운로드 | 공개 함수 대기. 실제 세션 검사를 통과해도 `DOWNLOAD_NOT_CONNECTED` 안내 |
 | 오류 | `backend_feedback.to_feedback()`가 검색·챗봇의 변환기를 연결하고 DB/권한 오류와 감싸진 세션 만료를 처리 |
@@ -99,7 +114,7 @@ python -m hyundap.app --check-backend
 
 실제 인증 제공자는 `create_bindings(authentication=...)`에 전달하며 UI 규격의 `login`·`logout`·`validate_session`을 제공해야 합니다. SPEC-AUTH-001의 반환 필드는 `user_id`, `display_name`, `role`, `company_id`, `company_name`, `allowed_company_ids`, `token`, `session_id`입니다. 변환 함수는 검증된 `token`을 DB 내부 actor의 `_session_token`으로 전달하고, 사용자 ID·회사 ID·역할·세션 ID만 함께 넘깁니다. 인증 결과에 `auth_version`이나 별도 `_session_token`을 요구하지 않으며 권한 버전과 실제 세션 유효성은 DB가 다시 확인합니다. `session_id` 또는 `token`이 없으면 `AUTH_BACKEND_PENDING`으로 업무 호출을 막고 임시 로그인은 유지합니다. 기존 체험 계정에는 `session_id`가 없으므로 이 제한이 그대로 적용됩니다.
 
-인증 구현이 준비되면 `hyundap.auth.session_service`의 `login`·`logout`·`validate_session`을 인증 제공자로 연결할 예정입니다. 현재 기본 실행은 임시 로그인 + backend 모드이며, 예시 데이터로 검색·질문까지 확인하려면 `python -m hyundap.app --mode demo`를 사용합니다.
+`hyundap.auth.session_service`의 실제 인증 함수를 사용하려면 `create_bindings(authentication=...)`에 해당 모듈을 명시적으로 주입합니다. 기본 실행의 인증 제공자는 계속 임시 체험 계정입니다. 현재 기본 실행은 임시 로그인 + backend 모드이며, 예시 데이터로 검색·질문까지 확인하려면 `python -m hyundap.app --mode demo`를 사용합니다.
 
 `hyundap/ui/services.py`는 동기 함수를 작업 스레드에서 호출하고 async 함수를 기다립니다. 실제 권한 판정은 백엔드가 수행하며 메뉴 숨김만으로 권한을 보장하지 않습니다. 아직 필요한 항목은 실제 인증 제공자, 권한을 검증하는 다운로드 공개 함수, 실행 환경·테스트 계정/문서와 실제 통합 검수입니다.
 검색의 `total_hits`는 문서 전체 개수가 아닌 청크 수이므로 현재 받은 문서 목록 길이를 표시합니다. 작업 성공과 검색 가능 여부도 구분합니다.
@@ -108,11 +123,13 @@ python -m hyundap.app --check-backend
 
 문서 유형은 [공통 문서 유형 PR #126](https://github.com/paul8004-lee/Hyundap/pull/126)의 목록을 사용합니다. `services.py`에서 `from hyundap.common.schemas import DOC_TYPES as COMMON_DOC_TYPES`로 가져와 `[(label, code) for code, label in COMMON_DOC_TYPES]`로 변환합니다. 공통 목록의 `(코드, 표시명)`을 Gradio가 받는 `(표시명, 코드)` 순서로 맞추며, `guide`의 표시명은 공통 목록에 따라 `가이드`로 표시합니다.
 
-`services.company_choices()`는 검증된 세션의 `allowed_company_ids`와 `companies` 목록으로 회사 선택지를 만듭니다. 표시명은 `company_name`을 사용하며 이름이 없으면 회사 ID를 표시합니다. 허용 범위 밖 회사는 선택지에 추가하지 않습니다. `hri`·`gte`·`bpa` 예시 목록은 전체 demo 또는 임시 로그인에서만 사용합니다. 실제 인증 연결 시 DB·auth에서 확인한 회사 목록을 반환해야 합니다.
+`services.company_choices()`는 검증된 세션의 `allowed_company_ids`를 선택값으로, `companies`와 소속 회사의 `company_name`을 표시명으로 사용합니다. 부족한 이름은 `BackendServices._with_company_names()`가 `backend_companies.list_company_names()`를 통해 보강합니다. 이 어댑터는 `current_actor`와 `allowed_companies`로 서버 권한을 재검증하고 세션 허용 ID와의 교집합에서 활성 회사의 이름만 읽습니다. 이름 조회 장애에는 `회사명 확인 필요 (번호)`를 표시하며 ID·UUID나 예시 회사명을 대신 표시하지 않습니다. 인증 만료·권한 거부는 그대로 전달합니다. 회사 표시명은 권한 판정에 쓰지 않고 허용 범위 밖 회사도 추가하지 않습니다. `hri`·`gte`·`bpa` 예시 목록은 전체 demo 또는 임시 로그인에서만 사용합니다.
 
 최초 연결 검사는 develop `d5913e2`와 검색 PR #143 `276a942`를 함께 둔 분리 snapshot에서 진행했습니다. 이후 최신 develop `98d428e`를 작업 브랜치에 병합해 검색 PR #143, 수집 PR #136, 챗봇 PR #144와 임베딩 PR #151 변경을 반영했습니다. 백엔드 코드는 팀의 병합 내용을 그대로 가져왔으며 UI 담당이 직접 수정하지 않았습니다. 실제 실행 준비 상태는 `--check-backend`로 확인합니다. 필수 설정 키는 `DATABASE_URL`, `OPENAI_API_KEY`이며 실제 값은 문서나 화면에 표시하지 않습니다.
 
-## 이번 연결 검증
+## 이전 연결 검증 기록
+
+아래 수치는 최초 연결·해당 develop 병합 당시의 기록이며, #187·#189~#193 반영 후 현재 코드의 전체 테스트 통과 수가 아닙니다.
 
 - 리뷰 반영 후 프로젝트 `.venv`에서 저장소 전체 검사: 241개 실행, 성공(실제 MySQL이 필요한 35개 건너뜀). 신규 연결·인증·준비 점검 검사는 49개이며 기존 UI 16개를 합쳐 UI 관련 검사는 65개입니다. 사용자가 설치한 PyMySQL 1.1.2를 프로젝트 가상환경에서 읽었으며 임시 패키지 경로나 `PYTHONPATH` 변경 없이 재검증했습니다.
 - 분리 작업 폴더에서 실제 PR 코드에 대한 연결 검사 37개와 기존 UI 검사 16개, 총 53개가 통과했습니다. DB·벡터 저장소·LLM·업로드의 외부 경계는 테스트 대체 객체로 검사했습니다.
@@ -123,14 +140,14 @@ python -m hyundap.app --check-backend
 
 ## 기존 UI 검증 기록
 
-UI와 연결 검사를 모두 실행하려면 저장소 맨 위에서 아래 명령을 사용합니다. 테스트 파일에는 개인 경로나 `sys.path` 변경이 없으며 실제 DB·LLM 호출은 대체합니다.
+팀의 UI·연결 검사 전체 실행 명령은 아래와 같습니다. 다만 #193에서 구형 컨트롤러 생성자와 별도 질답 동작을 제거했으므로, 현재 `test_ui_controller.py` 10개와 `test_ui_backend.py`의 `test_ask_wrapped_session_expiry_returns_login` 1개는 새 생성자·검색창 답변 흐름으로 갱신해야 합니다. 이 11개를 포함한 전체 통과를 주장하지 않습니다. 이번 수정에서는 담당 범위 밖인 `hyundap/tests/`를 변경하지 않았습니다. 나머지 계약 검사와 별도의 로컬 회귀 검사는 실제 DB·LLM을 호출하지 않고 검증합니다.
 
 ```powershell
 python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
 ```
 
-- 서비스 검사 6건, 화면 컨트롤러 검사 10건 통과.
-- 재실행: 저장소 맨 위에서 `python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v` (Gradio 설치 환경).
+- 이전 구현 당시 서비스 검사 6건, 화면 컨트롤러 검사 10건이 통과했습니다. 현재 변경 후의 전체 통과 기록은 아닙니다.
+- 컨트롤러 검사 갱신 후 재실행: 저장소 맨 위에서 `python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v` (Gradio 설치 환경).
 - Gradio 6.30.0 전체 화면 구성 검사: 예시·실제 연결 모드의 컴포넌트 생성 확인.
 - 브라우저에서 로그인→검색→부분 요약→질문/출처→해당 문서 이동·출처 모달/Esc·예시 파일 준비 확인.
 - 관리자 업로드 폼·입력 누락 안내·회사 변경 후 검색 범위 적용 확인.
@@ -154,3 +171,12 @@ UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`�
 - [x] PR #140에서 UI 검사 16개를 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전하고 기존 UI 테스트 원본을 제거했습니다.
 
 함수 등록과 응답 변환 완료는 실제 DB·인증·검색·LLM 통합 실행 완료를 뜻하지 않습니다. 현재 임시 로그인은 유지하며 실제 인증·다운로드 연결과 환경 준비가 남아 있습니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.
+
+
+## #188 확인 범위
+
+실제 `chatbot.ask`·`citations` 흐름에서 검색·LLM·권한 재검증의 외부 경계를 대체한 재현 검사 5개가 통과했습니다. LLM 대역이 `[E1][2][3]`을 반환하면 백엔드는 본문 `[1][2][3]`과 출처 한 개를 반환합니다. 현재 백엔드가 `[E번호]`만 검증·치환하고 원래 숫자 표기를 남기는 경로입니다. `[E1][E2][E3]`은 출처 세 개로 정상 변환되고, `[E1][E1][E1]`은 같은 출처의 반복이므로 출처 한 개가 정상입니다.
+
+이 결과는 불일치를 재현할 수 있다는 증거이며, 당시 실사용 LLM 응답이 같은 형태였다는 증거는 아닙니다. UI는 잘못 연결된 답변을 표시하지 않도록 방어하며, `hyundap/chatbot/`의 원천 답변 생성·인용 검증 코드는 변경하지 않았습니다.
+
+최종 검수에서 #188 UI 회귀 16개와 백엔드 재현 5개가 통과했고, 기존 화면·업로드 회귀 29개도 다시 통과했습니다. 모두 로컬 임시 검사이며 저장소 테스트 추가를 뜻하지 않습니다. 브라우저에서는 검사용 예시 응답으로 동일 문서의 출처 세 개가 상세·모달에 모두 표시되고, 본문 세 번호에 출처 한 개만 반환한 경우 재검색 안내와 검색 결과 유지가 동작함을 확인했습니다.

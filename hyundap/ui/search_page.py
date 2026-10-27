@@ -135,8 +135,9 @@ def render_evidence(doc: dict | None) -> str:
     if not doc:
         return ""
     location = escape(str(doc.get("location_label") or "위치 정보 미제공"))
+    number = f'[{escape(str(doc["number"]))}] ' if doc.get("number") is not None else ""
     excerpt = escape(str(doc.get("excerpt") or "제공된 발췌문이 없습니다."))
-    return f'<div class="hd-evidence-box"><div class="hd-evidence-label">근거 문장 · {location}</div><blockquote>{excerpt}</blockquote></div>'
+    return f'<div class="hd-evidence-box"><div class="hd-evidence-label">{number}근거 문장 · {location}</div><blockquote>{excerpt}</blockquote></div>'
 
 
 def render_coverage(response: dict) -> str:
