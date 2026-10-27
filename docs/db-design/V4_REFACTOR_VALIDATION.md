@@ -49,6 +49,8 @@ python -m unittest discover -s hyundap/tests -t .
 
 대상 head: `ea6d89a07b541a6ce386be373ef983ebb4c94517` (별도 검토 worktree). 해당 PR의 accounts/passwords/session_service/session_columns와 공통 설정을 현재 DB 모듈·최종 직접 생성 DDL에 연결했다. 인증 파일은 수정하거나 현재 브랜치에 병합하지 않았다.
 
+이후 PR head `bc455a2`에는 기존 DB 역할·legacy·구조 캐시 의존이 추가되어 최종 v4와 충돌한다. 아래 통과는 ea6d89a 당시 이력이며 최신 PR의 호환 판정은 [PR #167 최신 재검토](PR_167_REVIEW_2026-10-27.md)를 따른다.
+
 **platform_admin / company_admin / employee 세 역할 모두 계정 생성 → 로그인 → 세션 검증 → 로그아웃 → 폐기 후 SESSION_EXPIRED를 통과했다.** 혼합 대소문자 이메일도 정규화 로그인 키로 조회했다. 이전 필수 시간 누락은 최종 DB 기본값으로 공급되며 역할 코드는 인증 PR과 같은 소문자다. CSRF와 기존 시간 순서 제약을 유지했다.
 
 이는 전체 테스트 290개와 별도의 합성 계정 교차 시험이다. 해당 PR의 UI 바인딩·모든 인증 요구·후속 head 변경까지 검증한 것은 아니다. 설정은 해당 PR 구현을 로드했고 DB Engine만 격리 DB로 대체했다. 기록: `.git/v4-auth-probe.py`, `.git/v4-auth-results.json`.
