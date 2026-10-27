@@ -18,6 +18,8 @@ _DB_MESSAGES = {
     "CONFLICT": "다른 처리 결과와 충돌했습니다. 현재 상태를 확인한 뒤 다시 시도해 주세요.",
     "INVALID_STATE": "현재 문서 상태에서는 처리할 수 없습니다. 상태를 확인해 주세요.",
     "INVALID_INPUT": "입력값이 올바르지 않습니다. 선택한 파일과 입력 내용을 확인해 주세요.",
+    "INVALID_DOC_TYPE": "문서 유형이 올바르지 않습니다. 매뉴얼·규정·가이드·기타 중에서 선택해 주세요.",
+    "FILE_UNAVAILABLE": "업로드한 파일을 읽을 수 없습니다. 다시 업로드해 주세요.",
     "INTEGRATION_UNAVAILABLE": "문서 처리에 필요한 백엔드 연결이 아직 준비되지 않았습니다.",
     "PROCESSING_FAILED": "문서를 처리하지 못했습니다. 파일을 확인한 뒤 다시 시도해 주세요.",
     "INCOMPLETE_INDEX": "문서 색인이 완성되지 않았습니다. 관리자에게 확인을 요청해 주세요.",
@@ -31,8 +33,6 @@ _UPLOAD_MESSAGES = {
     "ENCRYPTED_FILE": "암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요.",
     "CORRUPTED_FILE": "파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요.",
     "EMPTY_DOCUMENT": "문서에서 글자를 읽을 수 없습니다. 스캔한 이미지 문서는 지원하지 않습니다.",
-    "INVALID_DOC_TYPE": "문서 유형이 올바르지 않습니다. 매뉴얼·규정·가이드·기타 중에서 선택해 주세요.",
-    "FILE_UNAVAILABLE": "업로드한 파일을 읽을 수 없습니다. 다시 업로드해 주세요.",
     "LEGACY_FORMAT": "구형 형식은 지원하지 않습니다. .docx 또는 .pptx로 저장한 뒤 다시 올려 주세요.",
     "NO_API_KEY": "문서 처리에 필요한 AI 설정을 확인해 주세요.",
     "CONFIG_MISSING": "문서 처리에 필요한 AI 설정을 확인해 주세요.",
@@ -128,7 +128,7 @@ def to_feedback(error) -> dict:
         if code == "ACCESS_DENIED":
             return {"status": "denied", "message": "이 문서 또는 회사에 접근할 권한이 없습니다.", "error_code": code}
     if _is_error(error, db, "DbError") and isinstance(code, str) and code in _DB_MESSAGES:
-        status = "input_error" if code in {"INVALID_INPUT", "DUPLICATE_FILE"} else "failed"
+        status = "input_error" if code in {"INVALID_INPUT", "INVALID_DOC_TYPE", "FILE_UNAVAILABLE", "DUPLICATE_FILE"} else "failed"
         return {"status": status, "message": _DB_MESSAGES[code], "error_code": code}
     if _is_error(error, ingest, "IngestError") and isinstance(code, str) and code in _UPLOAD_MESSAGES:
         return {"status": "input_error", "message": safe_upload_message(code), "error_code": code}

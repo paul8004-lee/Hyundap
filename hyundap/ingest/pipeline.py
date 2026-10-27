@@ -27,6 +27,8 @@ from .normalizer import normalize_document
 from .validator import validate_upload
 
 PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
+# 품질 판단이 아닌 진단용 임시 기준: 공백 제외 20자 미만.
+SHORT_CHUNK_CHARS = 20
 
 
 def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
@@ -73,4 +75,5 @@ def build_ingest_report(file_path, doc, chunks):
         "warnings": doc.warnings,
         "section_count": len(doc.sections),
         "chunk_count": len(chunks),
+        "short_chunk_count": sum(len(chunk.text.strip()) < SHORT_CHUNK_CHARS for chunk in chunks),
     }

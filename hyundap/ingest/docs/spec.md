@@ -163,7 +163,8 @@ IngestResult         status("success"|"failed"), chunks(list[Chunk]), report(dic
 | `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 | 수집 처리 | 파일을 다시 업로드해 주세요. |
 
 - 안내 문구는 `IngestError`의 기본 문구다. DB 업로드 결과는 원문을 전달하지 않고 UI가 코드별 안내를 표시한다.
-- `LEGACY_FORMAT` 안내는 준비되어 있지만 구형 Office 판별은 아직 구현되지 않았다. DB의 사전 입력 검사는 별도로 `INVALID_INPUT`을 반환할 수 있다.
+- `LEGACY_FORMAT` 안내는 준비되어 있지만 구형 Office 판별은 아직 구현되지 않았다. DB 후보 생성 전에는 유형·파일 접근 오류도 작업 원장 없이 반환한다.
+- 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수다. 20자는 임시 진단 기준이며 검색 품질 합격 기준이 아니다.
 - 문구는 임시안이며, UI 담당(박경환)과 맞춘 뒤 확정합니다.
 
 ## 8. 설정값

@@ -10,6 +10,8 @@ class DbError(Exception):
         'CONFLICT': '다른 처리 결과와 충돌했습니다.',
         'INVALID_STATE': '현재 상태에서는 처리할 수 없습니다.',
         'INVALID_INPUT': '입력값이 올바르지 않습니다.',
+        'INVALID_DOC_TYPE': '문서 유형이 올바르지 않습니다.',
+        'FILE_UNAVAILABLE': '업로드한 파일을 읽을 수 없습니다.',
         'INTEGRATION_UNAVAILABLE': '수집·벡터 연동 기능이 아직 준비되지 않았습니다.',
         'PROCESSING_FAILED': '문서 처리가 실패했습니다.',
         'INCOMPLETE_INDEX': '저장된 청크가 기준 목록과 일치하지 않습니다.',

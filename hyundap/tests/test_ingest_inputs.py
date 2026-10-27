@@ -1,12 +1,21 @@
 """수집 직접 호출의 필수 헤더 검증."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from hyundap.ingest.pipeline import ingest_document
+from hyundap.ingest.pipeline import build_ingest_report, ingest_document
 from hyundap.ingest import validator
 
 
 class IngestInputTests(unittest.TestCase):
+    def test_short_chunk_count_is_diagnostic_with_fixed_boundary(self):
+        document = SimpleNamespace(warnings=[], sections=[object()])
+        chunks = [SimpleNamespace(text='a' * 19), SimpleNamespace(text='b' * 20),
+                  SimpleNamespace(text='  short  ')]
+        report = build_ingest_report('sample.pdf', document, chunks)
+        self.assertEqual(report['chunk_count'], 3)
+        self.assertEqual(report['short_chunk_count'], 2)
+
     def test_verified_hash_reused_and_invalid_hash_rejected(self):
         with patch.object(validator, 'check_file_format', return_value='.pdf'), \
              patch.object(validator, 'check_file_size', return_value=1), \

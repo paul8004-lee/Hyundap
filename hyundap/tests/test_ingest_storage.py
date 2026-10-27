@@ -32,6 +32,7 @@ class IngestStorageTests(unittest.TestCase):
         for field in jobs_repo.INGEST_COUNT_FIELDS:
             cases += [{field: value} for value in (True, None, -1, 1.5, '1')]
         cases += [dict(chunk_size=0), dict(chunk_overlap=1000), dict(chunk_overlap=1001)]
+        cases += [dict(short_chunk_count=4)]
         with patch.object(runtime, 'get_engine') as engine:
             for changes in cases:
                 with self.subTest(changes=changes), self.assertRaises(DbError) as caught:

@@ -306,7 +306,9 @@ def prepare_upload_source(source_path, metadata, upload_dir):
         if not source.is_file():
             raise DbError('INVALID_INPUT')
         digest, size = file_digest(source)
-    except (OSError, TypeError):
+    except (FileNotFoundError, PermissionError):
+        raise DbError('FILE_UNAVAILABLE') from None
+    except (OSError, TypeError, ValueError):
         raise DbError('INVALID_INPUT') from None
 
     if upload_dir is None:

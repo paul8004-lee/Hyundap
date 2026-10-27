@@ -14,7 +14,7 @@ from .clock import epoch_now
 
 STAGES = ('received', 'ingest', 'embedding', 'verify', 'publish', 'complete')
 COUNT_FIELDS = ('total', 'skipped_existing', 'embedded', 'stored', 'truncated_count')
-INGEST_COUNT_FIELDS = ('chunk_size', 'chunk_overlap', 'section_count', 'chunk_count', 'warning_count')
+INGEST_COUNT_FIELDS = ('chunk_size', 'chunk_overlap', 'section_count', 'chunk_count', 'warning_count', 'short_chunk_count')
 
 
 def normalize_report(report):
@@ -108,6 +108,9 @@ def _ingest_metrics(report, stage):
             clean[field] = value
     if 'chunk_size' in clean and 'chunk_overlap' in clean:
         if clean['chunk_overlap'] >= clean['chunk_size']:
+            raise DbError('INVALID_INPUT')
+    if 'short_chunk_count' in clean and 'chunk_count' in clean:
+        if clean['short_chunk_count'] > clean['chunk_count']:
             raise DbError('INVALID_INPUT')
     return clean
 
