@@ -54,9 +54,12 @@ JSON의 각 컬럼 값 순서는 `[타입, NULL허용, 문자셋, 정렬, 기본
 | `DB_RUNTIME_TEST_URL` | `hyundap_runtime_test` |
 | `DB_WORKFLOW_TEST_URL` | `hyundap_workflow_test` |
 | `DB_CONTRACT_TEST_URL` | `hyundap_contract_test` |
+| `DB_AUTH_TEST_URL` | `hyundap_auth_test` (인증 테스트가 직접 생성 fixture 공유) |
 
 ```powershell
 python -m unittest discover -s hyundap/tests -t .
 ```
 
 테스트는 실제 MySQL과 합성 자료를 사용한다. 수집·벡터·외부 API는 대역으로 검증하며 수동 API/UI 스크립트는 `hyundap/tests/smoke/`에서 명시적으로 실행한다. 이번 작업에서 Railway DDL/DML이나 외부 API 호출은 수행하지 않는다.
+
+인증 PR #167이 반영된 최종 정합화와 전체 332개 통과 결과는 [V4_AUTH_ALIGNMENT_2026-10-27.md](V4_AUTH_ALIGNMENT_2026-10-27.md)를 따른다. 인증도 고정 v4 SQL을 사용하며 legacy·구조 캐시를 복원하지 않는다.

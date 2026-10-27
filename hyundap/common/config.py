@@ -17,6 +17,7 @@ DEFAULT_MIN_SCORE = 0.3
 DEFAULT_TOP_K_MAX = 80
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 150
+DEFAULT_SESSION_TTL_MINUTES = 480
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class Settings:
     search_top_k_max: int
     chunk_size: int
     chunk_overlap: int
+    session_ttl_minutes: int
 
 
 def _read(name: str) -> str | None:
@@ -93,4 +95,7 @@ def get_settings() -> Settings:
         search_top_k_max=_read_number('SEARCH_TOP_K_MAX', DEFAULT_TOP_K_MAX, int, lambda v: v >= 1),
         chunk_size=chunk_size,
         chunk_overlap=_read_number('CHUNK_OVERLAP', overlap_default, int, lambda v: 0 <= v < chunk_size),
+        # 로그인 세션 유효 시간(분). 5분~7일 밖이거나 숫자가 아니면 기본 480분을 쓴다.
+        session_ttl_minutes=_read_number('SESSION_TTL_MINUTES', DEFAULT_SESSION_TTL_MINUTES, int,
+                                         lambda v: 5 <= v <= 10080),
     )
