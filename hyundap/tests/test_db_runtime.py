@@ -81,7 +81,7 @@ class DatabaseRuntimeTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """비어 있는 로컬 테스트 DB에 대표 v3와 v4 마이그레이션을 준비한다."""
+        """비어 있는 로컬 테스트 DB에 최종 v4 테이블을 직접 생성한다."""
         url = make_url(os.environ['DB_RUNTIME_TEST_URL'])
         if url.host != '127.0.0.1' or url.database != 'hyundap_runtime_test':
             raise RuntimeError('로컬 전용 테스트 DB 이름을 확인하세요.')
@@ -126,6 +126,29 @@ class DatabaseRuntimeTests(unittest.TestCase):
                              {'id': candidate['document_id'], 'version': version_id})
             jobs_repo.record_stage_result(candidate['job_id'], {'stage': 'complete', 'status': 'success'},
                                           connection=database)
+
+    def test_detail_reads_v4_metadata_and_preserves_caller_transaction(self):
+        """실제 v4 JOIN·세션 검증·상세 크기와 호출자 롤백 소유권을 확인한다."""
+        candidate = self.candidate()
+        self.publish_fixture(candidate)
+        with self.engine.connect() as database:
+            tx = database.begin()
+            database.execute(text('UPDATE document_versions SET file_size=321 WHERE id=:id'),
+                             {'id': candidate['version_id']})
+            detail = documents_repo.get_document_detail(
+                self.actor, candidate['document_id'], version_id=candidate['version_id'],
+                connection=database)
+            self.assertEqual(detail['size_bytes'], 321)
+            self.assertIsNone(detail['indexed_at'])
+            self.assertEqual(detail['version_id'], candidate['version_id'])
+            self.assertNotIn('storage_path', detail)
+            self.assertTrue(database.in_transaction())
+            tx.rollback()
+        self.assertEqual(documents_repo.get_document_detail(
+            self.actor, candidate['document_id'])['size_bytes'], 10)
+        with self.assertRaises(AccessError) as caught:
+            documents_repo.get_document_detail(self.actor, candidate['document_id'], version_id='old')
+        self.assertEqual(caught.exception.code, 'STATE_CHANGED')
 
     def test_business_storage_does_not_reflect_table_structure(self):
         """초기 구조 검증 후 업무 저장은 고정 SQL만 사용한다."""

@@ -24,6 +24,45 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 
 ## 모듈과 메인·보조 함수
 
+### P2-01 상세 메타데이터 조회 — #203
+
+`documents_repo.get_document_detail(actor, document_id, *, version_id=None, connection=None)`는
+상세 전용 메인 함수다. `_check_detail_access(document, allowed_company_ids, version_id)`는
+회사·공개 상태·요청 버전을 검사하는 보조 함수이며 두 함수 모두 클래스 없는 모듈 함수다.
+검색용 `get_documents_with_active_version`의 기존 11필드와 호출 규격은 변경하지 않는다.
+
+반환값은 `document_id/company_id/company_name/version_id/file_name/doc_type/version_no/size_bytes/indexed_at`
+9필드 dict다. `size_bytes`는 활성 버전의 `file_size`이고 `indexed_at`은 항상 `None`이다.
+후보의 생성 시각과 작업 종료 시각은 색인 완료 시각을 보장하지 않으므로 대체하지 않는다.
+내부 경로·토큰·본문·벡터·관리용 상태는 반환하지 않는다.
+
+현재 세션과 DB의 역할·회사를 재검증한다. 회사 밖 접근은 `ACCESS_DENIED`,
+없는 문서·삭제·비공개·활성 버전 없음·ready가 아닌 버전·평가 자료·요청 버전 불일치는
+`STATE_CHANGED`다. 입력 ID 오류는 `INVALID_INPUT`, 세션 무효는 `SESSION_EXPIRED`,
+DB 장애는 안전한 `DB_UNAVAILABLE`로 전달한다. 권한 있는 직원도 공개 운영 문서를 조회할 수 있다.
+과거 버전 조회나 다운로드 권한을 새로 제공하지 않는다.
+
+```python
+from hyundap.db.documents_repo import get_document_detail
+from hyundap.auth.permissions import verify_documents_access
+
+detail = get_document_detail(actor, document_id, version_id=selected_version_id)
+# UI/embedding 담당은 detail의 문서·버전으로 본문을 읽는다.
+# 본문을 읽는 동안 공개 상태나 세션이 바뀔 수 있으므로 반환 직전에 재검증한다.
+verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
+```
+
+이 함수의 정보는 조회 시점 기준이다. `connection`을 전달하면 호출자 트랜잭션에 참여하고
+커밋·종료하지 않는다. 긴 트랜잭션의 스냅샷을 최신 권한 보장으로 간주하지 않으며,
+외부 작업 후 재검증은 새 조회 경계에서 수행한다. UI의 기존 조회 전후 재검증은 유지해야 한다.
+현재 UI 어댑터는 기존 11필드 함수를 사용한다. UI 담당이 상세 함수를 연결하고
+`size_bytes`를 전달하는 변경은 후속 연계이며 이번 DB 변경으로 화면 연결 완료를 주장하지 않는다.
+
+검증: `test_access_queries`의 합성 SQLite는 권한·상태·반환·오류 및 기존 검색 계약을,
+`test_db_runtime`의 격리 MySQL은 최종 v4 조회와 호출자 롤백 소유권을 확인한다.
+2026-10-28 전체 375개 통과(실패·오류·건너뜀 0)의 실행 조건과 UI 인계 사항은
+[P2-01 상세 조회 계약](../../../docs/db-design/P2_01_DETAIL_CONTRACT.md)에 기록했다.
+
 업무 코드는 모듈 함수이며 새 클래스는 없다. 오류 형식 `errors.DbError`만 예외 클래스다. 테스트의 unittest.TestCase와 수동 시험 어댑터 클래스는 업무 서비스 클래스가 아니다. 아래 목록은 현재 소스의 함수 서명을 기준으로 작성했다.
 
 | 모듈 | 함수 서명 | 역할 | 클래스 |
@@ -37,6 +76,8 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 | `connection` | `main()` | 메인 | 없음 |
 | `documents_repo` | `find_duplicate_document(company_id, sha256, *, exclude_version_id=None, connection=None)` | 메인 | 없음 |
 | `documents_repo` | `get_documents_with_active_version(document_ids, *, connection=None)` | 메인 | 없음 |
+| `documents_repo` | `get_document_detail(actor, document_id, *, version_id=None, connection=None)` | 메인 | 없음 |
+| `documents_repo` | `_check_detail_access(document, allowed_company_ids, version_id)` | 보조 | 없음 |
 | `documents_repo` | `validate_metadata(metadata)` | 메인 | 없음 |
 | `documents_repo` | `create_document_version(actor, metadata, *, connection=None)` | 메인 | 없음 |
 | `documents_repo` | `_check_candidate_creation(database, actor, data)` | 보조 | 없음 |
