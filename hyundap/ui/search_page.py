@@ -18,25 +18,24 @@ from .services import DOC_TYPES
 SEARCH_CSS = """
 #hd-search-page {gap:14px;}
 #hd-search-intro {text-align:center;padding:64px 16px 8px;}
-#hd-search-intro h1 {font-size:48px;letter-spacing:-2px;line-height:1.2;margin:0 0 18px;color:#032b5c;}
+#hd-search-intro h1 {font-size:48px;letter-spacing:-2px;line-height:1.2;margin:0 0 18px;color:var(--hd-page-accent,#032b5c);}
 #hd-search-intro p {font-size:16px;color:#657184;margin:0;}
-#hd-search-bar {max-width:760px;margin:8px auto 0;align-items:center;gap:0;background:white;border:1px solid #dfe4ed;border-radius:32px;padding:7px 8px 7px 18px;box-shadow:0 3px 12px #102b4c05;flex-wrap:nowrap;}
-#hd-company {border:0!important;box-shadow:none!important;background:transparent!important;min-width:170px!important;max-width:230px;}
-#hd-company .wrap {border:0!important;box-shadow:none!important;background:transparent!important;}
+#hd-search-bar {max-width:840px;margin:8px auto 0;align-items:center;gap:0;background:white;border:1px solid #dfe4ed;border-radius:32px;padding:7px 8px 7px 18px;box-shadow:0 3px 12px #102b4c05;flex-wrap:nowrap;}
+#hd-type {flex:0 0 115px!important;min-width:115px!important;max-width:115px;box-shadow:none!important;background:transparent!important;}
+#hd-type .wrap {border:0!important;box-shadow:none!important;background:transparent!important;}
+#hd-filter-reset {flex:0 0 64px!important;min-width:64px!important;max-width:64px;min-height:36px!important;height:36px;border:1px solid #dfe4ed;border-radius:10px;background:transparent;font-size:12px;white-space:nowrap!important;padding:0 8px!important;margin:0 8px!important;}
 #hd-keyword {border:0!important;border-left:1px solid #dfe4ed!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;min-width:100px!important;}
 #hd-keyword textarea {border:0!important;background:transparent!important;box-shadow:none!important;min-height:36px!important;line-height:24px;padding:6px 14px!important;}
 #hd-search-submit {flex:0 0 74px!important;min-width:74px!important;max-width:74px;border-radius:24px!important;height:42px;min-height:42px;}
 #hd-inline-answer {max-width:760px;margin:0 auto;width:100%;}
 #hd-inline-answer .hd-inline-answer {display:flex;align-items:baseline;gap:10px;min-height:40px;box-sizing:border-box;padding:10px 14px;border-radius:10px;background:#edf0f4;color:#344256;font-size:13px;line-height:20px;}
-#hd-inline-answer .hd-inline-answer-label {flex:none;white-space:nowrap;color:#032b5c;font-weight:650;}
+#hd-inline-answer .hd-inline-answer-label {flex:none;white-space:nowrap;color:var(--hd-page-accent,#032b5c);font-weight:650;}
 #hd-inline-answer .hd-inline-answer-text {display:-webkit-box;min-width:0;overflow:hidden;-webkit-line-clamp:1;-webkit-box-orient:vertical;word-break:keep-all;overflow-wrap:anywhere;}
 #hd-search-feedback {max-width:760px;margin:0 auto;width:100%;}
 #hd-search-feedback:not(:has(.hd-notice)) {display:none;}
 #hd-search-feedback .hd-notice {min-height:40px;padding:10px 16px;box-sizing:border-box;align-items:center;font-size:13px;line-height:1.5;}
 #hd-quick-searches {justify-content:center;gap:8px;max-width:550px;margin:0 auto 20px;}
 #hd-quick-searches button {flex:0 0 auto;min-width:70px;border:1px solid #dfe4ed;border-radius:20px;background:white;box-shadow:none;font-size:12px;}
-#hd-search-toolbar {align-items:center;gap:12px;margin-top:12px;}
-#hd-type {max-width:180px;} #hd-filter-reset {flex:0 0 90px;min-width:90px;max-width:90px;}
 #hd-search-columns {gap:16px;align-items:stretch;}
 #hd-results-card {padding:0;gap:0!important;overflow:hidden;align-self:flex-start;min-height:0;flex:0 0 calc((100% - 16px) * .455)!important;}
 #hd-results-heading {padding:14px 20px 12px;}
@@ -55,10 +54,10 @@ SEARCH_CSS = """
 #hd-result-table td>.cell-wrap,#hd-result-table [role="gridcell"]>.cell-wrap {display:flex;align-items:center;box-sizing:border-box;min-height:60px;padding:12px 10px!important;}
 #hd-result-table .cell-wrap>.wrap {display:block;min-width:0;max-width:100%;width:100%;}
 #hd-result-table td :is(.prose,.html-container),#hd-result-table [role="gridcell"] :is(.prose,.html-container) {max-width:100%;margin:0;}
-#hd-result-table tbody tr:hover td,#hd-result-table [role="row"]:hover [role="gridcell"] {background:#f0f5fc!important;}
-#hd-result-table td.selected,#hd-result-table [role="gridcell"].selected {background:#eaf1fb!important;}
-#hd-result-table tr:has(.hd-file-active) td,#hd-result-table [role="row"]:has(.hd-file-active) [role="gridcell"] {background:#eaf1fb!important;}
-#hd-result-table tr:has(.hd-file-active) td:first-child,#hd-result-table [role="row"]:has(.hd-file-active) [role="gridcell"].first-column {box-shadow:inset 3px 0 #032b5c;}
+#hd-result-table tbody tr:hover td,#hd-result-table [role="row"]:hover [role="gridcell"] {background:var(--hd-row-hover,#f0f5fc)!important;}
+#hd-result-table td.selected,#hd-result-table [role="gridcell"].selected {background:var(--hd-row-selected,#eaf1fb)!important;}
+#hd-result-table tr:has(.hd-file-active) td,#hd-result-table [role="row"]:has(.hd-file-active) [role="gridcell"] {background:var(--hd-row-selected,#eaf1fb)!important;}
+#hd-result-table tr:has(.hd-file-active) td:first-child,#hd-result-table [role="row"]:has(.hd-file-active) [role="gridcell"].first-column {box-shadow:inset 3px 0 var(--hd-page-accent,#032b5c);}
 #hd-result-table .hd-file-cell {display:flex;align-items:center;gap:7px;min-width:0;line-height:1.6;}
 #hd-result-table .hd-file-name {display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:#162537;line-height:1.6;}
 #hd-result-table .hd-file-tag {display:inline-block;flex:none;padding:1px 4px;border:1px solid #dfe5ed;border-radius:4px;background:#f8fafc;color:#738095;font-size:10px!important;line-height:1.5;font-weight:500;}
@@ -72,14 +71,14 @@ SEARCH_CSS = """
 .hd-document-meta {color:#657184;line-height:1.8;font-size:12px;}
 .hd-document-meta span+span::before {content:' · ';padding:0 4px;}
 .hd-summary-card {background:#edf0f4!important;border:0!important;border-radius:15px!important;padding:18px!important;gap:8px!important;}
-.hd-summary-title {color:#032b5c;font-size:14px;font-weight:700;}
+.hd-summary-title {color:var(--hd-page-accent,#032b5c);font-size:14px;font-weight:700;}
 #hd-summary-body {background:transparent;border:0;box-shadow:none;font-size:13px;}
 #hd-summary-body .prose {font-size:13px;line-height:1.8;color:#334156;}
 #hd-summary-coverage {color:#657184;font-size:12px;}
-#hd-summary-request {align-self:flex-start;max-width:120px;min-width:110px;min-height:34px;font-size:12px;border:1px solid #cad6e6;background:white;color:#032b5c;}
+#hd-summary-request {align-self:flex-start;max-width:120px;min-width:110px;min-height:34px;font-size:12px;border:1px solid #cad6e6;background:white;color:var(--hd-page-accent,#032b5c);}
 .hd-evidence-box {border:1px solid #dfe4ed;border-radius:12px;padding:16px;font-size:13px;}
 .hd-evidence-label {font-size:12px;color:#657184;margin-bottom:12px;}
-.hd-evidence-box blockquote {margin:0;border-left:3px solid #032b5c;padding-left:12px;color:#263448;line-height:1.75;white-space:pre-wrap;}
+.hd-evidence-box blockquote {margin:0;border-left:3px solid var(--hd-page-accent,#032b5c);padding-left:12px;color:#263448;line-height:1.75;white-space:pre-wrap;}
 .hd-ai-note {font-size:11px;color:#657184;line-height:1.7;margin:0;}
 #hd-document-actions {margin-top:auto;gap:8px;} #hd-document-actions button {max-width:160px;min-width:110px;font-size:12px;min-height:38px;border:1px solid #dfe4ed;border-radius:999px;}
 #hd-download-file {font-size:12px;} #hd-empty-results {text-align:center;padding:60px 20px;color:#657184;}
@@ -90,7 +89,10 @@ SEARCH_CSS = """
 @media(max-width:760px) {
  #hd-search-intro {padding-top:36px;} #hd-search-intro h1 {font-size:38px;}
  #hd-search-bar {flex-wrap:wrap;border-radius:18px;padding:10px;gap:8px;}
- #hd-company {max-width:none;width:100%;flex-basis:100%!important;} #hd-keyword {border-left:0!important;}
+ #hd-type {order:1;min-width:115px!important;max-width:none;flex:1 1 115px!important;}
+ #hd-keyword {order:2;flex:1 1 120px!important;border-left:0!important;}
+ #hd-filter-reset {order:3;margin:0!important;}
+ #hd-search-submit {order:4;}
  #hd-inline-answer .hd-inline-answer-text {-webkit-line-clamp:2;}
  #hd-result-table {max-height:320px;}
 }
@@ -156,16 +158,14 @@ def build_search_page(companies: list, doc_types: list, demo_mode: bool = True) 
     with gr.Column(elem_id="hd-search-page") as container:
         intro = gr.HTML('<h1>Hyundap</h1><p>문서를 찾고, 필요한 내용을 요약해 드립니다.</p>', elem_id="hd-search-intro")
         with gr.Row(elem_id="hd-search-bar"):
-            company = gr.Dropdown(choices=[("전체 회사", "__all__"), *companies], value="__all__", label="회사", show_label=False, interactive=True, filterable=False, container=False, scale=2, min_width=170, elem_id="hd-company")
+            doc_type = gr.Dropdown(choices=[("모든 유형", "__all__"), *doc_types], value="__all__", label="문서 유형", show_label=False, filterable=False, interactive=True, container=False, min_width=135, elem_id="hd-type")
+            reset = gr.Button("초기화", variant="secondary", min_width=64, elem_id="hd-filter-reset")
             keyword = gr.Textbox(placeholder="문서를 검색하거나 질문해 보세요", label="검색어", show_label=False, container=False, lines=1, max_lines=1, max_length=2000, scale=4, min_width=120, elem_id="hd-keyword")
             submit = gr.Button("검색", variant="primary", elem_id="hd-search-submit", elem_classes=["hd-button"])
         answer = gr.HTML("", visible=False, elem_id="hd-inline-answer")
         feedback = gr.HTML("", elem_id="hd-search-feedback")
         with gr.Row(elem_id="hd-quick-searches") as quick:
             quick_buttons = [gr.Button(word, size="sm", min_width=70) for word in ["점검", "경제전망", "연구윤리", "산업동향"]]
-        with gr.Row(elem_id="hd-search-toolbar"):
-            doc_type = gr.Dropdown(choices=[("모든 유형", "__all__"), *doc_types], value="__all__", label="문서 유형", show_label=False, filterable=False, interactive=True, elem_id="hd-type")
-            reset = gr.Button("초기화", variant="secondary", elem_id="hd-filter-reset")
         empty = gr.HTML("", visible=False, elem_id="hd-empty-results")
         with gr.Row(visible=False, elem_id="hd-search-columns") as results_area:
             with gr.Column(scale=5, min_width=360, elem_id="hd-results-card", elem_classes=["hd-card"]):
@@ -186,4 +186,4 @@ def build_search_page(companies: list, doc_types: list, demo_mode: bool = True) 
                     source = gr.Button("출처 확인", interactive=False, variant="primary")
                     download = gr.Button("예시 파일 받기" if demo_mode else "다운로드", interactive=False, variant="secondary")
                 download_file = gr.File(label="예시 파일 · 실제 원문이 아닙니다" if demo_mode else "다운로드 파일", interactive=False, visible=False, elem_id="hd-download-file")
-    return dict(container=container, intro=intro, company=company, keyword=keyword, submit=submit, answer=answer, feedback=feedback, quick=quick, quick_buttons=quick_buttons, doc_type=doc_type, reset=reset, empty=empty, results_area=results_area, table=table, caption=caption, detail=detail, summary=summary, coverage=coverage, summarize=summarize, evidence=evidence, detail_feedback=detail_feedback, source=source, download=download, download_file=download_file)
+    return dict(container=container, intro=intro, keyword=keyword, submit=submit, answer=answer, feedback=feedback, quick=quick, quick_buttons=quick_buttons, doc_type=doc_type, reset=reset, empty=empty, results_area=results_area, table=table, caption=caption, detail=detail, summary=summary, coverage=coverage, summarize=summarize, evidence=evidence, detail_feedback=detail_feedback, source=source, download=download, download_file=download_file)
