@@ -60,14 +60,16 @@
 | B2 | 문서 청크 받기 | `embedding.get_document_chunks` | 공개 버전 청크(VectorHit)를 순서대로. 조회 오류는 RETRIEVAL_FAILED |
 | B2-1 | 형식 맞추기 | `summarize_document` 안에서 | VectorHit(metadata) → `search.models.ChunkHit`. 형식 오류는 감추지 않고 그대로 드러냄 |
 | B3 | 문서 접근 확인 | `recheck_before_return(user, 청크)` → `verify_documents_access` | 받은 청크의 실제 (문서ID, 버전ID)로 확인. 볼 수 없으면 **LLM 호출 전에** 중단 (DB 계약은 버전ID 없는 확인을 받지 않음) |
-| B4 | 상한 적용 | `limit_summary_chunks` | 64개 넘으면 뒤는 제외 |
-| B5 | 이름표 | `assign_aliases` | 문서 전체에 E1~En 한 번만 |
-| B6 | 부분 요약 | `summarize_batch` × (8개씩) | 묶음마다 요약 + 인용 검사. **내용 없는 묶음(NO_EVIDENCE)은 건너뜀**, 전부 비면 NO_EVIDENCE |
-| B7 | 병합 | `merge_summaries` | 8개씩 합치기를 하나 남을 때까지. **입력 부분 요약에 나온 이름표만 허용** |
-| B8 | 범위 계산 | `compute_coverage` | `포함 p.1~p.64`, `제외 p.65 이후`, is_full |
-| B9 | 출처·번호 | `build_citation`, `render_answer` | |
-| B10 | 재검증 | `recheck_before_return` | |
-| B11 | 반환 | SummaryResponse | |
+| B4 | 구간 계획 | `plan_summary_segments` | tiktoken으로 센 토큰 기준. 한 호출 입력 23만 토큰(`SUMMARY_INPUT_TOKEN_BUDGET`)에서 넘겨받는 요약 몫·프롬프트 고정분을 뺀 단계 상한으로 1~3구간. 고르게 나눠지면 고르게, 3구간을 넘는 뒤쪽은 제외 |
+| B5 | 이름표 | `assign_aliases` | 사용 청크 전체에 E1~En 한 번만 |
+| B6 | 구간별 직렬 요약 | `summarize_rolling` → `summarize_step` | 구간 1 요약 → (구간 1 요약 + 구간 2 원문) 요약 → … 호출은 구간 수만큼, 최대 3회, 항상 하나씩. 각 단계는 **그 단계가 본 이름표(이번 구간 + 이전 요약)만 허용**. 인용 오류는 총 3회 안에서 같은 단계 재시도. 중간 구간이 끝내 실패하면 그 구간만 빼고 이전 요약을 넘김 |
+| B7 | 최종 단계 스트리밍 | `stream_summary` | 줄이 완성될 때마다 인용 검사, **통과한 줄만** `delta`로 화면에 보냄. 스트리밍이 거절되면(조직 인증) 한 번에 받음. 입력 길이 초과로 거절되면 상한을 15% 줄여 B4부터 한 번 다시 |
+| B8 | 범위 계산 | `compute_coverage`, `format_excluded` | `포함 p.1~p.230`, 제외는 `예산 초과로 제외 p.231~p.300` · `근거 확인 실패로 제외 p.9~p.16`. 뺀 것이 있으면 is_full=False |
+| B9 | 출처·번호 | `collect_citations`, `render_answer` | 화면 번호는 스트리밍 중(`AliasLineRenderer`)과 같은 규칙 |
+| B10 | 재검증 | `recheck_before_return` | 실패하면 `reset` 후 오류 |
+| B11 | 반환 | `done` 이벤트의 SummaryResponse | `summarize_document`는 이 결과만 돌려준다 |
+
+이벤트(`summarize_document_stream`): `status`(진행 단계) · `delta`(검사를 통과한 화면용 줄) · `reset`(보낸 글을 지우고 다시) · `done`(SummaryResponse). 서버 전체에서 요약은 한 번에 1개만 돈다(`SUMMARY_MAX_CONCURRENT`). UI 연결 방법은 [summary_stream.md](summary_stream.md).
 
 ### 호출 트리
 
@@ -105,23 +107,32 @@ ui.services.BackendServices.ask (박경환)
          to_feedback_access · to_feedback_status (426 보조)
 
 ui.services.BackendServices.summarize (박경환)
-└─ summarize_document(document_id, user)              FUN-420
-   ├─ summarize_document_load                         FUN-420 보조  청크 조회 (오류 → RETRIEVAL_FAILED)
-   │   ├─ embedding.get_document_chunks               (박영준)
-   │   └─ summarize_document_to_hit × n               FUN-420 보조  VectorHit → ChunkHit
-   ├─ recheck_before_return (사전 확인)               FUN-407 → verify_documents_access (전재경)
-   ├─ limit_summary_chunks → assign_aliases           FUN-424, 411
-   ├─ summarize_document_partials                     FUN-420 보조  8개씩 부분 요약
-   ├─ summarize_document_empty_error                  FUN-420 보조  부분 요약이 없을 때 원인별 오류
-   │   └─ summarize_batch × 묶음 → build_summary_chain  FUN-421, 410
-   ├─ merge_summaries                                 FUN-422
-   │   └─ merge_summaries_group × 묶음                FUN-422 보조
-   │       └─ merge_summaries_allowed                 FUN-422 보조  묶음에 나온 이름표만
-   ├─ build_citation × n                              FUN-415
-   ├─ recheck_before_return                           FUN-407
-   └─ summarize_document_response                     FUN-420 보조
-       ├─ compute_coverage                            FUN-423
-       └─ render_answer                               FUN-418
+└─ summarize_document(document_id, user)              FUN-420  스트림을 끝까지 돌려 SummaryResponse만
+   └─ summarize_document_stream                       FUN-420 보조  이벤트 제너레이터
+      ├─ acquire_summary_slot                         FUN-420 보조  동시 요약 1개
+      ├─ summarize_document_load                      FUN-420 보조  청크 조회 (오류 → RETRIEVAL_FAILED)
+      │   ├─ embedding.get_document_chunks            (박영준)
+      │   └─ summarize_document_to_hit × n            FUN-420 보조  VectorHit → ChunkHit
+      ├─ recheck_before_return (사전 확인)            FUN-407 → verify_documents_access (전재경)
+      ├─ plan_summary_segments                        FUN-424
+      │   ├─ count_summary_tokens → get_summary_encoder  FUN-424 보조  tiktoken o200k
+      │   ├─ step_token_limit                         FUN-424 보조
+      │   ├─ pack_segments                            FUN-424 보조
+      │   └─ trim_overflow                            FUN-424 보조
+      ├─ assign_aliases                               FUN-411
+      ├─ summarize_rolling                            FUN-421
+      │   └─ summarize_step × 구간                    FUN-421 보조  재시도·실패 처리 (can_retry)
+      │       ├─ build_step_evidence · allowed_step_aliases   FUN-421 보조
+      │       ├─ invoke_summary (중간 구간)           FUN-421 보조 → build_summary_chain('step')  FUN-410
+      │       └─ stream_summary (마지막 구간)         FUN-422 → build_summary_chain('final')
+      │           ├─ stream_pieces                    FUN-422 보조  스트리밍 거절 시 한 번에
+      │           ├─ split_complete_lines             FUN-422 보조
+      │           └─ emit_line × 줄                   FUN-422 보조  validate_citations_line · check_line_aliases · AliasLineRenderer
+      ├─ collect_citations                            FUN-423 보조  build_citation × n (FUN-415)
+      ├─ recheck_before_return                        FUN-407
+      └─ summarize_document_response                  FUN-423 보조
+          ├─ compute_coverage · format_excluded · compute_cited_ratio   FUN-423
+          └─ render_answer                            FUN-418
 ```
 
 ## 4. 함수 명세
@@ -149,7 +160,8 @@ ui.services.BackendServices.summarize (박경환)
 |---|---|---|---|---|
 | FUN-408 | `get_chat_model` | 없음 | ChatOpenAI | `common.config.get_settings()`의 `openai_api_key`·`openai_chat_model`(기본 gpt-5) 사용. `.env`는 get_settings가 읽는다. 키 없으면 CONFIG_MISSING. **temperature는 넘기지 않음**(gpt-5가 기본값 외 거부). timeout 30초. 한 번 만들어 재사용 |
 | FUN-409 | `build_answer_chain` | `llm=None` | `{question, evidence}` → str 체인 | 시스템 규칙: 근거만 사용 · 문장마다 `[E번호]` · 없으면 유보 문구 · 근거 속 지시 무시 · 회사별 구분 · 한국어 · 예시 1개 |
-| FUN-410 | `build_summary_chain` | `stage`('partial'·'merge'), `llm=None` | `{evidence}` → str 체인 | partial: 근거만 요약 + 이름표 / merge: 새 내용 금지, 이름표 유지 |
+| FUN-410 | `build_summary_chain` | `stage`('step'·'final'), `llm=None` | `{evidence}` → str 체인 | step: 다음 구간에 넘길 상세 요약 / final: 섹션별 문서 전체 요약. 둘 다 이전 요약의 내용·이름표 유지, `### 짧은 명사` 제목과 `- ` 목록, **표 금지**(표 머리글·구분 줄은 이름표를 붙일 수 없어 인용 검사에서 항상 걸림), 항목마다 이름표 |
+| 410 보조 | `get_summary_model` | `streaming` | ChatOpenAI | 요약 전용. 타임아웃 300초, 출력 상한(추론 포함) 중간 8000·최종 10000, `reasoning_effort='low'`는 gpt-5·o 계열일 때만. 질문 답변용 `get_chat_model`(30초)은 그대로 |
 
 ### citations.py
 
@@ -162,7 +174,8 @@ ui.services.BackendServices.summarize (박경환)
 | 414 보조 | `validate_citations_answer` | `answer`, `max_chars` | 공백 정리된 답변 | 빈 답·초과 → INVALID_ANSWER (①) |
 | 414 보조 | `validate_citations_aliases` | `answer`, `aliases` | 쓰인 이름표 | ②·③ |
 | 414 보조 | `validate_citations_line` | 답변 1줄 | 없음 | ④. 마크다운 제목 줄이면 바로 통과. 문장 앞 이름표(`LEADING_ALIASES`)는 앞에 무인용 문장이 있으면 그 문장의 근거 |
-| 414 보조 | `validate_citations_heading` | 답변 1줄 | bool | 줄 전체가 `### 제목`·`**제목**`·`__제목__`(뒤 `:` 허용)이고, 제목이 40자 이하이며 `.` `!` `?` `다` `요`로 끝나지 않고 이름표가 없으면 True |
+| 414 보조 | `validate_citations_heading` | 답변 1줄 | bool | 줄 전체가 `### 제목`·`**제목**`·`__제목__`(뒤 `:` 허용)이고, 제목이 40자 이하이며 문장 끝말(`HEADING_SENTENCE_ENDINGS`: `.` `!` `?` `다` `니다` `세요` `해요` `어요` `아요` `에요` `예요` `네요` `죠`)로 끝나지 않고 이름표가 없으면 True. `개요`·`중요`·`필요`처럼 `요`로 끝나는 명사 제목은 통과 (예전 규칙은 `요` 한 글자로 막아 요약의 `### 개요`가 거부됨) |
+| 414 보조 | `check_line_aliases` | 답변 1줄, 허용 이름표 | 없음 | 준 적 없는 이름표가 있으면 INVALID_CITATION. 요약 스트리밍에서 줄을 화면에 보내기 전에 쓴다 |
 | 414 보조 | `validate_citations_split` | 답변 1줄 | 문장 목록 | `SENTENCE_END`로 나누고 목록 기호 `-*#`·공백 제거 |
 | 414 보조 | `validate_citations_exempt` | 문장 1개 | bool | 이름표 있음·빈 문장·`:` 제목 줄·유보 표현이면 True |
 | FUN-415 | `build_citation` | `hit`, `number` | Citation | 필수 필드(company_name, file_name, document_id, location_label)가 비면 INVALID_CITATION. **version_id는 필수 아님**(실제 DB에 버전이 없어 빈 값 가능) |
@@ -170,23 +183,36 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-417 | `format_source_label` | `hit` | `A사 · 교육안내.pdf · p.2` | 빈 값은 건너뜀. 위치는 ingest의 location_label 그대로. 통합본은 입력을 metadata로 적었지만 ChunkHit 결정에 따라 hit을 받음 |
 | FUN-418 | `render_answer` | `answer`, `used` | (`…[1]…`, {이름표: 번호}) | 정규식으로 이름표 단위 치환 (E1·E10 섞임 없음) |
 | FUN-419 | `group_citations_by_company` | `citations` | `{회사명: [Citation]}` | 처음 나온 회사 순 |
+| 자료형 | `AliasLineRenderer.render` | 검사를 통과한 줄 | 화면용 줄 | `[E3]`을 처음 나온 순서대로 `[1]`로. `render_answer`와 같은 번호 규칙이라 스트리밍 중 번호와 최종 출처 번호가 같다 |
 
 ### summary.py
 
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
-| FUN-420 | `summarize_document` | `document_id`, `user` | SummaryResponse | 흐름 B 전체. 청크를 받은 뒤 실제 버전으로 접근 확인(B3). 함수 이름은 미정(D10)이라 제안 이름으로 구현 |
+| FUN-420 | `summarize_document` | `document_id`, `user` | SummaryResponse | `summarize_document_stream`을 끝까지 돌려 `done`의 결과만. ui가 지금 부르는 입구라 이름·반환 형식 유지. 함수 이름은 미정(D10)이라 제안 이름으로 구현 |
+| 420 보조 | `summarize_document_stream` | `document_id`, `user` | 이벤트 제너레이터 | 흐름 B 전체. 청크를 받은 뒤 실제 버전으로 접근 확인(B3). 입력 길이 초과면 상한 × `SUMMARY_REPLAN_RATIO`(0.85)로 한 번 다시 나눔. 재검증 실패는 `reset` 후 오류 |
+| 420 보조 | `acquire_summary_slot` | 없음 | (기다릴 때) status 이벤트 | 서버 전체 동시 요약 `SUMMARY_MAX_CONCURRENT`(1)개. 한 요약이 분당 토큰 한도를 크게 써서 동시에 돌면 질문 답변까지 한도 초과로 실패 |
+| 420 보조 | `summary_event` | 종류, 필드 | `{'type': 종류, …}` | 이벤트 형식을 한 곳에서 |
 | 420 보조 | `summarize_document_load` | `document_id` | `list[ChunkHit]` | embedding·search import와 청크 조회를 try 안에서 → 실패·ImportError는 RETRIEVAL_FAILED. metadata 형식 오류는 그대로 올림 |
 | 420 보조 | `summarize_document_to_hit` | VectorHit, ChunkHit 클래스 | ChunkHit | metadata 키로 변환, version_no·score는 None |
-| 420 보조 | `summarize_document_partials` | 이름표 사전 | (부분 요약 목록, 뺀 묶음 목록) | 8개씩 `summarize_batch`. NO_EVIDENCE 묶음은 건너뜀, INVALID_CITATION 묶음은 빼고 기록 |
-| 420 보조 | `summarize_document_empty_error` | 뺀 묶음 목록 | ChatbotError | 부분 요약이 하나도 없을 때: 뺀 묶음이 있으면 INVALID_CITATION('문서 근거를 확인할 수 있는 요약을 만들지 못했습니다. 다시 시도해 주세요.'), 없으면 NO_EVIDENCE('요약할 내용이 없습니다.') |
-| 420 보조 | `summarize_document_response` | 문서 ID, 전체·사용 청크, 뺀 묶음, 요약, 쓰인 이름표, 출처 | SummaryResponse | `compute_coverage` + 뺀 묶음이 있으면 제외 범위에 `근거 확인 실패로 제외 p.9~p.16`, is_full=False |
-| FUN-421 | `summarize_batch` | 이름표 최대 8개, `chain=None` | (부분 요약, 쓰인 이름표) | partial 체인 + 인용 검사 |
-| FUN-422 | `merge_summaries` | 부분 요약 목록, 전체 이름표, `batch_size=8` | 최종 요약 | 8개씩 병합 반복. 병합 결과는 **입력 부분 요약에 나온 이름표만** 허용 |
-| 422 보조 | `merge_summaries_group` | 부분 요약 묶음, 전체 이름표, 체인 | 합친 요약 | 병합 체인 실행 + 인용 검사 |
-| 422 보조 | `merge_summaries_allowed` | 부분 요약 묶음, 전체 이름표 | 이름표 사전 | 묶음에 실제로 나온 이름표만 |
-| FUN-423 | `compute_coverage` | 전체 청크, 사용 청크 | (포함 범위, 제외 범위, is_full) | 일부만 쓰면 is_full=False (WF-12) |
-| FUN-424 | `limit_summary_chunks` | `hits` | (사용, 제외) | 앞에서부터 MAX_SUMMARY_CHUNKS(64)개 |
+| FUN-421 | `summarize_rolling` | SummaryPlan, 이름표 사전 | (최종 요약 원문, 인용 검사로 뺀 구간) | 구간마다 status, 앞 구간 요약을 다음 입력에. 마지막 구간만 스트리밍 |
+| 421 보조 | `summarize_step` | 마지막 여부, 구간 이름표, 이전 요약, 전체 이름표, 호출 수, 남은 단계 | (요약 또는 None, 호출 수, 버렸는지) | INVALID_CITATION·INVALID_ANSWER는 `can_retry`면 재시도(마지막 단계는 먼저 `reset`). 중간 NO_EVIDENCE는 건너뜀. 중간 실패는 구간만 제외, 마지막 실패는 오류 |
+| 421 보조 | `build_step_evidence` | 구간 이름표, 이전 요약 | 입력 문자열 | `이전 요약:` / `이번 구간 근거:`로 나눠 적음 |
+| 421 보조 | `allowed_step_aliases` | 구간 이름표, 이전 요약, 전체 이름표 | 이름표 사전 | 이번 구간 + 이전 요약에 나온 이름표만 (예전 `merge_summaries_allowed`와 같은 원칙) |
+| 421 보조 | `can_retry` | 호출 수, 남은 단계 | bool | `호출 수 + 1 + 남은 단계 ≤ 3` → 1구간 최대 3회 중 재시도, 2구간 최대 3회, 3구간 재시도 없음 |
+| 421 보조 | `invoke_summary` | 입력, 허용 이름표 | 중간 요약 | `step` 체인 한 번 호출 + `validate_citations(…, MAX_SUMMARY_CHARS)` |
+| FUN-422 | `stream_summary` | 입력, 허용 이름표 | delta 이벤트들 → 최종 요약 원문 | `final` 체인 스트리밍. 줄 완성마다 `emit_line`, 끝에 마지막 줄·전체 검사 |
+| 422 보조 | `stream_pieces` | 체인, 입력 | 문자열 조각 | 스트리밍 거절(`is_stream_rejected`)이면 invoke 한 번. stream 없는 체인(테스트 대역)도 invoke. 그 밖 오류는 `to_llm_error` |
+| 422 보조 | `emit_line` | 줄, 허용 이름표, 렌더러, 줄 끝 | delta 이벤트 | `validate_citations_line` + `check_line_aliases` 통과 후 화면 번호로 |
+| 422 보조 | `split_complete_lines` | 버퍼 | (완성된 줄들, 남은 조각) | 마지막 줄바꿈 기준 |
+| 422 보조 | `is_stream_rejected` · `is_context_overflow` · `to_llm_error` | 예외 | bool / 오류 | `map_dependency_error`에 넘기기 전에 판별. 길이 초과는 내부 신호 `_ContextOverflow`(화면에 안 나감) |
+| FUN-423 | `compute_coverage` | 전체 청크, 사용 청크 | (포함 범위, 제외 범위, is_full) | 포함 범위만 응답에 씀 (제외 범위는 `format_excluded`) |
+| 423 보조 | `collect_citations` | 요약 원문, 이름표 | (쓰인 이름표, 출처, 인용 청크) | |
+| 423 보조 | `format_excluded` | 제외 청크, 사유 | `사유 p.7~p.10` | 사유: `예산 초과로 제외`, `근거 확인 실패로 제외` |
+| 423 보조 | `compute_cited_ratio` | 쓰인 이름표, 사용 청크 | float | 인용 청크 비율. 일부 구간이 요약에서 빠졌는지 보는 지표 |
+| 423 보조 | `summarize_document_response` | 문서 ID, 전체·사용 청크, 예산 초과 청크, 뺀 구간, 요약, 이름표, 출처 | SummaryResponse | 뺀 것이 있으면 제외 범위에 사유, is_full=False |
+| FUN-424 | `plan_summary_segments` | `hits`, 단계 상한 | SummaryPlan | 상한 단위로 담아 구간 수(≤3)를 정하고 고르게 나눠지면 고르게. 청크는 쪼개지 않음 |
+| 424 보조 | `get_summary_encoder` · `count_summary_tokens` · `step_token_limit` · `pack_segments` · `trim_overflow` | | | 인코더 1회 로드(실패 시 글자×2), 토큰×1.03, 23만−8천−1천, 상한까지 담기, 앞 3구간 외 제외 |
 
 ### models.py
 
@@ -219,7 +245,8 @@ ui.services.BackendServices.summarize (박경환)
 | ChatFilters (CLS-121) | `chatbot/models.py` | company_ids, doc_types, document_ids (모두 None 가능 = 허용 범위 전체) |
 | Citation (CLS-123) | `chatbot/models.py` | number, chunk_id, document_id, version_id, version_no, company_id, company_name, file_name, doc_type, location_label, excerpt, score |
 | ChatResponse (CLS-124) | `chatbot/models.py` | status(`ANSWERED`·`NO_EVIDENCE`), answer, citations, citations_by_company, document_ids, message, error_code |
-| SummaryResponse (CLS-125) | `chatbot/models.py` | document_id, version_id, summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks |
+| SummaryResponse (CLS-125) | `chatbot/models.py` | document_id, version_id, summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks, cited_ratio(추가, 기본값 0.0 — ui는 읽지 않아도 됨) |
+| SummaryPlan (내부) | `chatbot/models.py` | segments, excluded, total_tokens — summary 안에서만 씀 |
 
 가져오는 법 (이슈 #133): chatbot 안에서는 `from .models import ChatFilters, Citation, ChatResponse, SummaryResponse`, 다른 폴더에서는 `from hyundap.chatbot.models import ChatFilters`.
 
@@ -248,9 +275,12 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | MAX_QUESTION_CHARS | 2000 | 통합본 L50·L104와 같은 기준 |
 | MAX_ANSWER_CHARS | 20000 | 기존 L13 |
 | EXCERPT_MAX_CHARS | 300 | search 화면 발췌(200자)와 별개 |
-| SUMMARY_BATCH_SIZE / MAX_SUMMARY_CHUNKS | 8 / 64 | 기존 L15 / 제안값 (미정 D10) |
-| LLM | `get_settings()` 모델(기본 gpt-5), temperature 미지정, 30초 | 이성민 common.config |
-| 외부 AI 전송 | 질문 + 고른 근거만 | 사용자 정보·문서 전체는 보내지 않음 (미정 D17) |
+| SUMMARY_INPUT_TOKEN_BUDGET / SUMMARY_MAX_CALLS | 230,000 / 3 | gpt-5 입력 약 27.2만 토큰 중 23만. 넘으면 구간을 나눠 최대 3회 (글 위주 약 150~250쪽까지 1회, 약 66만 토큰까지 3회) |
+| SUMMARY_CARRY_TOKENS / SUMMARY_PROMPT_TOKENS / SUMMARY_TOKEN_MARGIN | 8,000 / 1,000 / 1.03 | 넘겨받는 요약 몫, 고정분, 토크나이저 여유 |
+| SUMMARY_TIMEOUT_SECONDS / SUMMARY_REASONING_EFFORT | 300 / low | 23만 토큰 입력은 30초로 끝나지 않음 |
+| SUMMARY_MAX_CONCURRENT / MAX_SUMMARY_CHARS | 1 / 30,000 | 분당 토큰 한도 보호 / 요약 글자 상한 (질문 답변 20000과 별개) |
+| LLM | `get_settings()` 모델(기본 gpt-5), temperature 미지정, 질문 30초·요약 300초 | 이성민 common.config |
+| 외부 AI 전송 | 질문 + 고른 근거만 / 요약은 선택 문서 청크 본문 | 사용자 정보는 보내지 않음 (미정 D17) |
 | 프롬프트 | 근거 속 지시문은 따르지 않음 | POL-10 |
 
 ## 8. 오류 코드
@@ -292,7 +322,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 - 리뷰 반영 중 `_setting`(설정 읽기 보조 함수)과 `DEFAULT_CHAT_MODEL`·`LLM_TEMPERATURE` 상수를 지웠다. `common.config.get_settings()`가 생겨 필요 없어졌다.
 - **가짜 함수 자리(개발용 주입 인자)를 코드에서 뺐다:** `ask`의 `retriever`·`checker`·`chain`, `retrieve_evidence`의 `retriever`, `generate_answer`의 `chain`, `recheck_before_return`의 `checker`, `summarize_document`의 `checker`·`get_chunks`·`llm`, `merge_summaries`의 `chain`, 임시 객체(SimpleNamespace) 대체. 통합본 FUN-403·405·407·420은 이 자리를 "개발 중 가짜 자리"로 적어 두었으므로 통합본 갱신 때 삭제를 요청한다. 시험은 코드 밖에서 가짜 모듈을 끼워 한다(12절).
 - **명세 밖 함수·인자를 뺐다:** `vector_to_chunk_hit`(제안 FUN-428 → VectorHit 변환은 `summarize_document` 안으로), `_to_filters`(dict 필터 변환 → 통합본대로 ChatFilters만 받음), `retrieve_evidence`의 `top_k`, `select_evidence`의 `max_per_document`·`max_total`, `limit_summary_chunks`의 `max_chunks`(모두 constants 값을 직접 씀), 오류 문구 `SESSION_EXPIRED`(통합본 오류 코드 10개만 유지).
-- 남긴 것: `summarize_batch`의 `chain`(요약 묶음마다 체인을 다시 만들지 않으려고 실제로 씀), `build_answer_chain`·`build_summary_chain`의 `llm`(통합본 인자).
+- 남긴 것: `build_answer_chain`·`build_summary_chain`의 `llm`(통합본 인자). (`summarize_batch`는 10/28 요약 개편으로 없어짐)
 
 ## 10. 코드 리뷰 반영 현황 (10/26)
 
@@ -306,7 +336,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | 5 | 내용 없는 묶음 하나로 요약 전체 실패 | 고침 — 그 묶음만 건너뜀 (FUN-420) |
 | 6 | 병합 검사가 문서 전체 이름표를 허용 | 고침 — 입력 부분 요약의 이름표만 허용 (FUN-422) |
 | 7 | 유보 판단이 문구 완전 일치에만 의존 | 고침 — `NO_EVIDENCE_HINTS` 표현 목록 (FUN-414) |
-| 8 | 부분 요약 LLM 호출이 순서대로라 느림 | 보류 — 동시 호출하려면 FUN-421 입력이 바뀌어 통합본 변경 필요 (P2) |
+| 8 | 부분 요약 LLM 호출이 순서대로라 느림 | 고침 — 8청크 묶음 9회 호출을 토큰 기준 최대 3회 직렬 요약으로 바꿈 (10/28 요약 개편) |
 | 9 | 요약 단계 형식 오류를 LLM 실패로 분류 | 고침 — 청크 조회만 RETRIEVAL_FAILED, 형식 오류는 그대로 (FUN-420·427) |
 | 10 | 문서 내용이 실제와 다름 | 고침 — 이 문서와 README 갱신 |
 | 11 | (DB 계약 반영) 재검증이 `False` 반환을 기다림 — 계약은 예외만 씀 | 고침 — 예외만 처리, STATE_CHANGED 변환 (FUN-407·427) |
@@ -336,7 +366,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | 번호 | 내용 | 지금 코드 | 확인할 사람 |
 |---|---|---|---|
 | D19 | 요약 경로 근거 형식(VectorHit) | `summarize_document_to_hit`에서 ChunkHit로 변환 | 박영준 공유 |
-| D10 | 요약 함수 이름·길이 | `summarize_document`, 청크 64개 | 박경환 |
+| D10 | 요약 함수 이름·길이 | `summarize_document`, 입력 23만 토큰·최대 3회 직렬 호출 (청크 64개 상한 폐지) | 박경환 |
 | D04 | 결과·필터 클래스 위치 | **확정 (10/26)** — 네 개 모두 `chatbot/models.py` | 이성민 결정, 통합본 반영은 이성민 |
 | D07 | 근거 개수 | 문서당 max(4, 8 // 문서 수)·전체 8 (#182로 문서 1개일 때 8) | 이준영·이성민 (정확도 테스트 후) |
 | D08 | 여러 회사 질문 | 필터 범위 전체에서 8개, 회사별 답변·출처 | 팀 |
@@ -352,7 +382,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 
 - 질문 흐름: 정상 답변·출처·회사별 묶음, search_chunks 인자, 재검증 인자, 근거 없음·유보, 지어낸 이름표·인용 없음·빈 답변 거부, SearchError 변환, 질문 길이, E1·E10 치환, 문서당 4개
 - DB 계약: AccessError STATE_CHANGED·ACCESS_DENIED·SESSION_EXPIRED(→ 재로그인 안내), DbError, 예상 못 한 오류 노출, 요약 사전 확인이 실제 버전으로·권한 없으면 LLM 호출 전 중단
-- 요약: 64/70 범위, 이름표 번호, 빈 묶음 건너뛰기, 청크 조회 오류, 형식 오류 노출
+- 요약(`test_chatbot_summary.py`): 1·2·3구간 호출 수와 순서, 고른 구간 나누기, 3구간 초과 제외 범위, 무인용 줄·없는 이름표 줄이 화면에 안 나감, 재시도 상한 3회, 중간 구간 실패 시 체인 유지, 스트리밍 거절 시 invoke, 길이 초과 시 재계획, 제목 규칙(개요 통과·…입니다 거부), 요약 모델 설정, 동시 실행 슬롯 해제
 - 모듈마다 통합본 함수만 있는지·인자 모양이 통합본과 같은지, `__all__`
 - 리뷰 수정: 문장별 인용, 바꿔 말한 유보, version_id 빈 값, 병합 이름표 제한, `get_settings`로 gpt-5 모델 생성, 키 없음 CONFIG_MISSING
 
