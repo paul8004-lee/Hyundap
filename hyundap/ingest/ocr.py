@@ -43,8 +43,8 @@ _engine = None
 
 
 def is_available():
-    """PaddleOCR·PaddlePaddle·pypdfium2(PDF 쪽 렌더링)가 모두 설치되어 있으면 True. 모델은 불러오지 않는다."""
-    return all(find_spec(name) is not None for name in ("paddleocr", "paddle", "pypdfium2"))
+    """PaddleOCR와 PaddlePaddle가 모두 설치되어 있으면 True. 모델은 불러오지 않는다."""
+    return find_spec("paddleocr") is not None and find_spec("paddle") is not None
 
 
 def _get_engine():

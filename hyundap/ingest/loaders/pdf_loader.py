@@ -7,6 +7,7 @@
     FUN-208 load_pdf — PDF 페이지 텍스트를 공통 문서로 읽는다."""
 
 import zlib
+from importlib.util import find_spec
 
 from langchain_community.document_loaders import PyPDFLoader
 from pypdf.errors import PyPdfError
@@ -62,6 +63,11 @@ def figure_crops(pdf, index):
             for left, bottom, right, top in boxes]
 
 
+def pdfium_available():
+    """PDF 쪽을 이미지로 그리는 pypdfium2가 설치되어 있으면 True. PDF OCR에만 필요하고 DOCX·PPTX 그림 OCR에는 필요 없다."""
+    return find_spec("pypdfium2") is not None
+
+
 def read_pages(file_path, upload_info, opened):
     """PDF를 페이지별로 읽어 페이지마다 섹션 1개를 가진 공통 문서 형식으로 바꾼다.
 
@@ -75,8 +81,10 @@ def read_pages(file_path, upload_info, opened):
 
     doc = CommonDocument(header=dict(upload_info))
     max_pages = get_settings().ocr_max_pages
-    page_ocr = ocr.is_available() and max_pages > 0   # 글자 없는 쪽 전체 OCR
+    can_render = pdfium_available()
+    page_ocr = ocr.is_available() and can_render and max_pages > 0   # 글자 없는 쪽 전체 OCR
     reader = figures.FigureReader()                   # 쪽 안의 그림 OCR (OCR_MAX_FIGURES가 0이면 꺼짐)
+    read_figures = reader.enabled and can_render
     pdf = None        # OCR할 쪽이 처음 나올 때만 연다
     ocr_count = 0
     over_limit = []   # 쪽 수 상한 때문에 OCR하지 않은 쪽 번호
@@ -84,7 +92,7 @@ def read_pages(file_path, upload_info, opened):
     for page in pages:
         section_no = page.metadata["page"] + 1
         text = page.page_content
-        if pdf is None and ((text.strip() == "" and page_ocr) or (text.strip() != "" and reader.enabled)):
+        if pdf is None and ((text.strip() == "" and page_ocr) or (text.strip() != "" and read_figures)):
             import pypdfium2
             pdf = pypdfium2.PdfDocument(file_path)
             opened.append(pdf)
@@ -101,7 +109,7 @@ def read_pages(file_path, upload_info, opened):
         elif text.strip() == "":
             doc.warnings.append(f"p.{section_no}: 글자가 없어 건너뜀")
             continue
-        elif reader.enabled:
+        elif read_figures:
             try:
                 crops = figure_crops(pdf, section_no - 1)
             except pypdfium2.PdfiumError:

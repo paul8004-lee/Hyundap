@@ -303,6 +303,19 @@ class OcrTests(IngestTestCase):
             load_pdf(self.path('scan.pdf'), dict(INFO))
         opened.return_value.close.assert_called_once()
 
+    def test_pdf_without_pdfium_skips_ocr_like_before(self):
+        """pypdfium2가 없으면 PDF OCR만 꺼지고 글자 없는 쪽은 예전처럼 건너뛰는지 확인한다."""
+        pages = [Document(page_content='', metadata={'page': 0}), Document(page_content='본문', metadata={'page': 1})]
+        with patch('hyundap.ingest.ocr.is_available', return_value=True), \
+                patch('hyundap.ingest.ocr.ocr_image') as read, \
+                patch('hyundap.ingest.loaders.pdf_loader.pdfium_available', return_value=False), \
+                patch('hyundap.ingest.loaders.pdf_loader.PyPDFLoader') as loader:
+            loader.return_value.load.return_value = pages
+            doc = load_pdf(self.path('scan.pdf'), dict(INFO))
+        read.assert_not_called()
+        self.assertEqual([s.section_no for s in doc.sections], [2])
+        self.assertEqual(doc.warnings, ['p.1: 글자가 없어 건너뜀'])
+
 
 class FigureOcrTests(IngestTestCase):
     """글자 레이어가 있는 쪽 안의 그림(그래프 등)은 그림 영역만 OCR해 본문 뒤에 붙여야 한다."""

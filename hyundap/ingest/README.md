@@ -147,7 +147,7 @@ DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다
 ## 사용 라이브러리
 
 - `pypdf`, `langchain-community`, `PyPDFLoader`, `python-docx`, `python-pptx`, `langchain-core`, `langchain-text-splitters`
-- OCR: `paddleocr`, `paddlepaddle`(3.2.0 고정, CPU), `pypdfium2`(PDF 쪽 렌더링). 의존성 추가는 팀에서 구두 승인받았습니다.
+- OCR: `paddleocr`, `paddlepaddle`(3.2.0 고정, CPU), `pypdfium2`(PDF 쪽 렌더링, PDF OCR에만 필요하고 없으면 PDF OCR만 꺼짐; DOCX·PPTX 그림 OCR은 영향 없음). 의존성 추가는 팀에서 구두 승인받았습니다.
 - 버전은 루트 `requirements.txt` 참고
 
 ## 참고
