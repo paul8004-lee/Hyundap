@@ -13,9 +13,12 @@
 PDF·DOCX·PPTX 로더가 같은 크기 기준·상한·중복 제거를 쓰도록 모아 둔 곳이다."""
 
 import io
+import logging
 
 from .. import ocr
 from hyundap.common.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 MIN_FIGURE_SIZE_PT = (60, 40)   # (너비, 높이) 이보다 작은 그림(로고·아이콘)은 읽지 않는다
 MIN_FIGURE_AREA = 0.01  # 쪽(슬라이드) 면적 대비 그림 면적 비율 하한
@@ -30,11 +33,12 @@ DUPLICATE_COVERAGE = 0.8  # 줄의 3글자 조각 중 본문에 있는 비율이
 MIN_PICTURE_PX = 40         # 이보다 작은 그림(점·선)은 읽지 않는다
 UPSCALE_TARGET_PX = 1000
 MAX_UPSCALE = 3
-MAX_PICTURE_PX = 8000       # 긴 변이 이보다 크면 줄여서 읽는다(메모리 폭증 방지)
+MAX_PICTURE_PX = 4000       # 긴 변이 이보다 크면 줄여서 읽는다(검출 모델 입력이 1920px이라 더 크게 읽어도 이득이 없다)
+MAX_PICTURE_PIXELS = 40_000_000   # 화소 수가 이보다 많은 그림은 열기 전에 건너뛴다(압축된 파일이 작아도 풀면 수 GB가 된다)
 
 
 class UnreadablePicture(Exception):
-    """그림 파일을 읽지 못함(EMF·WMF 같은 벡터 형식, 손상 등)."""
+    """그림 파일을 읽지 못함(EMF 같은 벡터 형식, 손상, 너무 큰 그림 등)."""
 
 
 def is_figure_size(width_pt, height_pt, page_area_pt=None):
@@ -74,23 +78,25 @@ def picture_to_array(blob):
     from PIL import Image
 
     try:
-        picture = Image.open(io.BytesIO(blob))
+        picture = Image.open(io.BytesIO(blob))   # 열기만 하고 화소는 아직 풀지 않는다
+        if picture.width * picture.height > MAX_PICTURE_PIXELS:
+            raise UnreadablePicture(f"그림이 너무 큼 ({picture.width}x{picture.height})")
+        if min(picture.size) < MIN_PICTURE_PX:
+            return None
         picture.load()
     except (OSError, ValueError, Image.DecompressionBombError) as error:   # UnidentifiedImageError는 OSError
         raise UnreadablePicture(str(error))
-    if min(picture.size) < MIN_PICTURE_PX:
-        return None
+    longest = max(picture.size)
+    if longest > MAX_PICTURE_PX:
+        # 흰 바탕 합성(메모리를 가장 많이 쓰는 단계) 전에 줄인다.
+        factor = MAX_PICTURE_PX / longest
+        picture = picture.resize((round(picture.width * factor), round(picture.height * factor)), Image.LANCZOS)
     picture = picture.convert("RGBA")
     white = Image.new("RGBA", picture.size, (255, 255, 255, 255))
     picture = Image.alpha_composite(white, picture).convert("RGB")
     longest = max(picture.size)
-    if longest > MAX_PICTURE_PX:
-        factor = MAX_PICTURE_PX / longest
-    elif longest < UPSCALE_TARGET_PX:
+    if longest < UPSCALE_TARGET_PX:
         factor = min(MAX_UPSCALE, UPSCALE_TARGET_PX / longest)
-    else:
-        factor = 1
-    if factor != 1:
         picture = picture.resize((round(picture.width * factor), round(picture.height * factor)), Image.LANCZOS)
     return numpy.ascontiguousarray(numpy.asarray(picture)[:, :, ::-1])
 
@@ -107,8 +113,15 @@ class FigureReader:
         self.enabled = ocr.is_available() and self.max_count > 0
         self.count = 0          # OCR한 그림 수(상한 대상)
         self.appended = 0       # 글자를 읽어 본문에 붙인 그림 수
-        self.unreadable = 0     # 형식을 읽지 못해 건너뛴 그림 수(EMF·WMF 등)
+        self.unreadable = 0     # 형식을 읽지 못해 건너뛴 그림 수(EMF 등)
         self.capped = False     # 상한 때문에 읽지 않은 그림이 있는지
+        self.failed = 0         # OCR 엔진 오류로 읽지 못한 그림 수(오류가 나면 이 문서의 그림 OCR을 멈춘다)
+        self.objects_read = 0   # 글자를 읽은 개체 수. 그림이 여러 장 든 개체(DOCX의 w:drawing)도 1로 센다
+
+    @property
+    def exhausted(self):
+        """상한만큼 읽었으면 True. 더 읽지 않을 그림을 그리느라 시간을 쓰지 않으려고 로더가 먼저 확인한다."""
+        return self.count >= self.max_count
 
     def read_array(self, array, page_text=""):
         """OCR용 배열 한 장에서 읽은 글자(본문과 겹치는 줄 제외)를 돌려준다. 없거나 상한을 넘으면 빈 문자열."""
@@ -118,7 +131,13 @@ class FigureReader:
             self.capped = True
             return ""
         self.count += 1
-        text = ocr.ocr_image(array, min_score=MIN_FIGURE_SCORE)
+        try:
+            text = ocr.ocr_image(array, min_score=MIN_FIGURE_SCORE)
+        except Exception:   # 모델 내려받기 실패 등 엔진 오류: 업로드 전체가 실패하지 않고 그림 OCR만 끈다
+            logger.exception("그림 OCR 중 오류가 났습니다. 이 문서의 나머지 그림은 읽지 않습니다")
+            self.failed += 1
+            self.enabled = False
+            return ""
         text = drop_duplicate_lines(text, page_text() if callable(page_text) else page_text).strip()
         if text:
             self.appended += 1
@@ -147,7 +166,9 @@ class FigureReader:
         if self.appended:
             messages.append(f"그림 속 글자를 OCR로 읽어 본문에 붙임: {extra}그림 {self.appended}개")
         if self.unreadable:
-            messages.append(f"읽을 수 없는 형식의 그림 {self.unreadable}개는 건너뜀 (EMF·WMF 등)")
+            messages.append(f"읽을 수 없는 형식의 그림 {self.unreadable}개는 건너뜀 (EMF 등)")
+        if self.failed:
+            messages.append("OCR 엔진 오류로 이 문서의 나머지 그림은 읽지 않음 (로그 확인)")
         if self.capped:
             messages.append(f"그림 OCR은 문서당 {self.max_count}개까지라 나머지 그림은 읽지 않음")
         return messages

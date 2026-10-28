@@ -6,6 +6,7 @@
 함수:
     FUN-208 load_pdf — PDF 페이지 텍스트를 공통 문서로 읽는다."""
 
+import logging
 import zlib
 from importlib.util import find_spec
 
@@ -22,6 +23,8 @@ from ..models import CORRUPTED_FILE, IngestError
 # 깨진 PDF를 읽을 때 pypdf가 내는 예외들 (Ascii85/UTF-16 해석 실패, 미지원 필터, 압축 오류 포함).
 # 이 목록은 load() 호출 한 줄에만 적용하므로 패키지 미설치(ImportError)·코드 실수는 가리지 않는다.
 PDF_READ_ERRORS = (PyPdfError, ValueError, UnicodeDecodeError, NotImplementedError, zlib.error, KeyError, IndexError)
+
+logger = logging.getLogger(__name__)
 
 OCR_DPI = 200          # 쪽을 이미지로 바꿀 해상도
 OCR_MAX_SIDE_PX = 4000  # 아주 큰 쪽(포스터 등)은 긴 변이 이 값을 넘지 않게 줄인다
@@ -41,26 +44,34 @@ def render_page(pdf, index):
     return page.render(scale=scale).to_numpy()
 
 
-def figure_crops(pdf, index):
+def figure_crops(pdf, index, reader=None):
     """index번째 쪽(0부터) 안의 그림을 잘라 BGR 배열 목록으로 돌려준다.
 
-    너무 작은 그림(로고)과 쪽 전체를 덮는 그림(스캔 배경·표지)은 뺀다."""
+    너무 작은 그림(로고)과 쪽 전체를 덮는 그림(스캔 배경·표지)은 뺀다. 쪽 밖에 놓여 잘라 낼 영역이 없는 그림도 뺀다.
+    reader가 이미 상한만큼 읽었으면 쪽을 그리지 않고(300dpi 렌더링은 느리다) 읽지 않은 그림이 있다고만 표시한다."""
     import pypdfium2.raw as pdfium_raw
 
     page = pdf[index]
+    page.set_rotation(0)   # 그림 위치(obj.get_bounds)는 회전 전 좌표라서 쪽 회전(/Rotate)을 풀어야 영역이 맞는다. 메모리 속 쪽만 바꾼다.
     width, height = page.get_size()
+    origin_left, origin_bottom = page.get_cropbox()[:2]   # 보이는 영역(CropBox)이 좌표 원점에서 떨어져 있을 수 있다
     boxes = []
     for obj in page.get_objects(filter=[pdfium_raw.FPDF_PAGEOBJ_IMAGE]):
         left, bottom, right, top = obj.get_bounds()
+        left, right, bottom, top = left - origin_left, right - origin_left, bottom - origin_bottom, top - origin_bottom
         if figures.is_figure_size(right - left, top - bottom, width * height):
             boxes.append((left, bottom, right, top))
     if not boxes:
         return []
+    if reader is not None and reader.exhausted:
+        reader.capped = True
+        return []
     scale = min(FIGURE_DPI / 72, FIGURE_MAX_SIDE_PX / max(width, height))
     image = page.render(scale=scale).to_numpy()
-    return [image[max(int((height - top) * scale), 0):int((height - bottom) * scale),
-                  max(int(left * scale), 0):int(right * scale)]
-            for left, bottom, right, top in boxes]
+    crops = [image[max(int((height - top) * scale), 0):int((height - bottom) * scale),
+                   max(int(left * scale), 0):int(right * scale)]
+             for left, bottom, right, top in boxes]
+    return [crop for crop in crops if crop.shape[0] > 0 and crop.shape[1] > 0]
 
 
 def pdfium_available():
@@ -86,22 +97,37 @@ def read_pages(file_path, upload_info, opened):
     reader = figures.FigureReader()                   # 쪽 안의 그림 OCR (OCR_MAX_FIGURES가 0이면 꺼짐)
     read_figures = reader.enabled and can_render
     pdf = None        # OCR할 쪽이 처음 나올 때만 연다
+    pdf_failed = False   # PDF를 그림으로 열지 못했거나 OCR 엔진이 오류를 냈으면 이 문서의 OCR을 멈춘다
     ocr_count = 0
     over_limit = []   # 쪽 수 상한 때문에 OCR하지 않은 쪽 번호
     figure_pages = 0  # 그림 속 글자를 본문에 붙인 쪽 수
     for page in pages:
         section_no = page.metadata["page"] + 1
         text = page.page_content
-        if pdf is None and ((text.strip() == "" and page_ocr) or (text.strip() != "" and read_figures)):
-            import pypdfium2
-            pdf = pypdfium2.PdfDocument(file_path)
-            opened.append(pdf)
+        if pdf is None and not pdf_failed and ((text.strip() == "" and page_ocr) or (text.strip() != "" and read_figures)):
+            try:
+                import pypdfium2
+                pdf = pypdfium2.PdfDocument(file_path)
+                opened.append(pdf)
+            except Exception:   # 쪽을 그리지 못하면 OCR 없이 예전처럼 건너뛴다
+                logger.exception("PDF를 OCR용으로 열지 못했습니다. 이 문서의 OCR을 건너뜁니다")
+                pdf_failed = True
+                doc.warnings.append("OCR용으로 PDF를 열지 못해 OCR을 건너뜀")
+        if pdf_failed:
+            page_ocr = read_figures = False
         if text.strip() == "" and page_ocr:
             if ocr_count >= max_pages:
                 over_limit.append(section_no)   # 경고는 문서 끝에서 한 줄로 모은다(쪽마다 남기면 보고서가 길어진다)
                 continue
             ocr_count += 1
-            text = ocr.ocr_image(render_page(pdf, section_no - 1))
+            try:
+                text = ocr.ocr_image(render_page(pdf, section_no - 1))
+            except Exception:   # 쪽을 그리지 못했거나 OCR 엔진 오류(모델 내려받기 실패 등): 업로드 전체가 실패하지 않게 건너뛴다
+                logger.exception("p.%d: OCR 중 오류가 났습니다. 이 문서의 OCR을 멈춥니다", section_no)
+                pdf_failed = True
+                page_ocr = read_figures = False
+                doc.warnings.append(f"p.{section_no}: OCR 중 오류가 나 건너뜀 (이 문서의 OCR을 멈춤, 로그 확인)")
+                continue
             if text.strip() == "":
                 doc.warnings.append(f"p.{section_no}: OCR로도 글자를 읽지 못해 건너뜀")
                 continue
@@ -109,10 +135,11 @@ def read_pages(file_path, upload_info, opened):
         elif text.strip() == "":
             doc.warnings.append(f"p.{section_no}: 글자가 없어 건너뜀")
             continue
-        elif read_figures:
+        elif read_figures and reader.enabled:
             try:
-                crops = figure_crops(pdf, section_no - 1)
-            except pypdfium2.PdfiumError:
+                crops = figure_crops(pdf, section_no - 1, reader)
+            except Exception:   # pypdfium2 오류 등: 본문은 그대로 두고 그림만 건너뛴다
+                logger.exception("p.%d: 그림 영역을 잘라 내지 못했습니다", section_no)
                 doc.warnings.append(f"p.{section_no}: 그림 속 글자 읽기를 건너뜀 (그림을 읽지 못함)")
                 crops = []
             figure_text = "\n".join(line for line in (reader.read_array(crop, text) for crop in crops) if line)

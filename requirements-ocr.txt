@@ -1,0 +1,6 @@
+# 선택 설치: 스캔 PDF·문서 속 그림의 OCR (ingest). 설치하지 않아도 업로드는 OCR 없이 예전처럼 동작한다.
+# 설치: pip install -r requirements.txt -r requirements-ocr.txt
+# 주의: paddleocr가 paddlex를 끌고 와서 numpy(2.5.x → 2.3.x)와 PyYAML(6.0.3 → 6.0.2)이 내려간다.
+# paddlepaddle 3.3.x는 CPU oneDNN 오류가 나서 3.2.0으로 고정한다.
+paddlepaddle==3.2.0
+paddleocr==3.7.0

@@ -14,10 +14,13 @@ import threading
 import types
 import unittest
 import zipfile
+import time
 import zlib
+from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
+import numpy
 from docx import Document as DocxDocument
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.opc.packuri import PackURI
@@ -35,7 +38,7 @@ from pptx.util import Inches
 
 from hyundap.common.config import get_settings
 from hyundap.ingest import ocr
-from hyundap.ingest.loaders import charts, figures
+from hyundap.ingest.loaders import charts, figures, pdf_loader
 from hyundap.ingest.loaders.base import table_to_text
 from hyundap.ingest.loaders.docx_loader import load_docx
 from hyundap.ingest.loaders.pdf_loader import load_pdf
@@ -105,6 +108,10 @@ def add_docx_chart(document, paragraph, blob):
         f'<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="{rid}"/>'
         f'</a:graphicData></a:graphic></wp:inline></w:drawing>')
     paragraph.add_run()._r.append(drawing)
+
+
+# PDF 쪽을 그리는 pypdfium2가 설치되어 있어야 하는 테스트에 붙인다(OCR 의존성은 선택 설치라 없으면 건너뛴다).
+PDFIUM = unittest.skipUnless(find_spec('pypdfium2'), 'pypdfium2가 설치되어 있어야 함')
 
 
 INFO = {'document_id': 'd1', 'version_id': 'v1', 'company_id': 'c1',
@@ -238,6 +245,7 @@ class OcrTests(IngestTestCase):
         super().setUp()
         Path(self.path('scan.pdf')).write_bytes(minimal_pdf(''))   # 글자 없는 쪽 1장
 
+    @PDFIUM
     def test_page_without_text_is_read_by_ocr(self):
         """글자 없는 쪽이 OCR 결과로 섹션이 되고, 경고에 OCR로 읽었다고 남는지 확인한다."""
         with patch('hyundap.ingest.ocr.is_available', return_value=True), \
@@ -267,6 +275,7 @@ class OcrTests(IngestTestCase):
         self.assertEqual((result.status, result.error_code), ('failed', 'EMPTY_DOCUMENT'))
         read.assert_not_called()
 
+    @PDFIUM
     def test_ocr_reading_nothing_is_empty_document(self):
         """OCR로도 글자가 없으면 EMPTY_DOCUMENT가 되고 경고가 남는지 확인한다."""
         doc = None
@@ -277,6 +286,7 @@ class OcrTests(IngestTestCase):
         self.assertEqual(doc.warnings, ['p.1: OCR로도 글자를 읽지 못해 건너뜀'])
         self.assertEqual((result.status, result.error_code), ('failed', 'EMPTY_DOCUMENT'))
 
+    @PDFIUM
     def test_ocr_stops_at_page_limit(self):
         """OCR 쪽 수 상한을 넘은 쪽은 OCR하지 않고 경고만 남기는지 확인한다."""
         pages = [Document(page_content='', metadata={'page': n}) for n in range(3)]
@@ -291,6 +301,7 @@ class OcrTests(IngestTestCase):
         self.assertEqual([s.section_no for s in doc.sections], [1])
         self.assertEqual(doc.warnings[1:], ['2쪽(p.2~p.3)은 글자가 없어 건너뜀 (OCR은 문서당 1쪽까지)'])   # 쪽마다가 아니라 한 줄로 모은다
 
+    @PDFIUM
     def test_pdfium_document_is_closed_after_reading(self):
         """쪽을 그리려고 연 PDF 문서를 읽은 뒤 닫는지 확인한다(안 닫으면 Windows에서 파일이 잠긴다)."""
         pages = [Document(page_content='', metadata={'page': 0})]
@@ -320,13 +331,15 @@ class OcrTests(IngestTestCase):
 class FigureOcrTests(IngestTestCase):
     """글자 레이어가 있는 쪽 안의 그림(그래프 등)은 그림 영역만 OCR해 본문 뒤에 붙여야 한다."""
 
-    def read_figures(self, sizes, ocr_text='24.Q1 Q2 Q3\n전기비', text='Hello Elevator'):
-        Path(self.path('mixed.pdf')).write_bytes(pdf_with_images(text, sizes))
+    def read_figures(self, sizes, ocr_text='24.Q1 Q2 Q3\n전기비', text='Hello Elevator', page_extra=b''):
+        """page_extra는 쪽 사전에 덧붙일 항목(예: b'/Rotate 90 /CropBox [5 5 395 395]')이다."""
+        Path(self.path('mixed.pdf')).write_bytes(pdf_with_images(text, sizes).replace(b'/MediaBox', page_extra + b' /MediaBox', 1))
         with patch('hyundap.ingest.ocr.is_available', return_value=True), \
                 patch('hyundap.ingest.ocr.ocr_image', return_value=ocr_text) as read:
             doc = load_pdf(self.path('mixed.pdf'), dict(INFO))
         return doc, read
 
+    @PDFIUM
     def test_figure_text_is_appended_after_page_text(self):
         """그림에서 읽은 글자가 본문 뒤에 붙고, 그림 영역만 300dpi로 잘려 OCR에 전달되는지 확인한다."""
         doc, read = self.read_figures([(200, 150)])
@@ -338,6 +351,20 @@ class FigureOcrTests(IngestTestCase):
         self.assertLessEqual(abs(crop.shape[1] - 834), 2)   # 200pt x 300dpi
         self.assertEqual(crop.shape[2], 3)
 
+    @PDFIUM
+    def test_rotated_and_cropped_pages_cut_the_same_figure_area(self):
+        """쪽이 회전(/Rotate)돼 있거나 보이는 영역(CropBox)이 원점에서 떨어져 있어도 그림 영역을 맞게 잘라 내는지 확인한다.
+
+        예전에는 90·180·270도 쪽에서 잘못된 영역이 잘려 그림 속 글자를 경고 없이 놓쳤다."""
+        for extra in (b'/Rotate 90', b'/Rotate 180', b'/Rotate 270', b'/CropBox [5 5 395 395]', b'/Rotate 90 /CropBox [5 5 395 395]'):
+            with self.subTest(extra=extra):
+                doc, read = self.read_figures([(200, 150)], page_extra=extra)
+                crop = read.call_args.args[0]
+                self.assertLessEqual(abs(crop.shape[0] - 625), 2)   # 150pt x 300dpi
+                self.assertLessEqual(abs(crop.shape[1] - 834), 2)   # 200pt x 300dpi
+                self.assertEqual(float(crop.mean()) < 255 and crop.min() < 255, True)   # 흰 화면(영역이 어긋남)이 아니다
+                self.assertEqual(doc.warnings, ['그림 속 글자를 OCR로 읽어 본문에 붙임: 1쪽, 그림 1개'])
+
     def test_small_and_full_page_images_are_skipped(self):
         """로고 크기의 작은 그림과 쪽 전체를 덮는 그림은 OCR하지 않는지 확인한다."""
         for sizes in ([(30, 20)], [(380, 380)]):
@@ -347,6 +374,7 @@ class FigureOcrTests(IngestTestCase):
                 self.assertEqual(doc.sections[0].text.strip(), 'Hello Elevator')
                 self.assertEqual(doc.warnings, [])
 
+    @PDFIUM
     def test_lines_already_in_page_text_are_dropped(self):
         """본문에 이미 있는 긴 줄은 빼고 짧은 눈금·범례는 남기는지 확인한다."""
         doc, _ = self.read_figures([(200, 150)], ocr_text='Hello Elevator\n24.Q1 Q2 Q3\nQ4')
@@ -367,8 +395,10 @@ class FigureOcrTests(IngestTestCase):
                 doc, _ = self.read_figures([(200, 150)], ocr_text=near, text=page)
                 self.assertEqual(doc.sections[0].text.strip(), page)
 
+    @PDFIUM
     def test_pdfium_error_keeps_page_text(self):
         """그림을 읽지 못해도 본문은 그대로 두고 경고만 남기는지 확인한다."""
+        self.enterContext(self.assertLogs('hyundap.ingest.loaders.pdf_loader', 'ERROR'))   # 일부러 낸 오류의 로그가 테스트 출력에 섞이지 않게 한다
         import pypdfium2
         Path(self.path('mixed.pdf')).write_bytes(pdf_with_images('Hello Elevator', [(200, 150)]))
         with patch('hyundap.ingest.ocr.is_available', return_value=True), \
@@ -379,6 +409,7 @@ class FigureOcrTests(IngestTestCase):
         self.assertEqual(doc.sections[0].text.strip(), 'Hello Elevator')
         self.assertEqual(doc.warnings, ['p.1: 그림 속 글자 읽기를 건너뜀 (그림을 읽지 못함)'])
 
+    @PDFIUM
     def test_figure_count_is_capped_per_document(self):
         """문서당 그림 OCR 수 상한을 넘는 그림은 읽지 않고 경고를 남기는지 확인한다."""
         with ocr_settings(OCR_MAX_FIGURES=1):
@@ -410,9 +441,17 @@ class FigurePictureTests(unittest.TestCase):
         self.assertEqual(figures.picture_to_array(png_bytes(500, 100)).shape, (200, 1000, 3))
 
     def test_large_picture_is_kept_or_shrunk(self):
-        """긴 변이 1000~8000px이면 그대로, 8000px을 넘으면 8000px로 줄이는지 확인한다."""
+        """긴 변이 1000~4000px이면 그대로, 4000px을 넘으면 4000px로 줄이는지 확인한다."""
         self.assertEqual(figures.picture_to_array(png_bytes(1200, 100)).shape, (100, 1200, 3))
-        self.assertEqual(figures.picture_to_array(png_bytes(9000, 100)).shape, (89, 8000, 3))
+        self.assertEqual(figures.picture_to_array(png_bytes(9000, 100)).shape, (44, 4000, 3))
+
+    def test_picture_with_too_many_pixels_is_rejected_before_loading(self):
+        """화소 수가 상한을 넘는 그림은 화소를 풀기 전에 읽을 수 없는 그림으로 처리하는지 확인한다(메모리 폭증 방지)."""
+        blob = png_bytes(100, 100)   # 그림을 만들 때도 load가 불리므로 patch 밖에서 만든다
+        with patch.object(figures, 'MAX_PICTURE_PIXELS', 5000), patch('PIL.Image.Image.load') as load:
+            with self.assertRaises(figures.UnreadablePicture):
+                figures.picture_to_array(blob)
+        load.assert_not_called()
 
     def test_transparent_background_becomes_white(self):
         """투명 배경이 검정이 아니라 흰색으로 채워지는지 확인한다(검정이면 글자가 안 보인다)."""
@@ -494,7 +533,7 @@ class DocxFigureOcrTests(IngestTestCase):
         self.assertEqual(doc.sections[0].text, 'Hello Elevator world\n\nQ4')
 
     def test_unreadable_picture_format_is_warned_not_fatal(self):
-        """EMF·WMF처럼 읽을 수 없는 그림은 경고만 남기고 나머지 문서를 읽는지 확인한다."""
+        """EMF처럼 읽을 수 없는 그림은 경고만 남기고 나머지 문서를 읽는지 확인한다."""
         document = DocxDocument()
         document.add_paragraph('본문')
         document.add_picture(io.BytesIO(png_bytes()), width=Inches(3))
@@ -507,7 +546,7 @@ class DocxFigureOcrTests(IngestTestCase):
         read.assert_not_called()
         self.assertEqual(doc.sections[0].text, '본문')
         self.assertEqual(doc.warnings, ['그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음',
-                                        '읽을 수 없는 형식의 그림 1개는 건너뜀 (EMF·WMF 등)'])
+                                        '읽을 수 없는 형식의 그림 1개는 건너뜀 (EMF 등)'])
 
     def test_without_ocr_engine_pictures_are_not_touched(self):
         """PaddleOCR가 없으면 그림을 읽지 않고 예전처럼 개수만 경고하는지 확인한다."""
@@ -615,6 +654,7 @@ class OcrLimitTests(IngestTestCase):
         self.assertEqual(doc.sections[0].text.strip(), 'Hello Elevator')
         self.assertEqual(doc.warnings, [])
 
+    @PDFIUM
     def test_page_limit_warning_names_the_configured_limit(self):
         """상한을 넘는 쪽의 경고에 설정한 상한이 적히고 그 뒤 쪽은 OCR하지 않는지 확인한다."""
         pages = [Document(page_content='', metadata={'page': n}) for n in range(3)]
@@ -914,6 +954,201 @@ class DocxChartTests(IngestTestCase):
         doc = self.read(document)
         self.assertEqual(doc.sections[0].text, '본문')
         self.assertEqual(doc.warnings, ['그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음', '읽을 수 없는 차트 1개는 건너뜀'])
+
+
+class ReviewFixTests(IngestTestCase):
+    """PR 리뷰에서 나온 문제: 이상한 차트·그림 하나 때문에 업로드 전체가 실패하거나 오래 걸리면 안 된다."""
+
+    @staticmethod
+    def mutate(xml, change):
+        """차트 XML(바이트)을 파싱해 change(root)로 고친 뒤 다시 바이트로 돌려준다."""
+        root = charts.etree.fromstring(xml)
+        change(root)
+        return charts.etree.tostring(root)
+
+    def test_chart_point_without_valid_index_is_skipped(self):
+        """idx가 없거나 정수가 아닌 점은 건너뛰고 나머지를 읽는지 확인한다(예외로 업로드가 실패하면 안 된다)."""
+        def change(root):
+            points = root.findall('.//c:ser/c:val//c:pt', charts.NS)
+            del points[0].attrib['idx']
+            points[1].set('idx', 'zero')
+        result = charts.chart_to_text(self.mutate(chart_blob(), change))
+        self.assertTrue(result.pieces)
+
+    def test_xml_comment_inside_plot_area_is_ignored(self):
+        """plotArea 안의 XML 주석 때문에 차트를 못 읽는 일이 없는지 확인한다."""
+        def change(root):
+            root.find('.//c:plotArea', charts.NS).insert(0, charts.etree.Comment('메모'))
+        self.assertEqual(charts.chart_to_text(self.mutate(chart_blob(), change)).pieces, [LINE_CHART_TEXT])
+
+    def test_huge_point_index_does_not_make_reading_slow(self):
+        """분산형 차트의 점 하나에 idx=2000000000을 넣어도 걸리는 시간이 파일 크기에만 달라지는지 확인한다."""
+        data = XyChartData()
+        series = data.add_series('계열')
+        for x in range(3):
+            series.add_data_point(x, x * 2)
+        def change(root):
+            root.find('.//c:yVal//c:pt', charts.NS).set('idx', '2000000000')
+        started = time.perf_counter()
+        result = charts.chart_to_text(self.mutate(chart_blob(XL_CHART_TYPE.XY_SCATTER, data=data), change))
+        self.assertLess(time.perf_counter() - started, 2)
+        self.assertTrue(result.pieces)
+
+    def test_huge_declared_point_count_does_not_make_reading_slow(self):
+        """다단계 항목 차트에 ptCount=5000000을 선언해도 실제 점 개수만큼만 읽는지 확인한다."""
+        source = (f'<c:chartSpace xmlns:c="{charts.C_NS}"><c:chart><c:plotArea><c:barChart><c:ser><c:cat><c:multiLvlStrRef>'
+                  '<c:multiLvlStrCache><c:ptCount val="5000000"/><c:lvl><c:pt idx="0"><c:v>1월</c:v></c:pt></c:lvl>'
+                  '<c:lvl><c:pt idx="0"><c:v>2025</c:v></c:pt></c:lvl></c:multiLvlStrCache></c:multiLvlStrRef></c:cat>'
+                  '<c:val><c:numRef><c:numCache><c:ptCount val="5000000"/><c:pt idx="0"><c:v>7</c:v></c:pt></c:numCache>'
+                  '</c:numRef></c:val></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>').encode()
+        started = time.perf_counter()
+        result = charts.chart_to_text(source)
+        self.assertLess(time.perf_counter() - started, 2)
+        self.assertIn('| 2025 1월 | 7 |', result.pieces[0])
+        self.assertFalse(result.truncated)
+
+    def test_unexpected_chart_error_counts_as_unreadable(self):
+        """차트를 읽다 예상 밖의 예외가 나도 건너뛴 차트로 세고 업로드를 계속하는지 확인한다."""
+        reader = charts.ChartReader()
+        with patch.object(charts, 'chart_to_text', side_effect=TypeError('x')):
+            self.assertEqual(reader.read(chart_blob()), [])
+        self.assertEqual(reader.unreadable, 1)
+
+    def test_docx_extent_without_size_is_read_as_unknown_size(self):
+        """wp:extent에 cx·cy가 없는 DOCX가 OCR을 끈 상태에서도 읽히고, 켜면 크기를 모르는 그림으로 읽는지 확인한다."""
+        document = DocxDocument()
+        document.add_paragraph('본문')
+        document.add_picture(io.BytesIO(png_bytes()), width=Inches(3))
+        for extent in document.element.body.iter('{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}extent'):
+            del extent.attrib['cx']
+        document.save(self.path('extent.docx'))
+        for available in (False, True):
+            with self.subTest(ocr=available), patch('hyundap.ingest.ocr.is_available', return_value=available), \
+                    patch('hyundap.ingest.ocr.ocr_image', return_value='그림 글자') as read:
+                doc = load_docx(self.path('extent.docx'), dict(INFO))
+            self.assertEqual(read.call_count, 1 if available else 0)
+            self.assertIn('본문', doc.sections[0].text)
+
+    def test_pptx_skipped_slide_warnings_are_grouped_by_reason(self):
+        """같은 이유로 건너뛴 슬라이드가 여럿이면 경고를 이유마다 한 줄로 모으고, 한 장이면 예전 문구 그대로인지 확인한다."""
+        presentation = Presentation()
+        for _ in range(12):
+            presentation.slides.add_slide(presentation.slide_layouts[6])   # 글자 없는 슬라이드
+        notes_slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        notes_slide.notes_slide.notes_text_frame.text = '노트에만 글자'
+        presentation.save(self.path('blank.pptx'))
+        with patch('hyundap.ingest.ocr.is_available', return_value=False):
+            doc = load_pptx(self.path('blank.pptx'), dict(INFO))
+        self.assertEqual(doc.warnings, [
+            '슬라이드 12장(슬라이드 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 외): 글자가 없어 건너뜀',
+            '슬라이드 13: 본문 글자가 없어 건너뜀(발표자 노트에만 글자가 있음, 노트는 제외)'])
+
+    def test_docx_object_with_two_pictures_counts_once_in_unread_total(self):
+        """그림이 두 장 든 개체를 읽어도 읽은 개체는 1개로 세어, 읽지 않은 다른 개체가 가려지지 않는지 확인한다."""
+        document = DocxDocument()
+        document.add_picture(io.BytesIO(png_bytes()), width=Inches(3))
+        blip = document.element.body.xpath('.//a:blip')[0]
+        blip.getparent().append(parse_xml(blip.xml))   # 같은 개체 안에 그림 한 장 더(두 번째 a:blip)
+        document.add_picture(io.BytesIO(png_bytes()), width=Inches(3))   # 글자를 읽지 못할 두 번째 개체
+        document.save(self.path('two.docx'))
+        with patch('hyundap.ingest.ocr.is_available', return_value=True), \
+                patch('hyundap.ingest.ocr.ocr_image', side_effect=['첫째', '둘째', '']):
+            doc = load_docx(self.path('two.docx'), dict(INFO))
+        self.assertIn('그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음', doc.warnings)
+
+    def test_pptx_without_slide_size_is_read(self):
+        """p:sldSz가 없는 PPTX(슬라이드 크기 None)도 읽히고 그림은 쪽 대비 비율 검사 없이 읽는지 확인한다."""
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = '제목'
+        slide.shapes.add_picture(io.BytesIO(png_bytes()), Inches(1), Inches(2), width=Inches(3))
+        presentation._element.remove(presentation._element.sldSz)
+        presentation.save(self.path('nosize.pptx'))
+        for available in (False, True):
+            with self.subTest(ocr=available), patch('hyundap.ingest.ocr.is_available', return_value=available), \
+                    patch('hyundap.ingest.ocr.ocr_image', return_value='그림 글자'):
+                doc = load_pptx(self.path('nosize.pptx'), dict(INFO))
+            self.assertEqual(doc.sections[0].text, '제목\n\n그림 글자' if available else '제목')
+
+    def test_pptx_broken_picture_is_skipped_and_not_touched_when_ocr_is_off(self):
+        """그림 관계가 이미지가 아닌 부분을 가리켜도 건너뛰고, OCR이 꺼져 있으면 그림 파일을 꺼내지도 않는지 확인한다."""
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = '제목'
+        slide.shapes.add_picture(io.BytesIO(png_bytes()), Inches(1), Inches(2), width=Inches(3))
+        presentation.save(self.path('broken.pptx'))
+        with patch('pptx.shapes.picture.Picture.image', new_callable=PropertyMock, side_effect=AttributeError('x')) as image:
+            with patch('hyundap.ingest.ocr.is_available', return_value=False):
+                load_pptx(self.path('broken.pptx'), dict(INFO))
+            image.assert_not_called()
+            with patch('hyundap.ingest.ocr.is_available', return_value=True):
+                doc = load_pptx(self.path('broken.pptx'), dict(INFO))
+        self.assertIn('읽을 수 없는 형식의 그림 1개는 건너뜀 (EMF 등)', doc.warnings)
+        self.assertEqual(doc.sections[0].text, '제목')
+
+    def test_figure_reader_stops_after_engine_error(self):
+        """OCR 엔진이 오류를 내면 예외 없이 빈 문자열을 돌려주고 이 문서의 나머지 그림은 읽지 않으며 경고를 남기는지 확인한다."""
+        self.enterContext(self.assertLogs('hyundap.ingest.loaders.figures', 'ERROR'))   # 일부러 낸 오류의 로그가 테스트 출력에 섞이지 않게 한다
+        with patch('hyundap.ingest.ocr.is_available', return_value=True), \
+                patch('hyundap.ingest.ocr.ocr_image', side_effect=RuntimeError('모델 내려받기 실패')) as read:
+            reader = figures.FigureReader()
+            self.assertEqual(reader.read_array(numpy.zeros((60, 60, 3))), '')
+            self.assertEqual(reader.read_array(numpy.zeros((60, 60, 3))), '')   # 두 번째는 엔진을 부르지 않는다
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual((reader.failed, reader.enabled), (1, False))
+        self.assertEqual(reader.warnings(), ['OCR 엔진 오류로 이 문서의 나머지 그림은 읽지 않음 (로그 확인)'])
+
+    @PDFIUM
+    def test_scan_page_engine_error_is_skipped_with_warning(self):
+        """스캔 쪽 OCR에서 엔진 오류가 나도 예외 없이 건너뛰고 경고를 남기는지 확인한다(예전의 건너뛰기 동작)."""
+        self.enterContext(self.assertLogs('hyundap.ingest.loaders.pdf_loader', 'ERROR'))   # 일부러 낸 오류의 로그가 테스트 출력에 섞이지 않게 한다
+        Path(self.path('scan.pdf')).write_bytes(minimal_pdf(''))
+        with patch('hyundap.ingest.ocr.is_available', return_value=True), \
+                patch('hyundap.ingest.ocr.ocr_image', side_effect=RuntimeError('모델 내려받기 실패')):
+            doc = load_pdf(self.path('scan.pdf'), dict(INFO))
+            result = self.ingest('scan.pdf')
+        self.assertEqual((doc.sections, doc.warnings), ([], ['p.1: OCR 중 오류가 나 건너뜀 (이 문서의 OCR을 멈춤, 로그 확인)']))
+        self.assertEqual((result.status, result.error_code), ('failed', 'EMPTY_DOCUMENT'))   # 예전처럼 글자 없는 문서로 거부
+
+    @PDFIUM
+    def test_pdf_that_cannot_be_opened_for_ocr_is_skipped_with_warning(self):
+        """OCR용으로 PDF를 열지 못해도 예외 없이 OCR만 건너뛰는지 확인한다."""
+        self.enterContext(self.assertLogs('hyundap.ingest.loaders.pdf_loader', 'ERROR'))   # 일부러 낸 오류의 로그가 테스트 출력에 섞이지 않게 한다
+        Path(self.path('scan.pdf')).write_bytes(minimal_pdf(''))
+        with patch('hyundap.ingest.ocr.is_available', return_value=True), \
+                patch('pypdfium2.PdfDocument', side_effect=RuntimeError('열 수 없음')):
+            doc = load_pdf(self.path('scan.pdf'), dict(INFO))
+        self.assertEqual(doc.sections, [])
+        self.assertIn('OCR용으로 PDF를 열지 못해 OCR을 건너뜀', doc.warnings)
+
+    @PDFIUM
+    def test_figure_crops_are_not_rendered_after_the_figure_limit(self):
+        """그림 상한까지 읽은 뒤에는 쪽을 300dpi로 그리지 않고 읽지 않은 그림이 있다고만 표시하는지 확인한다."""
+        class Image:
+            def get_bounds(self):
+                return (10, 10, 190, 150)
+
+        class Page:
+            def set_rotation(self, degrees):
+                pass
+
+            def get_cropbox(self):
+                return (0, 0, 200, 200)
+
+            def get_size(self):
+                return (200, 200)
+
+            def get_objects(self, filter):
+                return [Image()]
+
+            def render(self, scale):
+                raise AssertionError('상한 뒤에는 쪽을 그리면 안 된다')
+
+        with patch('hyundap.ingest.ocr.is_available', return_value=True):
+            reader = figures.FigureReader()
+        reader.count = reader.max_count
+        self.assertEqual(pdf_loader.figure_crops([Page()], 0, reader), [])
+        self.assertTrue(reader.capped)
 
 
 class FormatTests(IngestTestCase):

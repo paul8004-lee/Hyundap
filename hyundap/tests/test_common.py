@@ -1,6 +1,7 @@
 """tests/test_common.py — 공통 데이터 형식과 설정의 기본 동작 검증.
 
 테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_common -v이다."""
+import dataclasses
 import re
 import unittest
 from pathlib import Path
@@ -113,6 +114,11 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(env=env):
                 settings = self.load(env)
                 self.assertEqual((settings.chunk_size, settings.chunk_overlap), expected)
+
+    def test_settings_default_for_ocr_threads_matches_get_settings(self):
+        """Settings(...)를 직접 만들 때의 ocr_threads 기본값이 get_settings의 기본값(코어 기준)과 같은지 확인한다."""
+        field = {f.name: f for f in dataclasses.fields(config.Settings)}['ocr_threads']
+        self.assertEqual(field.default_factory(), config.default_ocr_threads())
 
     def test_ocr_settings_defaults(self):
         """OCR 설정의 기본값(50쪽·그림 100개·예열 켜짐·코어 기준 스레드 수)이 적용되는지 확인한다."""

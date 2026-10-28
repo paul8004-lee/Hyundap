@@ -48,6 +48,20 @@ class ChartText:
         self.truncated = truncated
 
 
+def to_index(value):
+    """c:pt의 idx 같은 정수 글자를 읽는다. 없거나 정수가 아니거나 음수면 None(그 점은 건너뛴다)."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
+def child_elements(parent):
+    """XML 주석·처리 명령을 빼고 요소 자식만 돌려준다(주석의 tag는 문자열이 아니라 QName이 실패한다)."""
+    return [child for child in parent if isinstance(child.tag, str)]
+
+
 def parse_chart(source):
     """차트 XML(바이트)을 파싱해 chartSpace 요소를 돌려준다. 외부 개체는 읽지 않는다."""
     try:
@@ -70,35 +84,44 @@ def kind_of(group):
 
 
 def read_points(ref):
-    """c:cat·c:val·c:tx 같은 요소 안의 캐시를 ({위치: 글자}, 점 개수, 서식 코드)로 읽는다. 없으면 빈 값.
+    """c:cat·c:val·c:tx 같은 요소 안의 캐시를 ({위치: 글자}, 위치 목록, 서식 코드)로 읽는다. 없으면 빈 값.
 
-    다단계 항목(c:multiLvlStrCache)은 바깥 단계부터 이어 붙인 글자로 만든다."""
+    위치 목록은 실제로 점이 있는 위치(작은 것부터)다. ptCount나 idx 같은 파일 안의 숫자만큼 반복하지 않으려고
+    선언된 개수는 쓰지 않는다. idx가 없거나 정수가 아닌 점은 건너뛴다.
+    다단계 항목(c:multiLvlStrCache)은 바깥 단계부터 이어 붙인 글자로 만들며, 글자는 앞쪽 MAX_CHART_ROWS개 위치만 만든다."""
     if ref is None:
-        return {}, 0, ""
+        return {}, [], ""
     multi = ref.find(".//c:multiLvlStrCache", NS)
     if multi is not None:
-        count = int(multi.find("c:ptCount", NS).get("val", 0)) if multi.find("c:ptCount", NS) is not None else 0
-        levels = [{int(pt.get("idx")): pt.findtext("c:v", default="", namespaces=NS) for pt in lvl.findall("c:pt", NS)}
-                  for lvl in multi.findall("c:lvl", NS)]   # 첫 단계가 가장 안쪽이다
+        levels = []   # 첫 단계가 가장 안쪽이다
+        for lvl in multi.findall("c:lvl", NS):
+            level = {}
+            for pt in lvl.findall("c:pt", NS):
+                index = to_index(pt.get("idx"))
+                if index is not None:
+                    level[index] = pt.findtext("c:v", default="", namespaces=NS)
+            levels.append(level)
+        indices = sorted(set().union(*levels)) if levels else []
         points = {}
-        for index in range(count):
+        for index in indices[:MAX_CHART_ROWS]:
             parts = []
             for level in reversed(levels):
                 earlier = [i for i in level if i <= index]   # 바깥 단계는 묶음의 첫 위치에만 값이 있다
                 if earlier:
                     parts.append(level[max(earlier)])
             points[index] = " ".join(parts)
-        return points, count, ""
+        return points, indices, ""
     cache = ref.find(".//c:strCache", NS)
     if cache is None:
         cache = ref.find(".//c:numCache", NS)
     if cache is None:
-        return {}, 0, ""
-    points = {int(pt.get("idx")): pt.findtext("c:v", default="", namespaces=NS) for pt in cache.findall("c:pt", NS)}
-    count_element = cache.find("c:ptCount", NS)
-    count = int(count_element.get("val", 0)) if count_element is not None else 0
-    count = max([count] + [index + 1 for index in points])
-    return points, count, cache.findtext("c:formatCode", default="", namespaces=NS)
+        return {}, [], ""
+    points = {}
+    for pt in cache.findall("c:pt", NS):
+        index = to_index(pt.get("idx"))
+        if index is not None:
+            points[index] = pt.findtext("c:v", default="", namespaces=NS)
+    return points, sorted(points), cache.findtext("c:formatCode", default="", namespaces=NS)
 
 
 def format_value(value, number_format):
@@ -123,24 +146,28 @@ def series_name(ser, order):
 
 
 def category_rows(series):
-    """항목-값 차트(막대·꺾은선·원형 등)의 (행 목록, 전체 행 수, 전체 계열 수)를 만든다. 상한을 넘으면 잘라 낸다."""
-    categories, count, _ = {}, 0, ""
+    """항목-값 차트(막대·꺾은선·원형 등)의 (행 목록, 전체 행 수, 전체 계열 수)를 만든다. 상한을 넘으면 잘라 낸다.
+
+    행은 항목이나 값이 실제로 있는 위치만 만든다(선언된 개수가 아니라 점 개수를 센다)."""
+    categories, category_indices = {}, []
     for ser in series:
-        points, size, _ = read_points(ser.find("c:cat", NS))
-        if size:
-            categories, count = points, size
+        points, indices, _ = read_points(ser.find("c:cat", NS))
+        if indices:
+            categories, category_indices = points, indices
             break
     columns = []
+    positions = set(category_indices)
     for order, ser in enumerate(series, start=1):
-        points, size, number_format = read_points(ser.find("c:val", NS))
+        points, indices, number_format = read_points(ser.find("c:val", NS))
         columns.append((series_name(ser, order), points, number_format))
-        count = max(count, size)
+        positions.update(indices)
+    ordered = sorted(positions)
     kept = columns[:MAX_CHART_SERIES]
     rows = [["구분"] + [name for name, _, _ in kept]]
-    for index in range(min(count, MAX_CHART_ROWS)):
+    for index in ordered[:MAX_CHART_ROWS]:
         label = categories.get(index, str(index + 1))
         rows.append([label] + [format_value(points.get(index), number_format) for _, points, number_format in kept])
-    return rows, count, len(columns)
+    return rows, len(ordered), len(columns)
 
 
 def xy_rows(series):
@@ -149,15 +176,15 @@ def xy_rows(series):
     rows = [["계열", "X", "Y"] + (["크기"] if has_size else [])]
     total = 0
     for order, ser in enumerate(series[:MAX_CHART_SERIES], start=1):
-        xs, x_count, x_format = read_points(ser.find("c:xVal", NS))
-        ys, y_count, y_format = read_points(ser.find("c:yVal", NS))
+        xs, x_indices, x_format = read_points(ser.find("c:xVal", NS))
+        ys, y_indices, y_format = read_points(ser.find("c:yVal", NS))
         sizes, _, _ = read_points(ser.find("c:bubbleSize", NS))
         name = series_name(ser, order)
-        for index in range(max(x_count, y_count)):
-            total += 1
-            if len(rows) <= MAX_CHART_ROWS:
-                row = [name, format_value(xs.get(index), x_format), format_value(ys.get(index), y_format)]
-                rows.append(row + ([format_value(sizes.get(index), "")] if has_size else []))
+        indices = sorted(set(x_indices) | set(y_indices))
+        total += len(indices)
+        for index in indices[:max(MAX_CHART_ROWS + 1 - len(rows), 0)]:
+            row = [name, format_value(xs.get(index), x_format), format_value(ys.get(index), y_format)]
+            rows.append(row + ([format_value(sizes.get(index), "")] if has_size else []))
     return rows, total, len(series)
 
 
@@ -172,7 +199,7 @@ def chart_to_text(source):
         raise UnreadableChart("차트 본문이 없음")
 
     kinds, category_series, xy_series = [], [], []
-    for group in plot:
+    for group in child_elements(plot):
         if not etree.QName(group).localname.endswith("Chart"):
             continue
         kind, label = kind_of(group)
@@ -184,7 +211,7 @@ def chart_to_text(source):
     if not title:
         title = chart.xpath("string(c:title/c:tx/c:strRef/c:strCache/c:pt/c:v)", namespaces=NS).strip()
     axis_titles = []
-    for axis in plot:
+    for axis in child_elements(plot):
         if etree.QName(axis).localname in AXIS_KINDS:
             text = " ".join(t.strip() for t in axis.xpath("c:title//a:t/text()", namespaces=NS)).strip()
             if text and text not in axis_titles:
@@ -231,7 +258,7 @@ class ChartReader:
         self.count += 1
         try:
             result = chart_to_text(source)
-        except UnreadableChart:
+        except Exception:   # 한 차트를 읽지 못해도 업로드 전체가 실패하지 않게 건너뛴 차트로 센다
             self.unreadable += 1
             return []
         if result.pieces:

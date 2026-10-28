@@ -3,7 +3,7 @@
 담당: 이성민. 최초 설정을 캐시하며 API 키 누락 판정은 실제 호출 모듈이 담당한다.
 환경변수 우선순위와 경로·숫자 기본값 처리만 수행하고 외부 API는 호출하지 않는다."""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -42,7 +42,7 @@ class Settings:
     session_ttl_minutes: int
     ocr_max_pages: int = DEFAULT_OCR_MAX_PAGES      # 0이면 글자 없는 쪽 전체 OCR을 하지 않는다
     ocr_max_figures: int = DEFAULT_OCR_MAX_FIGURES  # 0이면 쪽·슬라이드 안의 그림 OCR을 하지 않는다
-    ocr_threads: int = 1                            # OCR이 쓰는 CPU 스레드 수
+    ocr_threads: int = field(default_factory=lambda: default_ocr_threads())   # OCR이 쓰는 CPU 스레드 수(get_settings와 같은 기본값)
     ocr_warmup: bool = True                         # 서버 시작 때 OCR 엔진을 미리 불러올지
 
 

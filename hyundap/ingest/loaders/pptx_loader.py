@@ -108,7 +108,9 @@ def load_pptx(file_path, upload_info):
     doc = CommonDocument(header=dict(upload_info))
     reader = figures.FigureReader()
     chart_reader = charts.ChartReader()
-    slide_area_pt = presentation.slide_width * presentation.slide_height / EMU_PER_PT ** 2
+    # p:sldSz는 선택 요소라 없으면 크기가 None이다. 그러면 쪽 대비 비율 검사 없이 그림 크기만 본다.
+    size_known = presentation.slide_width is not None and presentation.slide_height is not None
+    slide_area_pt = presentation.slide_width * presentation.slide_height / EMU_PER_PT ** 2 if size_known else None
     read_in_slide = 0    # 지금 슬라이드에서 글자·값을 읽어 붙인 그림·차트 수(글자를 읽지 않은 개체 수에서 뺀다)
     pictures_in_slide = 0   # 그중 그림 수
     figure_slides = 0    # 그림 속 글자를 붙인 슬라이드 수
@@ -116,9 +118,14 @@ def load_pptx(file_path, upload_info):
     def read_slide_picture(shape, texts):
         """그림 도형 하나에서 OCR로 읽은 글자를 돌려준다. 슬라이드에 이미 모은 글과 겹치는 줄은 뺀다."""
         nonlocal read_in_slide, pictures_in_slide
+        if not reader.enabled:   # OCR이 꺼져 있으면 그림 파일을 꺼내지도 않는다
+            return ""
         try:
             blob = shape.image.blob
         except (KeyError, ValueError):   # 외부 연결 그림 등은 파일이 들어 있지 않다
+            return ""
+        except Exception:   # 그림 관계가 이미지가 아닌 부분을 가리키는 등: 업로드 전체가 실패하지 않게 건너뛴 그림으로 센다
+            reader.unreadable += 1
             return ""
         width = shape.width / EMU_PER_PT if shape.width is not None else None
         height = shape.height / EMU_PER_PT if shape.height is not None else None
@@ -133,7 +140,7 @@ def load_pptx(file_path, upload_info):
         nonlocal read_in_slide
         try:
             blob = shape.chart.part.blob
-        except (KeyError, ValueError):   # 외부 연결 차트 등
+        except Exception:   # 외부 연결 차트, 차트 관계가 깨진 경우 등
             chart_reader.unreadable += 1
             return []
         pieces = chart_reader.read(blob)
@@ -142,6 +149,7 @@ def load_pptx(file_path, upload_info):
         return pieces
 
     unread_slides = []   # (슬라이드 번호, 글자를 읽지 않은 개체 수)
+    skipped_slides = {}   # 건너뛴 이유 → 슬라이드 번호 목록. 같은 이유는 경고 한 줄로 모은다
     for number, slide in enumerate(presentation.slides, start=1):
         read_in_slide = pictures_in_slide = 0
         texts = collect_shape_texts(slide.shapes, read_slide_picture, read_slide_chart)
@@ -154,7 +162,7 @@ def load_pptx(file_path, upload_info):
             notes_frame = slide.notes_slide.notes_text_frame if slide.has_notes_slide else None
             has_notes_text = notes_frame is not None and notes_frame.text.strip() != ""
             reason = "본문 글자가 없어 건너뜀(발표자 노트에만 글자가 있음, 노트는 제외)" if has_notes_text else "글자가 없어 건너뜀"
-            doc.warnings.append(f"슬라이드 {number}: {reason}")
+            skipped_slides.setdefault(reason, []).append(number)
             continue
         doc.sections.append(
             Section(
@@ -163,6 +171,14 @@ def load_pptx(file_path, upload_info):
                 text="\n\n".join(texts),
             )
         )
+    for reason, numbers in skipped_slides.items():
+        # 같은 이유로 건너뛴 슬라이드가 많아도(그림만 있는 덱 등) 경고는 이유마다 한 줄로 모은다.
+        if len(numbers) == 1:
+            doc.warnings.append(f"슬라이드 {numbers[0]}: {reason}")
+        else:
+            listed = ", ".join(str(number) for number in numbers[:MAX_LISTED_SLIDES])
+            more = " 외" if len(numbers) > MAX_LISTED_SLIDES else ""
+            doc.warnings.append(f"슬라이드 {len(numbers)}장(슬라이드 {listed}{more}): {reason}")
     if unread_slides:
         # 슬라이드가 많은 문서에서 경고가 늘어나지 않도록 문서당 1개로 모은다.
         listed = ", ".join(str(number) for number, _ in unread_slides[:MAX_LISTED_SLIDES])

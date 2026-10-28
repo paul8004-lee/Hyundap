@@ -45,40 +45,71 @@ def add_docx_section(doc, title, lines):
     )
 
 
-def picture_refs(element):
-    """요소 안 그림의 (관계 id, 표시 너비 pt, 표시 높이 pt) 목록. 구형 w:pict 그림은 크기를 몰라 None이다."""
-    refs = []
+def emu_to_pt(value):
+    """wp:extent의 cx·cy(EMU)를 pt로 바꾼다. 없거나 정수가 아니면 None(크기를 모르는 그림으로 다룬다)."""
+    try:
+        return int(value) / EMU_PER_PT
+    except (TypeError, ValueError):
+        return None
+
+
+def picture_groups(element):
+    """요소 안 개체(w:drawing, 구형 w:pict)마다 그 안 그림의 (관계 id, 표시 너비 pt, 표시 높이 pt) 목록을 돌려준다.
+
+    구형 w:pict 그림은 크기를 몰라 None이다. 그림이 없는 개체(도형·차트)는 빈 목록이다."""
+    groups = []
     for drawing in element.xpath(".//w:drawing[not(ancestor::*[local-name()='Fallback'])]"):
         extent = drawing.xpath(".//wp:extent")
         width = height = None
         if extent:
-            width, height = int(extent[0].get("cx")) / EMU_PER_PT, int(extent[0].get("cy")) / EMU_PER_PT
-        refs.extend((rid, width, height) for rid in drawing.xpath(".//a:blip/@r:embed"))
-    legacy = ".//w:pict[not(ancestor::*[local-name()='Fallback'])]//*[local-name()='imagedata']/@*[local-name()='id']"
-    refs.extend((rid, None, None) for rid in element.xpath(legacy))
-    return refs
+            width, height = emu_to_pt(extent[0].get("cx")), emu_to_pt(extent[0].get("cy"))
+            if width is None or height is None:
+                width = height = None
+        groups.append([(rid, width, height) for rid in drawing.xpath(".//a:blip/@r:embed")])
+    for pict in element.xpath(".//w:pict[not(ancestor::*[local-name()='Fallback'])]"):
+        groups.append([(rid, None, None) for rid in pict.xpath(".//*[local-name()='imagedata']/@*[local-name()='id']")])
+    return groups
+
+
+def picture_refs(element):
+    """요소 안 그림의 (관계 id, 표시 너비 pt, 표시 높이 pt) 목록. 구형 w:pict 그림은 크기를 몰라 None이다."""
+    return [ref for group in picture_groups(element) for ref in group]
 
 
 def read_charts(docx_file, chart_reader, element):
     """요소 안 Office 차트들에서 읽은 표 조각 목록을 돌려준다. 차트 XML은 문서 관계(r:id)로 찾는다."""
     texts = []
     for rid in element.xpath(".//w:drawing[not(ancestor::*[local-name()='Fallback'])]//c:chart/@r:id"):
-        part = docx_file.part.related_parts.get(rid)   # 외부 연결 차트 등은 관계가 없다
-        if part is not None:
-            texts.extend(chart_reader.read(part.blob))
+        try:
+            part = docx_file.part.related_parts.get(rid)   # 외부 연결 차트 등은 관계가 없다
+            if part is not None:
+                texts.extend(chart_reader.read(part.blob))
+        except Exception:   # 차트 하나를 꺼내지 못해도 업로드 전체가 실패하지 않게 건너뛴 차트로 센다
+            chart_reader.unreadable += 1
     return texts
 
 
 def read_pictures(docx_file, reader, element, lines):
     """요소 안 그림들에서 OCR로 읽은 글자 목록을 돌려준다. 같은 구간에 이미 모은 글(lines)과 겹치는 줄은 뺀다."""
     texts = []
-    for rid, width, height in picture_refs(element):
-        part = docx_file.part.related_parts.get(rid)   # 외부 연결 그림 등은 관계가 없다
-        if part is None:
-            continue
-        text = reader.read_picture(part.blob, width, height, page_text=lambda: "\n".join(lines + texts))
-        if text != "":
-            texts.append(text)
+    if not reader.enabled:
+        return texts
+    for group in picture_groups(element):
+        read_any = False
+        for rid, width, height in group:
+            try:
+                part = docx_file.part.related_parts.get(rid)   # 외부 연결 그림 등은 관계가 없다
+                if part is None:
+                    continue
+                text = reader.read_picture(part.blob, width, height, page_text=lambda: "\n".join(lines + texts))
+            except Exception:   # 그림 하나를 꺼내지 못해도 업로드 전체가 실패하지 않게 건너뛴 그림으로 센다
+                reader.unreadable += 1
+                continue
+            if text != "":
+                texts.append(text)
+                read_any = True
+        if read_any:
+            reader.objects_read += 1   # 개체 하나에 그림이 여러 장 있어도 읽은 개체는 1개다
     return texts
 
 
@@ -174,7 +205,7 @@ def load_docx(file_path, upload_info):
             lines.extend(read_charts(docx_file, chart_reader, block._tbl))
 
     add_docx_section(doc, title, lines)
-    unread = len(docx_file.element.body.xpath(UNREAD_OBJECTS_XPATH)) - reader.appended - chart_reader.appended
+    unread = len(docx_file.element.body.xpath(UNREAD_OBJECTS_XPATH)) - reader.objects_read - chart_reader.appended
     if unread > 0:
         doc.warnings.append(f"그림·도형·차트·텍스트 상자 {unread}개는 글자를 읽지 않음")
     doc.warnings.extend(chart_reader.warnings())
