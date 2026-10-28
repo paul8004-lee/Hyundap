@@ -71,9 +71,7 @@ html, body {margin: 0; background: var(--hd-bg);}
 .hd-evidence a {color: var(--hd-navy); text-underline-offset: 3px;}
 .hd-footer {max-width: var(--hd-content); width: calc(100% - 48px); margin: auto auto 0 !important; padding: 36px 0 28px !important;}
 #hd-shell-footer {align-items:center;justify-content:space-between;gap:16px;flex-wrap:nowrap!important;}
-#hd-company {flex:0 1 240px!important;min-width:0!important;max-width:240px;border:0!important;box-shadow:none!important;background:transparent!important;}
-#hd-company .wrap {border:0!important;box-shadow:none!important;background:transparent!important;padding:0!important;}
-#hd-company input {font-size:12px!important;color:#25282d!important;-webkit-text-fill-color:#25282d!important;}
+#hd-footer-company {flex:0 1 auto!important;width:auto!important;min-width:0!important;color:#25282d;font-size:12px;line-height:18px;}
 #hd-footer-note {flex:1 1 auto!important;width:auto!important;min-width:0!important;text-align:right;color:#42474f;font-size:12px;line-height:18px;}
 .hd-footer-inner {display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #42474f; font-size: 12px; line-height: 18px;}
 .hd-footer-inner > :first-child {color: #25282d; white-space: nowrap;}

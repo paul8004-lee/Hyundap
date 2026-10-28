@@ -247,6 +247,13 @@ class MockServices:
             "message": "예시 요약입니다. 실제 문서를 읽거나 AI를 호출하지 않았습니다.",
         }
 
+    async def summarize_stream(self, session: dict, document_id: str, version_id=None):
+        yield {"type": "status", "stage": "final", "message": "요약을 생성하고 있어요.", "step": [1, 1]}
+        response = await self.summarize(session, document_id, version_id)
+        for line in response["summary"].splitlines(keepends=True):
+            yield {"type": "delta", "text": line}
+        yield {"type": "done", "response": response}
+
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
         record = self._checked(session)
         if record.public["role"] not in {"company_admin", "platform_admin"}:

@@ -137,20 +137,16 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
                 search = build_search_page(companies, DOC_TYPES, demo_mode)
                 # 질문은 검색 입력으로 받으며 답변·출처는 검색 스플릿뷰에 표시한다.
                 admin = build_admin_page(companies, DOC_TYPES, demo_mode)
-            # 회사 범위는 화면 왼쪽 아래에 표시하고 관리자 선택 기능도 유지한다.
+            # 일반·기업 관리자는 소속 회사를, 전체 관리자는 서비스명을 표시한다.
             with gr.Row(elem_id="hd-shell-footer", elem_classes=["hd-footer"]):
-                search["company"] = gr.Dropdown(
-                    choices=[("전체 회사", "__all__"), *companies], value="__all__",
-                    label="회사", show_label=False, interactive=True, filterable=False,
-                    container=False, min_width=0, elem_id="hd-company",
-                )
+                footer_company = gr.HTML("© Hyundap", elem_id="hd-footer-company", elem_classes=["hd-plain-html"])
                 gr.HTML(f'<span>{escape(mode_note)}</span>', elem_id="hd-footer-note", elem_classes=["hd-plain-html"])
         with gr.Column(visible=False, elem_id="hd-modal") as modal:
             with gr.Column(elem_id="hd-modal-card"):
                 gr.HTML("<h2>문서 출처 확인</h2>", elem_id="hd-modal-heading")
                 modal_body = gr.HTML("")
                 modal_close = gr.Button("닫기", elem_id="hd-modal-close")
-        shell = dict(container=container, nav_search=nav_search, upload_nav=upload_nav, account=account, logout=logout, modal=modal, modal_body=modal_body, modal_close=modal_close)
+        shell = dict(container=container, nav_search=nav_search, upload_nav=upload_nav, account=account, footer_company=footer_company, logout=logout, modal=modal, modal_body=modal_body, modal_close=modal_close)
         controller = UIController(service, login, search, admin, shell)
         key.delete_callback = controller.discard
         # 반환 dict의 일부 항목만 갱신한다. 다른 화면/입력은 그대로 유지한다.

@@ -47,6 +47,22 @@ def summarize_document(**kwargs):
     return require_function("hyundap.chatbot.summary", "summarize_document")(**kwargs)
 
 
+def summarize_document_stream(**kwargs):
+    """스트리밍 PR 반영 전에는 기존 완료형 요약으로 동작한다."""
+    try:
+        function = require_function("hyundap.chatbot.summary", "summarize_document_stream")
+    except UIServiceError as error:
+        if error.code != "BACKEND_NOT_CONNECTED":
+            raise
+
+        def fallback():
+            yield {"type": "status", "message": "요약을 생성하고 있어요."}
+            yield {"type": "done", "response": summarize_document(**kwargs)}
+
+        return fallback()
+    return function(**kwargs)
+
+
 def validated_session_to_actor(session: dict) -> dict:
     """SPEC-AUTH-001의 검증 결과를 DB가 재검증할 서버 actor로 변환한다."""
     if not session.get("session_id") or not session.get("token"):
@@ -89,6 +105,7 @@ def create_bindings(authentication=None) -> BackendBindings:
         detail=get_document,
         ask=ask,
         summarize_document=summarize_document,
+        summarize_document_stream=summarize_document_stream,
         upload=upload_document,
         download=download_original,
         user_factory=validated_session_to_actor,
