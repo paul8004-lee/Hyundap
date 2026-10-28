@@ -79,10 +79,17 @@ def set_loading(message: str = "처리 중입니다. 잠시만 기다려 주세�
 
 
 def brand_html(role_label: str = "", *, inverse: bool = False) -> str:
-    """B02/B16: Figma 원본의 텍스트 H 심볼과 역할 배지."""
+    """B02/B16: 로그인과 공통 헤더에서 사용하는 현답 심볼과 역할 배지."""
     mode = " hd-brand--inverse" if inverse else ""
     badge = f'<span class="hd-role">{escape(role_label)}</span>' if role_label else ""
-    return f'<div class="hd-brand{mode}"><span class="hd-brand-symbol" aria-hidden="true">H</span><span class="hd-brand-name">Hyundap</span>{badge}</div>'
+    symbol = (
+        '<svg class="hd-brand-symbol" viewBox="0 0 262 255" aria-hidden="true" focusable="false">'
+        '<rect width="262" height="255" fill="#1b9756"/>'
+        '<path d="M128 45 160 96 107 160 91 141 67 141Z '
+        'M65 145 104 194 171 113 225 199 30 199Z" fill="#fff"/>'
+        '</svg>'
+    )
+    return f'<div class="hd-brand{mode}">{symbol}<span class="hd-brand-name">Hyundap</span>{badge}</div>'
 
 
 def render_header(user: Mapping[str, Any] | None = None) -> str:
