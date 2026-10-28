@@ -59,6 +59,36 @@ class IngestStorageTests(unittest.TestCase):
         with self.assertRaises(DbError):
             jobs_repo.normalize_report(dict(self.report, error_code='SYNTHETIC_ERROR'))
 
+    def test_embedding_classify_fields_are_stored(self):
+        # 임베딩 보고서의 문서 분류 결과(EmbedStoreReport 필드)는 작업 기록에 남는다
+        report = dict(stage='embedding', status='success', model_name='embedding-model', total=3,
+                      auto_doc_type='policy', doc_type_confidence=0.93, company_match='no',
+                      classify_status='success')
+        clean = jobs_repo.normalize_report(report)
+        self.assertEqual({key: clean[key] for key in jobs_repo.CLASSIFY_FIELDS},
+                         dict(auto_doc_type='policy', doc_type_confidence=0.93, company_match='no',
+                              classify_status='success'))
+        # 분류를 건너뛴 기본값(빈 유형·0·빈 일치)도 그대로 받는다
+        skipped = jobs_repo.normalize_report(dict(report, auto_doc_type='', doc_type_confidence=0.0,
+                                                  company_match='', classify_status='skipped'))
+        self.assertEqual((skipped['auto_doc_type'], skipped['classify_status']), ('', 'skipped'))
+
+    def test_invalid_classify_fields_fail_before_connecting(self):
+        base = dict(stage='embedding', status='success', model_name='embedding-model', total=3)
+        cases = [dict(auto_doc_type=value) for value in (None, 'contract', 1)]
+        cases += [dict(doc_type_confidence=value) for value in (True, None, -0.1, 1.5, float('nan'), '0.9')]
+        cases += [dict(company_match=value) for value in (None, 'maybe', True)]
+        cases += [dict(classify_status=value) for value in (None, 'done', '')]
+        with patch.object(runtime, 'get_engine') as engine:
+            for changes in cases:
+                with self.subTest(changes=changes), self.assertRaises(DbError) as caught:
+                    jobs_repo.record_stage_result('job', dict(base, **changes))
+                self.assertEqual(caught.exception.code, 'INVALID_INPUT')
+            engine.assert_not_called()
+        # 분류 결과는 임베딩 단계에만 들어갈 수 있다
+        with self.assertRaises(DbError):
+            jobs_repo.normalize_report(dict(self.report, auto_doc_type='manual'))
+
     def test_stage_merge_preserves_history_and_protects_success(self):
         original = {'_attempts': [{'ingest': {'status': 'failed'}}],
                     'embedding': {'status': 'partial'}}
