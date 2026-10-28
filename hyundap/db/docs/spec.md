@@ -1,6 +1,6 @@
 # DB 최종 v4 구현 명세 — #168
 
-인증 PR #167 병합 후 계정·세션 저장과 fixture도 고정 v4에 맞췄다. legacy·구조 캐시를 복원하지 않았다. 최신 검증은 [인증 정합화 보고서](../../../docs/db-design/V4_AUTH_ALIGNMENT_2026-10-27.md)의 전체 332개 통과를 따른다.
+인증 PR #167 병합 후 계정·세션 저장과 fixture도 고정 v4에 맞췄다. [인증 정합화 보고서](../../../docs/db-design/V4_AUTH_ALIGNMENT_2026-10-27.md)의 332개 통과는 당시 이력이며, 현재 P1 범위의 검증 기준과 한계는 [현행 검증 기록](../../../docs/db-design/DB_P1_CURRENT_VALIDATION.md)을 따른다.
 
 대상: feature/db. 2026-10-27 사용자 결정으로 v3 이행·과거 혼합 v4 호환은 폐기했다. 현재 생성 진입점은 `schema.create_v4_schema(engine)` 하나다. [초기화 절차](../../../docs/db-design/V4_INITIALIZATION.md), [물리 계약](../../../docs/db-design/DB_schema.md), [공개 함수 계약](../../../docs/db-design/DB_contract.md)을 따른다.
 
@@ -84,7 +84,7 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 | `upload_service` | `read_attempt_source(ids)` | 보조 | 없음 |
 | `upload_service` | `save_ingest_chunks(ids, company_id, result)` | 보조 | 없음 |
 | `upload_service` | `verify_uploaded_chunks(ids, backend)` | 보조 | 없음 |
-| `upload_service` | `ingest_and_save_chunks(source, info, ids, ingest_function)` | 보조 | 없음 |
+| `upload_service` | `ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None)` | 보조 | 없음 |
 | `upload_service` | `embed_and_record_result(chunks, job_id, backend)` | 보조 | 없음 |
 | `upload_service` | `run_attempt(actor, ids, expected_active_id, ingest_function, backend)` | 메인 | 없음 |
 | `upload_service` | `prepare_upload_source(source_path, metadata, upload_dir)` | 보조 | 없음 |
