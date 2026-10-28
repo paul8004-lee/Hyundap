@@ -34,6 +34,7 @@ METADATA_KEYS = (
     "chunk_id", "document_id", "version_id", "company_id", "company_name",
     "doc_type", "file_name", "section_no", "location_label", "chunk_index",
     "embedding_model", "truncated", "is_active", "embedded_at",
+    "auto_doc_type", "doc_type_confidence", "company_match",
 )
 
 # 컬렉션 이름 앞부분. 모델마다 컬렉션을 따로 두어 서로 다른 모델 벡터가 섞이지 않게 한다

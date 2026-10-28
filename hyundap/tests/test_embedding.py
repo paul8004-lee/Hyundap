@@ -87,6 +87,8 @@ class Base(unittest.TestCase):
             "CHROMA_DB_PATH": os.path.join(tmp.name, "chroma"),
             "OPENAI_API_KEY": "sk-test-key-123456",
             "OPENAI_EMBEDDING_MODEL": "fake-model",
+            # 문서 분류(Decisions API)는 끈다. 분류 시험은 test_embedding_classifier.py에서 한다
+            "DOC_CLASSIFY": "0",
         })
         env.start()
         self.addCleanup(env.stop)

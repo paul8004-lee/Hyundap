@@ -46,6 +46,8 @@ from .models import (
     get_chunk_value,
     get_model_name,
 )
+# 문서 유형·회사 일치 분류(OpenAI Decisions API). 꺼져 있거나 키가 없으면 건너뛴다
+from .classifier import classify_document
 # 저장 단계 함수(미색인 선별, 저장)는 vector_store에서 가져온다
 from .vector_store import filter_new_chunks, upsert_chunks
 
@@ -141,6 +143,10 @@ def build_chunk_metadata(chunk, *, model_name: str, truncated: bool = False) -> 
     meta = {key: _plain(get_chunk_value(chunk, key)) for key in keys}
     meta["embedding_model"] = model_name
     meta["truncated"] = bool(truncated)
+    # 분류 결과 자리. embed_and_store가 분류한 뒤 채운다(분류 전·실패면 빈 문자열)
+    meta["auto_doc_type"] = ""
+    meta["doc_type_confidence"] = 0.0
+    meta["company_match"] = ""
     # 검증 전에는 검색에 나오지 않도록 비공개로 저장(공개는 activate_version이 한다)
     meta["is_active"] = False
     meta["embedded_at"] = int(time.time())
@@ -322,7 +328,20 @@ def embed_and_store(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Em
     new_chunks = filter_new_chunks(chunks)  # VectorStoreError(COMPANY_MISMATCH 등)는 그대로 올린다.
     report.skipped_existing = len(chunks) - len(new_chunks)
 
+    # 새로 저장할 청크가 있을 때만 문서 전체(chunks)로 한 번 분류한다. 실패해도 임베딩은 계속한다
+    if new_chunks:
+        classified = classify_document(chunks)
+        report.auto_doc_type = classified.auto_doc_type
+        report.doc_type_confidence = classified.doc_type_confidence
+        report.company_match = classified.company_match
+        report.classify_status = classified.status
+
     batch = embed_chunks(new_chunks, batch_size=batch_size)
+    # 분류 결과를 이 문서의 모든 청크 메타데이터에 같은 값으로 붙인다
+    for item in batch.items:
+        item.metadata["auto_doc_type"] = report.auto_doc_type
+        item.metadata["doc_type_confidence"] = report.doc_type_confidence
+        item.metadata["company_match"] = report.company_match
     report.failures.extend(batch.failures)
 
     items = batch.items

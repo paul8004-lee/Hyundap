@@ -22,6 +22,8 @@ DEFAULT_SESSION_TTL_MINUTES = 480
 # 그림은 장당 약 0.5초라 100개여도 1분 안팎이다. 업로드는 한 요청 안에서 끝날 때까지 이어지므로 길게 잡지 않는다.
 DEFAULT_OCR_MAX_PAGES = 50
 DEFAULT_OCR_MAX_FIGURES = 100
+# 임베딩 때 문서 유형·회사를 분류하는 모델. OpenAI Decisions API는 현재 gpt-6-luna만 지원한다.
+DEFAULT_CLASSIFY_MODEL = 'gpt-6-luna'
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,8 @@ class Settings:
     ocr_max_figures: int = DEFAULT_OCR_MAX_FIGURES  # 0이면 쪽·슬라이드 안의 그림 OCR을 하지 않는다
     ocr_threads: int = field(default_factory=lambda: default_ocr_threads())   # OCR이 쓰는 CPU 스레드 수(get_settings와 같은 기본값)
     ocr_warmup: bool = True                         # 서버 시작 때 OCR 엔진을 미리 불러올지
+    doc_classify: bool = True                       # 임베딩 때 문서 유형·회사 일치를 분류할지
+    openai_classify_model: str = DEFAULT_CLASSIFY_MODEL  # 문서 분류(Decisions API) 모델
 
 
 def _read(name: str) -> str | None:
@@ -131,4 +135,7 @@ def get_settings() -> Settings:
         ocr_max_figures=_read_number('OCR_MAX_FIGURES', DEFAULT_OCR_MAX_FIGURES, int, lambda v: 0 <= v <= 100000),
         ocr_threads=_read_number('OCR_THREADS', default_ocr_threads(), int, lambda v: 1 <= v <= 256),
         ocr_warmup=_read_bool('OCR_WARMUP', True),
+        # 문서 분류(OpenAI Decisions API). OPENAI_API_KEY를 같이 쓰며 DOC_CLASSIFY=0이면 분류하지 않는다.
+        doc_classify=_read_bool('DOC_CLASSIFY', True),
+        openai_classify_model=_read('OPENAI_CLASSIFY_MODEL') or DEFAULT_CLASSIFY_MODEL,
     )

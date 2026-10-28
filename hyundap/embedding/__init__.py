@@ -23,7 +23,9 @@ from .embedder import (
     get_embedding_model,
     validate_embeddings,
 )
+from .classifier import classify_document
 from .models import (
+    ClassifyResult,
     EmbeddedChunk,
     EmbeddingBatch,
     EmbeddingError,
@@ -55,7 +57,9 @@ __all__ = [
     "collection_name_for_model", "get_vector_store", "filter_new_chunks", "upsert_chunks",
     "build_where_filter", "query_vectors", "activate_version", "delete_vectors",
     "get_version_chunk_ids", "get_document_chunks", "check_vector_store_health",
+    # 문서 유형·회사 분류 (classifier.py)
+    "classify_document",
     # 결과 형식·오류 (models.py)
     "EmbeddedChunk", "EmbeddingFailure", "EmbeddingBatch", "EmbedStoreReport", "VectorHit",
-    "EmbeddingError", "VectorStoreError",
+    "EmbeddingError", "VectorStoreError", "ClassifyResult",
 ]

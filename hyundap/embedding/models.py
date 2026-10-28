@@ -91,6 +91,32 @@ class EmbedStoreReport:
     status: str = "failed"
     # 걸린 시간(초)
     elapsed_sec: float = 0.0
+    # 문서 분류 결과(classifier). 분류 실패는 status에 영향을 주지 않는다
+    auto_doc_type: str = ""
+    doc_type_confidence: float = 0.0
+    company_match: str = ""
+    # skipped(키 없음·새 청크 없음) / success / failed
+    classify_status: str = "skipped"
+
+
+@dataclass
+# CLS-126. 문서 분류 결과. 값을 모르면 빈 문자열(Chroma 메타데이터에 None을 넣을 수 없다)
+class ClassifyResult:
+    """CLS-126. classify_document의 결과.
+
+    auto_doc_type: DOC_TYPES 코드(manual·policy·guide·other) 중 하나 또는 빈 문자열
+    doc_type_confidence: auto_doc_type의 확신도(0~1, Decisions API의 confidence). 분류 전·실패면 0
+    company_match: 본문의 작성 회사가 업로드한 회사와 같으면 yes, 다르면 no,
+                   본문에 회사 이름이 없거나 확률이 애매하면 빈 문자열
+    """
+
+    auto_doc_type: str = ""
+    doc_type_confidence: float = 0.0
+    company_match: str = ""
+    # skipped(분류 꺼짐·키 없음) / success / failed
+    status: str = "skipped"
+    # 실패 원인(예외 이름 등). 비밀 값은 넣지 않는다
+    detail: str = ""
 
 
 @dataclass
