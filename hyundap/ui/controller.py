@@ -7,8 +7,10 @@ Gradio별 세션 키로 화면 상태를 분리한다. 회사/문서/로그인�
 from __future__ import annotations
 
 import logging
+from contextlib import aclosing
 from copy import deepcopy
 from dataclasses import dataclass, field
+from html import escape
 from pathlib import Path
 
 import gradio as gr
@@ -186,6 +188,13 @@ class UIController:
                 async for patch in self.run_batch_upload(ctx, ticket, *args):
                     yield patch
                 return
+            if action == "summarize" and callable(getattr(self.service, "summarize_stream", None)):
+                async with aclosing(self.do_summarize_stream(ctx, ticket)) as patches:
+                    async for patch in patches:
+                        if not self.current(ctx, ticket):
+                            return
+                        yield patch
+                return
             result = await getattr(self, f"do_{action}")(ctx, ticket, *args)
             if self.current(ctx, ticket):
                 yield {**self.busy_patch(action, False), **result}
@@ -212,7 +221,10 @@ class UIController:
                 yield self.signed_out(message)
             else:
                 feedback = render_login_error(error.message, error.code) if action == "login" else show_feedback(error.message, "error")
-                yield {**self.busy_patch(action, False), self.feedback_target(action): feedback}
+                patch = {**self.busy_patch(action, False), self.feedback_target(action): feedback}
+                if action == "summarize":
+                    patch.update({self.search["summary"]: "", self.search["coverage"]: ""})
+                yield patch
 
     async def run_inline_answer(self, ctx, generation):
         """검색한 문서 안에서 답변을 만들고 기존 상세 영역에 근거를 연결한다."""
@@ -274,7 +286,10 @@ class UIController:
         ctx.company = "__all__" if user.get("role") == "platform_admin" else user.get("company_id")
         upload_company = user.get("company_id") or (companies[0][1] if companies else None)
         choices = [("전체 회사", "__all__"), *companies] if user.get("role") == "platform_admin" else companies
-        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", self.shell["container"]: gr.update(visible=True), self.shell["account"]: render_header(user), self.shell["upload_nav"]: gr.update(visible=is_admin), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=user.get("role") == "platform_admin"), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=user.get("role") == "platform_admin"), self.admin["file"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.shell["nav_search"]: gr.update(variant="primary"), self.shell["upload_nav"]: gr.update(visible=is_admin, variant="secondary")}
+        platform_admin = user.get("role") == "platform_admin"
+        company_name = next((name for name, company_id in companies if company_id == user.get("company_id")), "회사명 확인 필요")
+        footer_name = "© Hyundap" if platform_admin else company_name
+        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", self.shell["container"]: gr.update(visible=True), self.shell["account"]: render_header(user), self.shell["footer_company"]: escape(footer_name), self.shell["upload_nav"]: gr.update(visible=is_admin), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.shell["nav_search"]: gr.update(variant="primary"), self.shell["upload_nav"]: gr.update(visible=is_admin, variant="secondary")}
 
     async def do_logout(self, ctx, ticket):
         previous = ctx.user
@@ -335,6 +350,39 @@ class UIController:
         doc = deepcopy(ctx.selected)
         response = await self.wait(ctx, ticket, self.service.summarize(ctx.user, doc["document_id"], doc.get("version_id")))
         return {self.search["summary"]: str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), self.search["coverage"]: render_coverage(response), self.search["detail_feedback"]: "", self.search["summarize"]: gr.update(value="다시 요약", interactive=True)}
+
+    async def do_summarize_stream(self, ctx, ticket):
+        """다른 문서로 전환된 응답은 버리고 스트림을 명시적으로 닫는다."""
+        if not ctx.selected:
+            raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
+        doc = deepcopy(ctx.selected)
+        text = ""
+        stream = self.service.summarize_stream(ctx.user, doc["document_id"], doc.get("version_id"))
+        async with aclosing(stream) as events:
+            while self.current(ctx, ticket):
+                try:
+                    event = await anext(events)
+                except StopAsyncIteration:
+                    raise UIServiceError("INVALID_RESPONSE", "요약이 완료되기 전에 응답이 끝났습니다.") from None
+                if not self.current(ctx, ticket):
+                    return
+                if not isinstance(event, dict):
+                    raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+                kind = event.get("type")
+                if kind == "status" and isinstance(event.get("message"), str):
+                    yield {self.search["detail_feedback"]: set_loading(event["message"])}
+                elif kind == "delta" and isinstance(event.get("text"), str):
+                    text += event["text"]
+                    yield {self.search["summary"]: text}
+                elif kind == "reset" and isinstance(event.get("reason"), str):
+                    text = ""
+                    yield {self.search["summary"]: "", self.search["detail_feedback"]: set_loading(event["reason"])}
+                elif kind == "done" and isinstance(event.get("response"), dict):
+                    response = event["response"]
+                    yield {**self.busy_patch("summarize", False), self.search["summary"]: str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), self.search["coverage"]: render_coverage(response), self.search["detail_feedback"]: "", self.search["summarize"]: gr.update(value="다시 요약", interactive=True)}
+                    return
+                else:
+                    raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
 
 
     async def do_source(self, ctx, ticket):

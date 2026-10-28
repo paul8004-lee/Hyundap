@@ -11,7 +11,7 @@ import asyncio
 import dataclasses
 import inspect
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -79,6 +79,7 @@ class UIServices(Protocol):
     async def detail(self, session: dict, document_id: str, version_id=None) -> dict: ...
     async def ask(self, session: dict, question: str, company_ids=None, doc_types=None, document_ids=None) -> dict: ...
     async def summarize(self, session: dict, document_id: str, version_id=None) -> dict: ...
+    def summarize_stream(self, session: dict, document_id: str, version_id=None) -> AsyncIterator[dict]: ...
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict: ...
     async def download(self, session: dict, document_id: str, version_id=None) -> str: ...
 
@@ -162,6 +163,7 @@ class BackendBindings:
     normalizers: dict[str, Callable] = field(default_factory=dict)
     temporary_auth: bool = False
     company_names: Callable | None = None
+    summarize_document_stream: Callable | None = None
 
 
 class BackendServices:
@@ -186,17 +188,20 @@ class BackendServices:
         except UIServiceError:
             raise
         except Exception as error:
-            if self.bindings.to_feedback is not None:
-                try:
-                    feedback = to_plain(await call_function(self.bindings.to_feedback, error))
-                    if isinstance(feedback, dict) and feedback.get("message"):
-                        raise UIServiceError(str(feedback.get("error_code") or "BACKEND_ERROR"), str(feedback["message"]), str(feedback.get("status") or "failed")) from error
-                except UIServiceError:
-                    raise
-                except Exception:
-                    pass
-            # DB 접속 문자열/내부 traceback 등을 사용자 화면에 노출하지 않는다.
-            raise UIServiceError("BACKEND_ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.", "failed") from error
+            raise await self._to_ui_error(error) from error
+
+    async def _to_ui_error(self, error: Exception) -> UIServiceError:
+        if self.bindings.to_feedback is not None:
+            try:
+                feedback = to_plain(await call_function(self.bindings.to_feedback, error))
+                if isinstance(feedback, dict) and feedback.get("message"):
+                    return UIServiceError(str(feedback.get("error_code") or "BACKEND_ERROR"), str(feedback["message"]), str(feedback.get("status") or "failed"))
+            except UIServiceError:
+                raise
+            except Exception:
+                pass
+        # DB 접속 문자열/내부 traceback 등을 사용자 화면에 노출하지 않는다.
+        return UIServiceError("BACKEND_ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.", "failed")
 
     @staticmethod
     def _dict(value: Any, name: str) -> dict:
@@ -309,6 +314,50 @@ class BackendServices:
         if version_id and response.get("version_id") != version_id:
             raise UIServiceError("DOCUMENT_CHANGED", "문서 버전이 바뀌었습니다. 문서를 다시 선택한 뒤 요약해 주세요.", "input_error")
         return response
+
+    async def summarize_stream(self, session: dict, document_id: str, version_id=None) -> AsyncIterator[dict]:
+        """동기 이벤트를 작업 스레드에서 순차적으로 읽고 중단 시 정리한다."""
+        function = self.bindings.summarize_document_stream
+        if function is None:
+            yield {"type": "status", "message": "요약을 생성하고 있어요."}
+            yield {"type": "done", "response": await self.summarize(session, document_id, version_id)}
+            return
+        events = None
+        pending = None
+        finished = object()
+        try:
+            actor = await self._user(session)
+            events = await asyncio.to_thread(function, document_id=document_id, user=actor)
+            if not hasattr(events, "__next__") or not callable(getattr(events, "close", None)):
+                raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+            while True:
+                pending = asyncio.create_task(asyncio.to_thread(next, events, finished))
+                event = await asyncio.shield(pending)
+                pending = None
+                if event is finished:
+                    return
+                event = to_plain(event)
+                if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+                    raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+                if event["type"] == "done":
+                    response = self._dict(event.get("response"), "요약")
+                    if version_id and response.get("version_id") != version_id:
+                        raise UIServiceError("DOCUMENT_CHANGED", "문서 버전이 바뀌었습니다. 문서를 다시 선택해 주세요.", "input_error")
+                    event = {"type": "done", "response": response}
+                yield event
+        except UIServiceError:
+            raise
+        except Exception as error:
+            raise await self._to_ui_error(error) from error
+        finally:
+            # 취소된 next가 다른 스레드에서 계속 실행 중일 수 있다. 끝난 뒤 close한다.
+            if pending is not None:
+                try:
+                    await pending
+                except (Exception, asyncio.CancelledError):
+                    pass
+            if events is not None and callable(getattr(events, "close", None)):
+                await asyncio.to_thread(events.close)
 
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
         checked = await self.validate_session(session)
