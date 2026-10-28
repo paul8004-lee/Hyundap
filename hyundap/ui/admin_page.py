@@ -35,6 +35,8 @@ ADMIN_CSS = """
 .hd-upload-note { border-radius: 12px; background: #edf0f4; padding: 12px 16px; color: #667389; font-size: 12px; line-height: 21px; }
 .hd-upload-note strong { color: #39465a; font-weight: 600; }
 .hd-upload-result { border: 1px solid #dfe4ed; border-radius: 14px; background: #fff; padding: 20px; overflow-wrap: anywhere; }
+.hd-upload-batch { display: grid; gap: 12px; }
+.hd-upload-batch-summary { margin: 0; color: #39465a; font-size: 13px; line-height: 21px; }
 .hd-upload-result-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hd-upload-result-top h2 { font-size: 16px; line-height: 24px; color: #19212b; margin: 0; font-weight: 700; }
 .hd-upload-status { border-radius: 99px; font-size: 12px; font-weight: 700; line-height: 18px; padding: 4px 10px; background: #edf0f4; color: #667389; white-space: nowrap; }
@@ -136,6 +138,18 @@ def render_upload_result(result: Any) -> str:
     )
 
 
+def render_batch_upload_results(results: list[dict], total: int) -> str:
+    """파일별 결과를 그대로 보여 주고 아직 끝나지 않은 파일을 구분한다."""
+    completed = sum(str(item.get("job_status") or item.get("status") or "").lower() == "succeeded" for item in results)
+    failed = sum(str(item.get("job_status") or item.get("status") or "").lower() == "failed" for item in results)
+    pending = len(results) - completed - failed
+    summary = f"{len(results)}/{total}건 처리 · 완료 {completed}건 · 실패 {failed}건"
+    if pending:
+        summary += f" · 상태 확인 필요 {pending}건"
+    cards = "".join(render_upload_result(item) for item in results)
+    return f'<div class="hd-upload-batch"><p class="hd-upload-batch-summary">{escape(summary)}</p>{cards}</div>'
+
+
 def build_admin_page(
     companies: Sequence[tuple[str, str]],
     doc_types: Sequence[tuple[str, str]],
@@ -170,14 +184,16 @@ def build_admin_page(
                     elem_classes=["hd-select"],
                 )
             file = gr.File(
-                label="업로드할 파일", type="filepath", file_count="single",
+                label="업로드할 파일", type="filepath", file_count="multiple",
                 # 형식은 선택 직후와 제출 시 공통 검증한다. Gradio의 영문 선행 오류를 피한다.
                 file_types=None,
                 elem_id="hd-upload-file",
             )
             gr.HTML(
-                '<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 한 번에 1개씩 등록할 수 있어요.<br>'
+                '<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 여러 개 선택할 수 있어요. 선택한 회사와 문서 유형이 모든 파일에 적용됩니다.<br>'
                 '파일당 최대 100MiB(104,857,600바이트)이며, 빈 파일은 등록할 수 없어요.<br>'
+                '파일별로 순서대로 처리합니다. 실패한 파일은 결과를 확인하고 다시 선택해 주세요.<br>'
+                '처리 중 입력을 바꾸면 현재 파일은 등록될 수 있고 나머지 파일은 중단됩니다.<br>'
                 '암호화된 파일과 내용 추출이 필요한 스캔 PDF는 지원하지 않아요.</div>'
             )
             if demo_mode:

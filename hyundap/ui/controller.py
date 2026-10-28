@@ -9,11 +9,12 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import gradio as gr
 
 from .chat_page import checked_answer_citations, render_citation, render_compact_answer
-from .admin_page import render_upload_result
+from .admin_page import render_batch_upload_results, render_upload_result
 from .components import show_feedback, set_loading, render_header, render_login_error
 from .search_page import document_rows, render_document, render_evidence, render_coverage
 from .services import company_choices, validate_upload_file, UIServiceError, UIServices
@@ -141,7 +142,7 @@ class UIController:
         button = controls.get(action)
         patch = {button: gr.update(interactive=not active)} if button is not None else {}
         if active:
-            labels = {"login": "로그인 정보를 확인하고 있어요.", "search": "문서를 검색하고 있어요.", "select": "문서 정보를 확인하고 있어요.", "summarize": "선택한 문서를 요약하고 있어요.", "upload": "파일 정보를 확인하고 있어요.", "download": "파일을 준비하고 있어요."}
+            labels = {"login": "로그인 정보를 확인하고 있어요.", "search": "문서를 검색하고 있어요.", "select": "문서 정보를 확인하고 있어요.", "summarize": "선택한 문서를 요약하고 있어요.", "upload": "선택한 파일을 확인하고 있어요.", "download": "파일을 준비하고 있어요."}
             if action in labels:
                 patch[self.feedback_target(action)] = set_loading(labels[action])
         return patch
@@ -181,6 +182,10 @@ class UIController:
             # 로딩 표시를 내보낸 사이 새 입력·로그아웃이 도착했을 수 있다.
             if not self.current(ctx, ticket):
                 return
+            if action == "upload" and isinstance(args[0], (list, tuple)) and len(args[0]) > 1:
+                async for patch in self.run_batch_upload(ctx, ticket, *args):
+                    yield patch
+                return
             result = await getattr(self, f"do_{action}")(ctx, ticket, *args)
             if self.current(ctx, ticket):
                 yield {**self.busy_patch(action, False), **result}
@@ -201,7 +206,10 @@ class UIController:
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
-                yield self.signed_out("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.")
+                message = "로그인 시간이 만료되었습니다. 다시 로그인해 주세요."
+                if action == "upload":
+                    message += " 일부 파일은 이미 처리되었을 수 있으니 등록 결과를 확인해 주세요."
+                yield self.signed_out(message)
             else:
                 feedback = render_login_error(error.message, error.code) if action == "login" else show_feedback(error.message, "error")
                 yield {**self.busy_patch(action, False), self.feedback_target(action): feedback}
@@ -351,17 +359,69 @@ class UIController:
             raise UIServiceError("FORBIDDEN", "관리자만 파일을 업로드할 수 있습니다.", "denied")
         return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), self.shell["nav_search"]: gr.update(variant="secondary" if upload else "primary"), self.shell["upload_nav"]: gr.update(variant="primary" if upload else "secondary"), self.search["submit"]: gr.update(interactive=True), self.search["summarize"]: gr.update(interactive=bool(ctx.selected)), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
 
+    @staticmethod
+    def upload_paths(files):
+        if not files:
+            return []
+        return list(files) if isinstance(files, (list, tuple)) else [files]
+
+    @staticmethod
+    def validate_upload_paths(paths):
+        for path in paths:
+            try:
+                validate_upload_file(path)
+            except UIServiceError as error:
+                if len(paths) == 1:
+                    raise
+                raise UIServiceError(error.code, f"{Path(path).name}: {error.message}", error.status) from error
+
     async def do_upload_input(self, ctx, ticket, file_path):
         """#189/#192: 입력 변경 시 이전 결과를 지우고 한국어로 파일을 검사한다."""
-        if not file_path:
+        paths = self.upload_paths(file_path)
+        if not paths:
             return {self.admin["submit"]: gr.update(interactive=False)}
-        validate_upload_file(file_path)
+        self.validate_upload_paths(paths)
         ctx.upload_ready = True
         return {self.admin["submit"]: gr.update(interactive=True)}
 
     async def do_upload(self, ctx, ticket, file_path, company, doc_type):
+        paths = self.upload_paths(file_path)
+        file_path = paths[0] if paths else None
         result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
         return {self.admin["result"]: render_upload_result({**result, "demo": self.service.demo}), self.admin["feedback"]: show_feedback("입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다." if self.service.demo else result.get("message") or "업로드 요청 결과를 확인해 주세요.", "info")}
+
+    async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
+        """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
+        paths = self.upload_paths(files)
+        # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
+        self.validate_upload_paths(paths)
+        results = []
+        for index, path in enumerate(paths, 1):
+            if not self.current(ctx, ticket):
+                return
+            yield {self.admin["feedback"]: set_loading(f"파일을 순서대로 처리하고 있어요. ({index}/{len(paths)})")}
+            # 진행 안내를 보낸 동안 입력이 바뀌었다면 다음 요청을 시작하지 않는다.
+            if not self.current(ctx, ticket):
+                return
+            try:
+                result = await self.wait(ctx, ticket, self.service.upload(ctx.user, path, company, doc_type))
+            except StaleResponse:
+                return
+            except UIServiceError as error:
+                if not self.current(ctx, ticket):
+                    return
+                if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED", "AUTH_BACKEND_PENDING", "ACCESS_DENIED", "FORBIDDEN"} or error.status in {"session_expired", "denied"}:
+                    raise
+                result = {"status": "failed", "file_name": Path(path).name, "message": error.message, "error_code": error.code}
+            if not self.current(ctx, ticket):
+                return
+            results.append({**result, "demo": self.service.demo})
+            yield {self.admin["result"]: render_batch_upload_results(results, len(paths))}
+        if self.current(ctx, ticket):
+            message = "파일별 처리 결과를 확인해 주세요."
+            if self.service.demo:
+                message = "입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다."
+            yield {**self.busy_patch("upload", False), self.admin["feedback"]: show_feedback(message, "info")}
 
     async def do_close(self, ctx, ticket):
         return {self.shell["modal"]: gr.update(visible=False), self.shell["modal_body"]: ""}
