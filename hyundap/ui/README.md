@@ -7,9 +7,10 @@ Figma의 색상·배치·카드를 실제 Gradio 입력창과 버튼으로 재�
 
 ## 실행
 
-저장소 최상위 폴더(`C:\workspace\Hyundap`, `hyundap` 폴더와 팀 README가 있는 위치)에서 실행합니다.
+저장소 최상위 폴더(`C:\workspace\Hyundap`, `hyundap` 폴더와 팀 README가 있는 위치)에서 프로젝트 가상환경을 활성화한 뒤 실행합니다.
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m hyundap.app
 ```
@@ -75,6 +76,13 @@ python -m hyundap.app --check-backend
 - #192: 파일·회사·문서 유형이 바뀌면 이전 업로드 결과와 알림을 비우고, 진행 중이던 이전 업로드의 늦은 응답도 표시하지 않습니다. 백엔드 작업 자체를 취소하는 기능은 아닙니다.
 - #193: 제거된 별도 질답 화면의 `do_scope`, `do_ask`, `do_citation`, `do_open_citation`과 전용 상태·컴포넌트 연결을 정리했습니다. 검색창 아래 답변과 기존 스플릿뷰·출처 모달은 유지합니다.
 
+## 미사용 코드 정리 — #207
+
+- 호출되지 않는 `components.status_badge()`와 `section_heading()` 및 전용 CSS, 값을 읽는 곳 없이 초기화만 하던 `ViewState.modal_citation`을 제거합니다. 출처 모달은 선택 문서와 현재 답변 출처를 사용해 계속 구성합니다.
+- `app.py`가 `apply_common_style()`로 공통 CSS를 읽고, `controller.py`가 `set_loading()`으로 처리 중 안내를 만듭니다. 요청 중 버튼 잠금은 기존 컨트롤러가 담당합니다.
+- `build_app()`와 `UIController`의 서비스 매개변수에 `UIServices` 타입을 명시해 화면이 사용하는 서비스 규격을 연결합니다. 타입 표기는 백엔드 인증·권한 검사를 대신하지 않습니다.
+- `demo.hyundap_controller`는 로컬 회귀 검사에서 앱에 연결된 컨트롤러와 화면 상태를 확인하는 접근점으로 유지합니다. `demo`는 Gradio 앱 객체의 변수명이며, 브라우저에 제공하는 API나 화면 기능이 아닙니다.
+
 ## 파일별 역할
 
 | 파일 | 역할 | 관련 작업 |
@@ -138,16 +146,37 @@ python -m hyundap.app --check-backend
 - 기본 backend와 전체 demo 모두 Gradio 컴포넌트 생성이 성공했습니다. 최초 연결 검사 37개는 리뷰 요청에 따라 `hyundap/tests/test_ui_backend.py`, `test_ui_backend_documents.py`, `test_ui_backend_feedback.py`로 옮겼습니다. 인증 계약 회귀 검사와 `test_ui_backend_check.py`의 연결 준비 점검 검사도 추가했습니다.
 - 검색·수집 구현은 최신 develop 병합으로 반영했습니다. PyMySQL 1.1.2 설치와 공개 함수 14개의 import, backend·demo 화면 생성을 확인했습니다. 로컬 검증 환경의 SQLAlchemy는 2.1.6으로 루트 요구 버전 2.0.55와 다르며 DB·OpenAI 설정도 필요합니다. 실제 서버 세션·원문 다운로드 함수도 제공 대기이므로 실제 데이터 통합 검수는 남아 있습니다.
 
-## 기존 UI 검증 기록
+## UI 회귀 검사
 
-팀의 UI·연결 검사 전체 실행 명령은 아래와 같습니다. 다만 #193에서 구형 컨트롤러 생성자와 별도 질답 동작을 제거했으므로, 현재 `test_ui_controller.py` 10개와 `test_ui_backend.py`의 `test_ask_wrapped_session_expiry_returns_login` 1개는 새 생성자·검색창 답변 흐름으로 갱신해야 합니다. 이 11개를 포함한 전체 통과를 주장하지 않습니다. 이번 수정에서는 담당 범위 밖인 `hyundap/tests/`를 변경하지 않았습니다. 나머지 계약 검사와 별도의 로컬 회귀 검사는 실제 DB·LLM을 호출하지 않고 검증합니다.
+리뷰에서 허용한 테스트 수정 범위에 따라 `test_ui_controller.py`와 `test_ui_backend.py`를 네 화면 참조(`login`, `search`, `admin`, `shell`)와 검색 후 자동 인라인 답변 흐름으로 갱신했습니다. 삭제한 `ask`·`open_citation` 이벤트를 다시 추가하지 않습니다.
+
+`test_ui_login_feedback.py`는 실제 인증 함수의 DB 경계만 대체해 잘못된 비밀번호·없는 계정의 동일한 안내와 로그인 화면 유지, 기존 오류 변환을 검사합니다. `test_ui_chat_page.py`는 인용 제거·첫 문장·80자 제한·HTML 이스케이프를 검사합니다. 컨트롤러 검사에는 늦은 답변 무효화와 행 선택 시 답변 유지가 포함됩니다. 네 파일 모두 `hyundap/tests/`에 두어 다른 개발자도 다시 실행할 수 있습니다.
+
+프로젝트 가상환경을 활성화한 저장소 최상위 터미널에서 실행합니다.
 
 ```powershell
 python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
 ```
 
+전체 검사:
+
+```powershell
+python -m unittest discover -s hyundap/tests -t .
+```
+
+2026-10-28 전체 회귀 검사 결과 (`C:\workspace\Hyundap\.venv\Scripts\python.exe -B` 사용):
+
+| 검사 기준 | 마지막 요약 |
+|---|---|
+| 현재 브랜치 `77e5490` + 로컬 UI·테스트 수정 | `Ran 363 tests in 30.745s` / `OK (skipped=72)` |
+| 리뷰 기준 `develop(2d2be91)` + PR `77e5490` + 같은 수정 | `Ran 399 tests in 39.260s` / `OK (skipped=74)` |
+
+병합본은 별도 검증용 복사본에서 실행했다. 실제 작업 브랜치의 병합·커밋·푸시를 뜻하지 않는다. 테스트의 기존 건너뛰기 조건을 유지했으며 실제 MySQL·LLM 및 병합 후 QA 시나리오 완료를 뜻하지 않는다.
+
+### 이전 화면 검증 기록
+
 - 이전 구현 당시 서비스 검사 6건, 화면 컨트롤러 검사 10건이 통과했습니다. 현재 변경 후의 전체 통과 기록은 아닙니다.
-- 컨트롤러 검사 갱신 후 재실행: 저장소 맨 위에서 `python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v` (Gradio 설치 환경).
+- 컨트롤러·서비스 검사만 재실행: `python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_services -v`.
 - Gradio 6.30.0 전체 화면 구성 검사: 예시·실제 연결 모드의 컴포넌트 생성 확인.
 - 브라우저에서 로그인→검색→부분 요약→질문/출처→해당 문서 이동·출처 모달/Esc·예시 파일 준비 확인.
 - 관리자 업로드 폼·입력 누락 안내·회사 변경 후 검색 범위 적용 확인.

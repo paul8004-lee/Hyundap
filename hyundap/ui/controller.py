@@ -14,9 +14,9 @@ import gradio as gr
 
 from .chat_page import checked_answer_citations, render_citation, render_compact_answer
 from .admin_page import render_upload_result
-from .components import show_feedback, render_header, render_login_error
+from .components import show_feedback, set_loading, render_header, render_login_error
 from .search_page import document_rows, render_document, render_evidence, render_coverage
-from .services import company_choices, validate_upload_file, UIServiceError
+from .services import company_choices, validate_upload_file, UIServiceError, UIServices
 
 
 @dataclass
@@ -24,7 +24,6 @@ class ViewState:
     user: dict | None = None
     results: list[dict] = field(default_factory=list)
     selected: dict | None = None
-    modal_citation: dict | None = None
     company: str = "__all__"
     doc_type: str = "__all__"
     query: str = ""
@@ -43,7 +42,7 @@ class StaleResponse(Exception):
 class UIController:
     """각 브라우저의 상태와 화면 변경을 관리. 비밀값은 HTML로 반환하지 않는다."""
 
-    def __init__(self, services, login, search, admin, shell):
+    def __init__(self, services: UIServices, login, search, admin, shell):
         self.service = services
         self.login, self.search, self.admin, self.shell = login, search, admin, shell
         self.states: dict[str, ViewState] = {}
@@ -125,7 +124,6 @@ class UIController:
 
     def document_patch(self, ctx, doc):
         ctx.selected = deepcopy(doc)
-        ctx.modal_citation = None
         s = self.search
         return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), s["evidence"]: self.selected_evidence(ctx, doc), s["summarize"]: gr.update(interactive=True), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
 
@@ -145,7 +143,7 @@ class UIController:
         if active:
             labels = {"login": "로그인 정보를 확인하고 있어요.", "search": "문서를 검색하고 있어요.", "select": "문서 정보를 확인하고 있어요.", "summarize": "선택한 문서를 요약하고 있어요.", "upload": "파일 정보를 확인하고 있어요.", "download": "파일을 준비하고 있어요."}
             if action in labels:
-                patch[self.feedback_target(action)] = show_feedback(labels[action], "loading")
+                patch[self.feedback_target(action)] = set_loading(labels[action])
         return patch
 
     async def run(self, action: str, key: str, *args):
@@ -160,11 +158,10 @@ class UIController:
         ticket = ctx.epoch, action, ctx.requests[action]
         initial = self.busy_patch(action, True)
         if action in {"search", "filter", "reset"}:
-            ctx.results, ctx.selected, ctx.modal_citation = [], None, None
+            ctx.results, ctx.selected = [], None
             initial = {**self.clear_search(), **initial}
         elif action == "select":
             ctx.selected = None
-            ctx.modal_citation = None
             initial = {**self.clear_modal(), **self.clear_document(), **initial}
         elif action == "upload_input":
             # 입력 변경 후 이전 업로드의 늦은 결과는 표시하지 않는다.
@@ -203,7 +200,7 @@ class UIController:
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
-                ctx.user, ctx.results, ctx.selected, ctx.modal_citation = None, [], None, None
+                ctx.user, ctx.results, ctx.selected = None, [], None
                 yield self.signed_out("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.")
             else:
                 feedback = render_login_error(error.message, error.code) if action == "login" else show_feedback(error.message, "error")
@@ -220,7 +217,7 @@ class UIController:
         if not document_ids:
             return
         user, query = deepcopy(ctx.user), ctx.query
-        yield self.inline_patch(show_feedback("짧은 답변을 준비하고 있어요.", "loading"), visible=True)
+        yield self.inline_patch(set_loading("짧은 답변을 준비하고 있어요."), visible=True)
         try:
             response = await self.service.ask(user, query, companies, types, document_ids)
             if not self.inline_current(ctx, generation):
@@ -241,7 +238,7 @@ class UIController:
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
-                ctx.user, ctx.results, ctx.selected, ctx.modal_citation = None, [], None, None
+                ctx.user, ctx.results, ctx.selected = None, [], None
                 yield self.signed_out("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.")
             else:
                 patch = self.inline_patch(show_feedback(error.message, "error"), visible=True)
@@ -263,7 +260,7 @@ class UIController:
             raise UIServiceError("PASSWORD_CHANGE_REQUIRED", "비밀번호 변경이 필요한 계정입니다. 인증 담당에게 변경 절차를 요청해 주세요.")
         ctx.user = user
         ctx.upload_ready = False
-        ctx.results, ctx.selected, ctx.modal_citation = [], None, None
+        ctx.results, ctx.selected = [], None
         ctx.query, ctx.doc_type = "", "__all__"
         companies = company_choices(user, demo=self.service.demo or getattr(self.service, "temporary_auth", False))
         ctx.company = "__all__" if user.get("role") == "platform_admin" else user.get("company_id")
@@ -273,7 +270,7 @@ class UIController:
 
     async def do_logout(self, ctx, ticket):
         previous = ctx.user
-        ctx.user, ctx.results, ctx.selected, ctx.modal_citation = None, [], None, None
+        ctx.user, ctx.results, ctx.selected = None, [], None
         message = ""
         if previous:
             try:
@@ -349,7 +346,6 @@ class UIController:
 
     async def do_nav(self, ctx, ticket, destination):
         user = await self.checked(ctx, ticket)
-        ctx.modal_citation = None
         upload = destination == "upload"
         if upload and user.get("role") not in {"company_admin", "platform_admin"}:
             raise UIServiceError("FORBIDDEN", "관리자만 파일을 업로드할 수 있습니다.", "denied")
@@ -368,5 +364,4 @@ class UIController:
         return {self.admin["result"]: render_upload_result({**result, "demo": self.service.demo}), self.admin["feedback"]: show_feedback("입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다." if self.service.demo else result.get("message") or "업로드 요청 결과를 확인해 주세요.", "info")}
 
     async def do_close(self, ctx, ticket):
-        ctx.modal_citation = None
         return {self.shell["modal"]: gr.update(visible=False), self.shell["modal_body"]: ""}

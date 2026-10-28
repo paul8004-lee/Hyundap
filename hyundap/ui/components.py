@@ -78,12 +78,6 @@ def set_loading(message: str = "처리 중입니다. 잠시만 기다려 주세�
     return show_feedback(message, "loading")
 
 
-def status_badge(label: str, status: str = "info") -> str:
-    allowed = {"info", "success", "error", "warning", "neutral", "loading"}
-    status = status if status in allowed else "neutral"
-    return f'<span class="hd-badge hd-badge--{status}">{escape(str(label))}</span>'
-
-
 def brand_html(role_label: str = "", *, inverse: bool = False) -> str:
     """B02/B16: Figma 원본의 텍스트 H 심볼과 역할 배지."""
     mode = " hd-brand--inverse" if inverse else ""
@@ -98,11 +92,6 @@ def render_header(user: Mapping[str, Any] | None = None) -> str:
     role_code = str(user.get("role") or "employee")
     role = str(user.get("role_label") or {"employee": "일반 사용자", "company_admin": "기업 관리자", "platform_admin": "전체 관리자"}.get(role_code, "사용자"))
     return f'<div class="hd-header-summary" data-role="{escape(role_code, quote=True)}">' + brand_html(role, inverse=True) + f'<div class="hd-user-summary"><span class="hd-avatar" aria-hidden="true">{escape(name[:1])}</span><span title="{escape(role, quote=True)}">{escape(name)}</span></div></div>'
-
-
-def section_heading(title: str, description: str = "") -> str:
-    detail = f'<p>{escape(description)}</p>' if description else ""
-    return f'<div class="hd-section-heading"><h1>{escape(title)}</h1>{detail}</div>'
 
 
 def footer_html(note: str = "") -> str:

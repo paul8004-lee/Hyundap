@@ -24,11 +24,11 @@ import gradio as gr
 
 from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page
 from hyundap.ui.chat_page import CHAT_CSS
-from hyundap.ui.components import brand_html, footer_html, get_css, get_theme
+from hyundap.ui.components import apply_common_style, brand_html, footer_html, get_theme
 from hyundap.ui.controller import UIController
 from hyundap.ui.login_page import build_login_page
 from hyundap.ui.search_page import SEARCH_CSS, build_search_page
-from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices
+from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices, UIServices
 
 
 APP_CSS = """
@@ -100,7 +100,7 @@ APP_JS = """() => {
 }"""
 
 
-def build_app(service=None, *, mode="backend") -> gr.Blocks:
+def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks:
     """FUN-176: 동일 화면에 예시 서비스 또는 실제 담당 함수 어댑터를 주입."""
     if service is None:
         if mode == "demo":
@@ -203,8 +203,10 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
         for button, destination in [(nav_search, "search"), (upload_nav, "upload")]:
             button.click(navigation(destination), inputs=[key], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
 
+    # 로컬 회귀 검사·디버깅에서 화면 상태와 연결을 확인하는 Python 접근점.
+    # 공개 API나 인증 근거로 사용하지 않는다.
     demo.hyundap_controller = controller
-    demo.hyundap_css = get_css() + SEARCH_CSS + CHAT_CSS + ADMIN_CSS + APP_CSS
+    demo.hyundap_css = apply_common_style() + SEARCH_CSS + CHAT_CSS + ADMIN_CSS + APP_CSS
     return demo.queue(default_concurrency_limit=4)
 
 
