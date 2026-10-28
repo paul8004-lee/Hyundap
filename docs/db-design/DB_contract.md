@@ -80,7 +80,7 @@ DB 장애는 DB_UNAVAILABLE, search는 SEARCH_UNAVAILABLE로 변환한다. 없�
 | db.documents_repo.find_duplicate_document(company_id, sha256, *, exclude_version_id=None, connection=None) | str,str → {document_id,version_id,version_status,deleted_at} 또는 None | 권한 확인된 서버 처리 전용. 제외 ID는 서버가 확정한 현재 후보이며 같은 회사·해시로 존재해야 함. 불일치 INVALID_INPUT. 삭제·실패 포함, 옵션 생략 시 기존 조회 유지. 후보 최종 생성에서는 제외하지 않음 |
 | db.documents_repo.get_documents_with_active_version(document_ids) | list[str] → list[dict] | 이준영 FUN-247. 위 11필드. 빈 목록은 [], 없는 ID 누락. 서버 내부 조회이며 별도 공개 API 아님 |
 | db.documents_repo.create_document_version(actor, metadata) | dict → {document_id,version_id,job_id} | 업로드 서비스. metadata: company_id,doc_type,file_name,storage_path,sha256,file_size,data_category,document_id(기존 문서면 지정). 권한·동시 중복·버전 번호 확인 후 짧은 TX |
-| db.versions_repo.list_document_versions(actor, document_id) | str → list[dict] | 회사 권한이 있는 관리자용 버전 관리. 직원에게 과거·비공개 버전을 노출하지 않음. version_no 오름차순, 내부 경로 제외 |
+| db.versions_repo.list_document_versions(actor, document_id) | str → list[dict] | 회사 권한이 있는 관리자용 버전 이력. 직원에게 과거·비공개 버전을 노출하지 않음. version_no 오름차순, 내부 경로 제외. 기존 9필드 + is_active(bool). 삭제/차단 문서도 관리자 이력 조회 허용; 활성 포인터 표시는 공개 권한이 아님. [P2-02 계약](P2_02_VERSION_HISTORY_CONTRACT.md) |
 | db.chunks_repo.save_manifest(version_id, chunks) | list[{id,chunk_index,content_hash}] → None | DB 처리 흐름. 소속 후보 확인, 청크 ID 규칙·연속 순번·중복·해시 검증. 동일 재시도는 허용, ID 같고 내용 다르면 CONFLICT |
 | db.chunks_repo.get_expected_chunk_ids(version_id) | str → list[str] | 완전성 검사. chunk_index 순서. 단순 개수만 비교하지 않음 |
 | db.jobs_repo.record_stage_result(job_id, report) | dict 또는 dataclass → None | 업로드 서비스. 식별자·개수·모델명·시간·상태·안전한 실패 코드만 단계별 JSON으로 보관. 원시 메시지·본문·임의 키 제외. P0는 단일 작업 실행자 |
