@@ -7,7 +7,7 @@
     FUN-200 validate_upload — 파일 형식부터 중복까지 정해진 순서로 검사한다.
     FUN-201 check_file_format — 확장자와 파일 시그니처로 지원 형식을 검사한다.
     FUN-202 check_file_size — 파일 크기가 허용 범위 안인지 확인한다.
-    FUN-203 check_not_encrypted — 암호화된 문서를 거부한다.
+    FUN-203 check_not_encrypted — 암호화된 문서를 거부한다. (OLE2는 암호/구형/기타로 구분)
     FUN-204 check_not_corrupted — 파일을 정상적으로 읽을 수 있는지 검사한다.
     FUN-205 compute_file_hash — 파일 내용의 SHA-256을 계산한다.
     FUN-206 check_duplicate — DB 조회 함수로 회사별 동일 파일을 확인한다."""
@@ -26,6 +26,7 @@ from .models import (
     DUPLICATE_FILE,
     ENCRYPTED_FILE,
     FILE_TOO_LARGE,
+    LEGACY_FORMAT,
     UNSUPPORTED_FORMAT,
     IngestError,
 )
@@ -33,6 +34,11 @@ from .models import (
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx")
 MAX_FILE_BYTES = 104857600
 OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+# OLE2 컨테이너 안의 스트림 이름은 UTF-16LE로 저장된다. 암호 Office 문서는 EncryptedPackage·EncryptionInfo를,
+# 구형 .doc·.ppt는 각각 WordDocument·PowerPoint Document를 가진다 (#145).
+OLE2_ENCRYPTED_NAMES = ("EncryptedPackage", "EncryptionInfo")
+OLE2_LEGACY_NAMES = ("WordDocument", "PowerPoint Document")
 
 # 확장자별 필수 파일과, 다른 형식임을 알려 주는 파일 (확장자만 바꾼 파일을 UNSUPPORTED_FORMAT으로 구분)
 ZIP_REQUIRED = {".docx": "word/document.xml", ".pptx": "ppt/presentation.xml"}
@@ -80,6 +86,29 @@ def open_pdf(file_path):
         return None
 
 
+def find_ole2_stream_names(file_path, names, block_size=1024 * 1024):
+    """OLE2 파일에 주어진 이름의 스트림(UTF-16LE)이 들어 있는지 찾아, 찾은 이름의 집합을 돌려준다.
+
+    OLE2를 해석하지 않고 바이트를 훑으므로 의존성이 없다. 블록 경계에 걸린 이름도 찾도록 겹쳐 읽는다."""
+    targets = {name: name.encode("utf-16-le") for name in names}
+    overlap = max(len(raw) for raw in targets.values()) - 1
+    found = set()
+    tail = b""
+    with open(file_path, "rb") as f:
+        while True:
+            block = f.read(block_size)
+            if not block:
+                break
+            data = tail + block
+            for name, raw in targets.items():
+                if raw in data:
+                    found.add(name)
+            if len(found) == len(targets):
+                break
+            tail = data[-overlap:]
+    return found
+
+
 def check_not_encrypted(file_path, extension, reader=None):
     """암호가 걸린 문서를 걸러낸다. PDF는 열어 둔 reader를 넘기면 다시 열지 않는다."""
     if extension == ".pdf":
@@ -93,7 +122,12 @@ def check_not_encrypted(file_path, extension, reader=None):
     with open(file_path, "rb") as f:
         head = f.read(8)
     if head == OLE2_SIGNATURE:
-        raise IngestError(ENCRYPTED_FILE)
+        found = find_ole2_stream_names(file_path, OLE2_ENCRYPTED_NAMES + OLE2_LEGACY_NAMES)
+        if any(name in found for name in OLE2_ENCRYPTED_NAMES):
+            raise IngestError(ENCRYPTED_FILE)
+        if any(name in found for name in OLE2_LEGACY_NAMES):
+            raise IngestError(LEGACY_FORMAT)
+        raise IngestError(UNSUPPORTED_FORMAT)   # 암호도 구형 Word·PowerPoint도 아닌 OLE2 (xls 등)
 
 
 def check_not_corrupted(file_path, extension, reader=None):

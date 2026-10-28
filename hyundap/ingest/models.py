@@ -13,7 +13,7 @@ from typing import Optional
 
 from hyundap.common.schemas import Chunk
 
-# 오류 이름표 (LEGACY_FORMAT 판별은 후속 구현)
+# 오류 이름표
 UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
 FILE_TOO_LARGE = "FILE_TOO_LARGE"
 ENCRYPTED_FILE = "ENCRYPTED_FILE"
