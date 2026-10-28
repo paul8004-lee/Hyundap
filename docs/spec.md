@@ -1099,7 +1099,7 @@
 - **담당자**: 박영준
 - **적용 모드**: 팀 P1(필수)
 - **사용 주체**: 시스템(embedding)
-- **화면·진입점**: embedding.get_embedding_model / get_collection
+- **화면·진입점**: embedding.get_embedding_model / get_vector_store
 - **주요 입력**: .env의 OPENAI_API_KEY·OPENAI_EMBEDDING_MODEL·CHROMA_DB_PATH
 - **처리 흐름**: 설정 읽기 → OpenAI 임베딩 모델 객체 생성(한 번 만들어 재사용) → data/chroma_db 폴더의 Chroma를 열고 모델별 컬렉션을 가져오거나 새로 만든다.
 - **출력·상태**: 임베딩 모델 객체, Chroma 컬렉션(cosine)
@@ -1133,9 +1133,9 @@
 - **담당자**: 박영준
 - **적용 모드**: 팀 P1(필수)
 - **사용 주체**: 시스템(embedding)
-- **화면·진입점**: embedding.build_embedding_text / fit_to_token_limit
+- **화면·진입점**: embedding.build_embedding_text / fit_to_char_limit
 - **주요 입력**: 청크 1개
-- **처리 흐름**: 청크 text만 앞뒤 공백을 제거해 모델에 넣는다(회사·문서 유형은 글에 섞지 않음). 토큰 수를 세어 모델 상한(8191)을 넘으면 잘라내고 잘렸음을 기록한다.
+- **처리 흐름**: 청크 text만 앞뒤 공백을 제거해 모델에 넣는다(회사·문서 유형은 글에 섞지 않음). 글자 수가 상한(4000자)을 넘으면 잘라내고 잘렸음을 기록한다. 토큰이 아닌 글자 수 기준이다(tiktoken 사용 안 함).
 - **출력·상태**: 임베딩할 글, 잘림 여부(truncated)
 - **조건·범위**: 빈 글은 EMPTY_TEXT 실패. 청크는 1000자 기준이라 잘림은 드물며 안전장치 역할이다.
 - **연결 상태**: 설계(미구현)
@@ -1159,17 +1159,17 @@
 - **정의 ID**: FUN-305
 - **소스 위치**: embedding/embedder.py (구현 예정)
 
-##### F104 일시 오류 재시도·영구 실패 표시 (EMB-05)
+##### F104 응답 시간 제한·일시 오류 재시도·영구 실패 표시 (EMB-05)
 
 - **분류**: 임베딩
 - **담당자**: 박영준
 - **적용 모드**: 팀 P2(상용화)
 - **사용 주체**: 시스템(embedding)
-- **화면·진입점**: embedding.embed_batch_with_retry
-- **주요 입력**: 글 목록, max_retries=3
-- **처리 흐름**: 속도 제한·연결 끊김·시간 초과는 1초·2초·4초 간격으로 최대 3번 다시 시도한다. 인증 오류·잘못된 요청 등 고칠 수 없는 오류는 재시도 없이 실패로 표시한다.
+- **화면·진입점**: embedding.embed_texts / embed_query
+- **주요 입력**: 글 목록 (응답 대기 시간·자동 재시도 횟수는 OpenAIEmbeddings의 request_timeout·max_retries 인자: 문서 30초·3번, 질문 10초·2번, 상태 점검 5초·0번)
+- **처리 흐름**: 응답 대기와 일시 오류(속도 제한·연결 끊김·시간 초과·서버 오류) 재시도는 OpenAIEmbeddings 라이브러리가 맡는다(직접 만든 재시도 코드 없음). 라이브러리가 끝내 실패하면 openai 예외 클래스로 종류를 구분한다: 인증·권한 AUTH_ERROR, 잘못된 요청 BAD_REQUEST, 한도 소진 QUOTA_EXCEEDED는 retryable=False, 속도 제한 RATE_LIMIT·시간 초과 TIMEOUT·연결 끊김 CONNECTION·서버 오류 SERVER_ERROR는 retryable=True, 그 밖의 알 수 없는 오류 UNKNOWN_ERROR는 retryable=False.
 - **출력·상태**: 벡터 목록 또는 EmbeddingError(retryable 구분)
-- **조건·범위**: 재시도 3번을 모두 쓰면 실패(retryable=True로 기록, 나중에 다시 처리 가능).
+- **조건·범위**: retryable 값은 db 작업 기록과 UI 재시도 안내에 쓰인다. retryable=True는 나중에 다시 처리할 수 있는 실패, False는 설정·입력·한도를 고치기 전에는 해결되지 않는 실패다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-304
@@ -1237,7 +1237,7 @@
 - **사용 주체**: 로그인 사용자(search·chatbot이 호출)
 - **화면·진입점**: embedding.embed_query
 - **주요 입력**: 검색어 또는 질문 문자열
-- **처리 흐름**: 앞뒤 공백을 제거하고 1~2000자인지 확인한 뒤 청크와 같은 모델로 임베딩한다(재시도 포함).
+- **처리 흐름**: 앞뒤 공백을 제거하고 1~2000자인지 확인한 뒤 청크와 같은 모델로 임베딩한다(응답 대기 10초, 자동 재시도 2번).
 - **출력·상태**: 벡터(list[float])
 - **조건·범위**: 빈 문자열 EMPTY_QUERY, 2000자 초과 QUERY_TOO_LONG.
 - **연결 상태**: 설계(미구현)
@@ -1329,10 +1329,10 @@
 - **적용 모드**: 팀 P2(상용화)
 - **사용 주체**: 로컬 실행자·개발자
 - **화면·진입점**: embedding.check_embedding_health / check_vector_store_health
-- **주요 입력**: (없음) timeout=5초, 캐시 60초
+- **주요 입력**: (없음) 응답 대기 5초, 재시도 없음
 - **처리 흐름**: 시험 문장을 임베딩해 모델·API 키가 동작하는지 보고, 컬렉션을 열어 저장된 벡터 수·공개 벡터 수를 센다.
 - **출력·상태**: {ok, model, dim, total_vectors, active_vectors, detail}
-- **조건·범위**: 시험 임베딩은 실제 API를 호출하므로 성공 결과를 60초 캐시한다.
+- **조건·범위**: 시험 임베딩은 실제 API를 호출하므로 비용이 발생할 수 있다. 호출할 때마다 새로 점검하며 결과를 저장해 두지 않는다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-309
@@ -1374,8 +1374,8 @@
 | 모듈 ID | 파일 | 주 책임 | 적용 모드 | 설명 | 내부 의존 모듈 | 주요 외부 가져오기 |
 |---|---|---|---|---|---|---|
 | MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from hyundap.embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
-| MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai, tiktoken, concurrent.futures, math, time |
-| MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | ChromaDB 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | chromadb, re, time |
+| MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai(예외 클래스), numpy, collections, time |
+| MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | Chroma 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | langchain_chroma, time |
 | MOD-103 | embedding/models.py | 결과 형식·오류 | 팀 P1(필수) | embedding이 주고받는 결과 데이터(dataclass)와 오류 클래스를 정의한다. | common.schemas | dataclasses |
 
 #### 클래스
@@ -1560,13 +1560,13 @@
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: common/config의 모델 이름·API 키로 OpenAI 임베딩 모델 객체를 만들고 같은 객체를 재사용한다. 청크용·질문용이 같은 모델을 쓰도록 보장한다.
-- **입력 인자·기본값**: model_name: str | None = None
+- **역할**: common/config의 모델 이름·API 키로 OpenAI 임베딩 모델 객체를 만들고 같은 설정이면 같은 객체를 재사용한다. 청크용·질문용이 같은 모델을 쓰도록 보장하며, 용도(문서·질문·점검)마다 응답 대기 시간·재시도 횟수를 다르게 넘긴다.
+- **입력 인자·기본값**: model_name: str | None = None, *, timeout: float = 30, max_retries: int = 3
 - **반환 형식·구조**: OpenAIEmbeddings
 - **진입점·연결 방식**: 내부 처리 (embed_chunks·embed_query·check_embedding_health)
-- **직접 호출 대상**: common.config.get_settings, OpenAIEmbeddings
+- **직접 호출 대상**: common.config.get_settings, OpenAIEmbeddings(request_timeout, max_retries)
 - **직접 발생 오류**: EmbeddingError(NO_API_KEY)
-- **데코레이터**: @lru_cache
+- **데코레이터**: 없음 (같은 설정의 객체는 모듈 변수에 보관해 재사용)
 - **연결 기능**: F100
 - **소스 위치**: embedding/embedder.py (구현 예정)
 - **담당자**: 박영준
@@ -1586,15 +1586,15 @@
 - **소스 위치**: embedding/embedder.py (구현 예정)
 - **담당자**: 박영준
 
-##### FUN-302 `fit_to_token_limit`
+##### FUN-302 `fit_to_char_limit`
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: tiktoken으로 토큰 수를 세어 모델 입력 상한을 넘으면 상한까지 잘라내고 잘렸는지 함께 알려준다.
-- **입력 인자·기본값**: text: str, max_tokens: int = 8191, model_name: str | None = None
+- **역할**: 글자 수가 입력 상한을 넘으면 상한까지 잘라내고 잘렸는지 함께 알려준다. 토큰이 아닌 글자 수 기준이다(tiktoken 사용 안 함).
+- **입력 인자·기본값**: text: str, max_chars: int = 4000
 - **반환 형식·구조**: tuple[str, bool] (처리된 글, 잘림 여부)
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: tiktoken.encoding_for_model, tiktoken.get_encoding, encoding.encode, encoding.decode
+- **직접 호출 대상**: len
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F102
@@ -1616,16 +1616,16 @@
 - **소스 위치**: embedding/embedder.py (구현 예정)
 - **담당자**: 박영준
 
-##### FUN-304 `embed_batch_with_retry`
+##### FUN-304 `embed_texts`
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: 글 한 묶음을 임베딩 API로 보낸다. 일시 오류는 1·2·4초 간격으로 최대 3번 재시도하고 고칠 수 없는 오류는 바로 실패 처리한다.
-- **입력 인자·기본값**: texts: list[str], *, max_retries: int = 3, base_delay: float = 1.0
+- **역할**: 글 한 묶음을 임베딩 API로 보낸다. 응답 대기·일시 오류 재시도는 OpenAIEmbeddings가 맡고, 끝내 실패하면 openai 예외 클래스로 오류 종류(AUTH_ERROR·BAD_REQUEST·QUOTA_EXCEEDED·RATE_LIMIT·TIMEOUT·CONNECTION·SERVER_ERROR·UNKNOWN_ERROR)와 재시도 가능 여부를 구분해 올린다.
+- **입력 인자·기본값**: texts: list[str]
 - **반환 형식·구조**: list[list[float]] (입력 순서와 같은 벡터 목록)
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: get_embedding_model, model.embed_documents, time.sleep
-- **직접 발생 오류**: EmbeddingError(retryable 여부 포함)
+- **직접 호출 대상**: get_embedding_model, model.embed_documents
+- **직접 발생 오류**: EmbeddingError(오류 종류별 코드, retryable 여부 포함)
 - **데코레이터**: 없음
 - **연결 기능**: F104
 - **소스 위치**: embedding/embedder.py (구현 예정)
@@ -1635,11 +1635,11 @@
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: 청크를 64개씩 묶어 입력 구성·길이 점검·재시도 호출을 거쳐 임베딩한다. 실패한 묶음의 청크만 실패 목록에 담고 계속 진행한다.
+- **역할**: 청크를 64개씩 묶어 입력 구성·길이 점검·임베딩 호출을 거쳐 임베딩한다. 실패한 묶음의 청크만 실패 목록에 담고 계속 진행한다.
 - **입력 인자·기본값**: chunks: list[Chunk], *, batch_size: int = 64
 - **반환 형식·구조**: EmbeddingBatch (items, failures)
 - **진입점·연결 방식**: 내부 처리 (embed_and_store)
-- **직접 호출 대상**: build_embedding_text, fit_to_token_limit, build_chunk_metadata, embed_batch_with_retry, EmbeddedChunk, EmbeddingFailure
+- **직접 호출 대상**: build_embedding_text, fit_to_char_limit, build_chunk_metadata, embed_texts, EmbeddedChunk, EmbeddingFailure
 - **직접 발생 오류**: 직접 발생 없음 (실패는 failures에 기록)
 - **데코레이터**: 없음
 - **연결 기능**: F103
@@ -1654,7 +1654,7 @@
 - **입력 인자·기본값**: vectors: list[list[float]], expected_dim: int | None = None
 - **반환 형식·구조**: list[int] (이상 벡터 위치, 빈 목록이면 정상)
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: math.isfinite, len
+- **직접 호출 대상**: numpy.isfinite, collections.Counter, len
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F105
@@ -1684,8 +1684,8 @@
 - **입력 인자·기본값**: query: str
 - **반환 형식·구조**: list[float]
 - **진입점·연결 방식**: 다른 폴더에서 호출 (search.search, chatbot.ask)
-- **직접 호출 대상**: embed_batch_with_retry
-- **직접 발생 오류**: EmbeddingError(EMPTY_QUERY / QUERY_TOO_LONG)
+- **직접 호출 대상**: get_embedding_model(timeout=10, max_retries=2), model.embed_query, validate_embeddings
+- **직접 발생 오류**: EmbeddingError(EMPTY_QUERY / QUERY_TOO_LONG, 오류 종류별 코드)
 - **데코레이터**: 없음
 - **연결 기능**: F108
 - **소스 위치**: embedding/embedder.py (구현 예정)
@@ -1695,11 +1695,11 @@
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: 시험 문장을 임베딩해 모델·API 키가 동작하는지 점검한다. 최대 5초 기다리고 성공 결과는 60초 캐시한다.
-- **입력 인자·기본값**: *, timeout: float = 5.0, cache_seconds: int = 60
+- **역할**: 시험 문장을 임베딩해 모델·API 키가 동작하는지 점검한다. 최대 5초만 기다리고 재시도하지 않으며 결과를 저장해 두지 않는다.
+- **입력 인자·기본값**: (없음)
 - **반환 형식·구조**: dict {ok, model, dim, detail}
 - **진입점·연결 방식**: 다른 폴더에서 호출 (app.py·tests)
-- **직접 호출 대상**: ThreadPoolExecutor, embed_batch_with_retry, time.monotonic
+- **직접 호출 대상**: get_embedding_model(timeout=5, max_retries=0), model.embed_query, validate_embeddings
 - **직접 발생 오류**: 직접 발생 없음 (오류는 ok=False로 반환)
 - **데코레이터**: 없음
 - **연결 기능**: F114
@@ -1714,22 +1714,22 @@
 - **입력 인자·기본값**: model_name: str
 - **반환 형식·구조**: str
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: re.sub
+- **직접 호출 대상**: str.isalnum, str.strip
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F115
 - **소스 위치**: embedding/vector_store.py (구현 예정)
 - **담당자**: 박영준
 
-##### FUN-311 `get_collection`
+##### FUN-311 `get_vector_store`
 
 - **모듈**: embedding.vector_store
 - **구분**: 모듈 함수
-- **역할**: data/chroma_db에 저장되는 Chroma 클라이언트를 한 번만 열고 모델별 컬렉션을 가져오거나 만든다(거리 방식 cosine).
+- **역할**: data/chroma_db에 저장되는 Chroma 저장소(langchain_chroma.Chroma)를 모델별 컬렉션으로 한 번만 열고 재사용한다(거리 방식 cosine).
 - **입력 인자·기본값**: model_name: str | None = None
-- **반환 형식·구조**: chromadb Collection
+- **반환 형식·구조**: langchain_chroma.Chroma
 - **진입점·연결 방식**: 내부 처리 (vector_store 모든 함수)
-- **직접 호출 대상**: common.config.get_settings, chromadb.PersistentClient, client.get_or_create_collection, collection_name_for_model
+- **직접 호출 대상**: common.config.get_settings, Chroma(collection_name, persist_directory, collection_metadata), collection_name_for_model
 - **직접 발생 오류**: VectorStoreError(STORE_UNAVAILABLE)
 - **데코레이터**: 없음
 - **연결 기능**: F100, F115
@@ -1744,7 +1744,7 @@
 - **입력 인자·기본값**: chunks: list[Chunk]
 - **반환 형식·구조**: list[Chunk]
 - **진입점·연결 방식**: 내부 처리 (embed_and_store)
-- **직접 호출 대상**: get_collection, collection.get
+- **직접 호출 대상**: get_vector_store, store.get
 - **직접 발생 오류**: VectorStoreError(COMPANY_MISMATCH)
 - **데코레이터**: 없음
 - **연결 기능**: F101
@@ -1759,7 +1759,7 @@
 - **입력 인자·기본값**: chunks: list[Chunk], vectors: list[list[float]], metadatas: list[dict], *, batch_size: int = 64
 - **반환 형식·구조**: int (저장한 개수)
 - **진입점·연결 방식**: 내부 처리 (embed_and_store)
-- **직접 호출 대상**: get_collection, collection.upsert
+- **직접 호출 대상**: get_vector_store, store._collection.upsert
 - **직접 발생 오류**: VectorStoreError(LENGTH_MISMATCH / UPSERT_FAILED)
 - **데코레이터**: 없음
 - **연결 기능**: F105
@@ -1789,7 +1789,7 @@
 - **입력 인자·기본값**: query_vector: list[float], where: dict, *, top_k: int = 10
 - **반환 형식·구조**: list[VectorHit]
 - **진입점·연결 방식**: 다른 폴더에서 호출 (search/search.py)
-- **직접 호출 대상**: get_collection, collection.query, VectorHit
+- **직접 호출 대상**: get_vector_store, store.similarity_search_by_vector_with_relevance_scores, VectorHit
 - **직접 발생 오류**: VectorStoreError(NO_COMPANY_SCOPE / QUERY_FAILED)
 - **데코레이터**: 없음
 - **연결 기능**: F109
@@ -1804,7 +1804,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str
 - **반환 형식·구조**: int (공개된 청크 수)
 - **진입점·연결 방식**: 다른 폴더에서 호출 (db/ 활성 버전 지정 직후)
-- **직접 호출 대상**: get_collection, collection.get, collection.update
+- **직접 호출 대상**: get_vector_store, store.get, store._collection.update
 - **직접 발생 오류**: VectorStoreError(VERSION_NOT_FOUND)
 - **데코레이터**: 없음
 - **연결 기능**: F110
@@ -1819,7 +1819,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str | None = None
 - **반환 형식·구조**: int (삭제한 벡터 수)
 - **진입점·연결 방식**: 다른 폴더에서 호출 (db/ 실패·삭제 처리)
-- **직접 호출 대상**: get_collection, collection.delete
+- **직접 호출 대상**: get_vector_store, store.get, store.delete
 - **직접 발생 오류**: VectorStoreError(DELETE_FAILED)
 - **데코레이터**: 없음
 - **연결 기능**: F111
@@ -1834,7 +1834,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str
 - **반환 형식·구조**: list[str]
 - **진입점·연결 방식**: 다른 폴더에서 호출 (db/ 완전성 검증)
-- **직접 호출 대상**: get_collection, collection.get
+- **직접 호출 대상**: get_vector_store, store.get
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F112
@@ -1849,7 +1849,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str | None = None, *, active_only: bool = True
 - **반환 형식·구조**: list[VectorHit] (score=None)
 - **진입점·연결 방식**: 다른 폴더에서 호출 (chatbot/summary.py)
-- **직접 호출 대상**: get_collection, collection.get, VectorHit
+- **직접 호출 대상**: get_vector_store, store.get, VectorHit
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F113
@@ -1864,7 +1864,7 @@
 - **입력 인자·기본값**: (없음)
 - **반환 형식·구조**: dict {ok, collection, total_vectors, active_vectors, detail}
 - **진입점·연결 방식**: 다른 폴더에서 호출 (app.py·tests)
-- **직접 호출 대상**: get_collection, collection.count, collection.get
+- **직접 호출 대상**: get_vector_store, store._collection.count, store.get
 - **직접 발생 오류**: 직접 발생 없음 (오류는 ok=False로 반환)
 - **데코레이터**: 없음
 - **연결 기능**: F114
@@ -1876,18 +1876,18 @@
 | 규칙 ID | 분류 | 항목 | 현재 값·조건 | 적용 범위 | 설명·범위 |
 |---|---|---|---|---|---|
 | L101 | 임베딩 | 배치 크기 | 한 번에 64개 | 팀 P1(필수) | 청크를 64개씩 묶어 API로 보낸다(EMB-04). |
-| L102 | 임베딩 | 모델 입력 상한 | 8191 토큰 초과 시 잘라내고 truncated=True | 팀 P1(필수) | 청크는 1000자 기준이라 드물게 발생한다. 잘린 청크 수는 보고서에 기록한다. |
-| L103 | 임베딩 | 재시도 | 일시 오류 최대 3회, 대기 1·2·4초 | 팀 P2(상용화) | 속도 제한·연결 끊김·시간 초과만 재시도한다. 인증·잘못된 요청은 즉시 실패. |
+| L102 | 임베딩 | 모델 입력 상한 | 4000자 초과 시 잘라내고 truncated=True | 팀 P1(필수) | 토큰이 아닌 글자 수 기준(한글은 글자당 토큰이 많아 8191토큰 한도보다 낮게 잡음). 청크는 1000자 기준이라 드물게 발생한다. 잘린 청크 수는 보고서에 기록한다. |
+| L103 | 임베딩 | 응답 시간 제한·재시도 | 문서 30초·재시도 3번, 질문 10초·2번, 상태 점검 5초·0번 | 팀 P2(상용화) | OpenAIEmbeddings의 request_timeout·max_retries 인자로 지정한다(직접 만든 재시도 없음). 인증·잘못된 요청·한도 소진은 retryable=False, 나머지 일시 오류는 True. |
 | L104 | 임베딩 | 질문·검색어 길이 | 1~2000자 | 팀 P1(필수) | 검색 기능의 검색어 길이 제한과 같은 값을 쓴다. |
 | L105 | 청크 | 입력 청크 범위 | 한 호출에 같은 document_id·version_id·company_id만 | 팀 P1(필수) | 섞이면 MIXED_SCOPE 오류. 청크 크기(1000자·중첩 150자)는 ingest 담당 기준을 따른다. |
-| L106 | 저장 | 벡터 저장소 | ChromaDB PersistentClient · data/chroma_db/ · cosine | 팀 P1(필수) | data/ 폴더는 git에 올리지 않는다. 같은 폴더를 여러 프로세스가 동시에 쓰지 않는다. |
+| L106 | 저장 | 벡터 저장소 | langchain_chroma.Chroma · data/chroma_db/ · cosine | 팀 P1(필수) | data/ 폴더는 git에 올리지 않는다. 같은 폴더를 여러 프로세스가 동시에 쓰지 않는다. |
 | L107 | 저장 | 컬렉션 규칙 | chunks__<모델 이름> (모델별 분리) | 팀 P3(부가) | 모델 교체에 대비해 이전 모델 벡터를 지우지 않고 병행 보관한다. |
 | L108 | 저장 | chunk_id 규칙 | {version_id}:{chunk_index:05d} (같은 청크=같은 ID) | 팀 P1(필수) | upsert가 중복 없이 동작하는 전제 조건이다. |
 | L109 | 저장 | 메타데이터 값 타입 | str·int·float·bool만 (None 불가 → 빈 문자열) | 팀 P1(필수) | Chroma 메타데이터 제약. 목록·딕셔너리 값은 쓰지 않는다. |
 | L110 | 공개 | 공개 상태 | 저장 시 is_active=False → activate_version 호출 후에만 검색 노출 | 팀 P1(필수) | 모든 청크가 준비되고 db/가 검증한 뒤에만 공개한다(EMB-08). |
 | L111 | 검색 | 조회 범위 필수 | 허용 회사 목록이 비거나 where에 company_id가 없으면 거부 | 팀 P1(필수) | 문서·회사 혼합과 전체 검색을 막는 안전장치. 허용 회사 결정은 auth→search가 한다. |
 | L112 | 검색 | 유사도 점수 | score = 1 − cosine 거리 (0~1로 보정) | 팀 P1(필수) | 최소 점수(기본 0.3)를 적용하는 곳은 search·chatbot이다. |
-| L113 | 운영 | 상태 점검 비용 | 시험 임베딩 5초 제한 · 성공 결과 60초 캐시 | 팀 P2(상용화) | 점검이 실제 API를 호출하므로 비용이 발생할 수 있다. |
+| L113 | 운영 | 상태 점검 비용 | 시험 임베딩 5초 제한 · 재시도 없음 · 결과 저장 안 함 | 팀 P2(상용화) | 점검이 실제 API를 호출하므로 비용이 발생할 수 있다. |
 | L114 | 구조 | 처리 단위 | 한 번에 한 문서의 한 버전 | 팀 P1(필수) | embed_and_store는 문서·버전 단위로 호출한다. 여러 문서는 호출자가 반복한다. |
 | L115 | 범위 | 이번 설계 범위 | 텍스트 청크 벡터만 (이미지·OCR·재순위화 제외) | 팀 P1(필수) | PDF·DOCX·PPTX에서 추출된 텍스트 청크만 대상으로 한다. |
 

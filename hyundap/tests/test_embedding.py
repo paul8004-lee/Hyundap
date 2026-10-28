@@ -4,6 +4,8 @@
 """
 # hashlib: 글마다 항상 같은 가짜 벡터를 만들기 위해 사용(해시값을 숫자로 바꾼다)
 import hashlib
+import httpx
+import openai
 import os
 # tempfile: 테스트마다 임시 폴더를 만들어 실제 Chroma 저장 폴더를 건드리지 않게 한다
 import tempfile
@@ -45,13 +47,23 @@ class FakeModel:
     def embed_documents(self, texts):
         self.calls.append(list(texts))
         if self.fail:
-            # 오류 문구에 API 키를 섞어 두었다. embedder가 이 키를 가리는지 확인하기 위함
-            raise RuntimeError("boom sk-test-key-123456")
+            # fail에 예외 객체를 넣으면 그 예외를, True면 일반 예외를 던진다. 오류 문구에 API 키를 섞어 두어 가리는지 확인한다
+            raise self.fail if isinstance(self.fail, Exception) else RuntimeError("boom sk-test-key-123456")
         vectors = [fake_vector(t) for t in texts]
         return self.override(vectors) if self.override else vectors
 
     def embed_query(self, text):
         return self.embed_documents([text])[0]
+
+
+# 진짜 openai 예외 객체를 만든다(상태 코드가 있는 오류는 가짜 HTTP 응답을 붙인다)
+def openai_error(cls, message="boom sk-test-key-123456", status=None):
+    request = httpx.Request("POST", "https://api.openai.com/v1/embeddings")
+    if cls is openai.APITimeoutError:
+        return cls(request=request)
+    if cls is openai.APIConnectionError:
+        return cls(message=message, request=request)
+    return cls(message, response=httpx.Response(status, request=request), body=None)
 
 
 # 테스트용 청크(dict) 1개를 만든다. 문서·버전·회사·유형을 바꿔 가며 여러 상황을 만든다
@@ -136,12 +148,12 @@ class Pieces(Base):
         self.assertEqual(validate_embeddings([good, [0.0, 0.0], [1.0], [float("nan"), 1.0]]), [1, 2, 3])
         self.assertEqual(validate_embeddings([]), [])
 
-    # API 호출 실패 시 EMBED_FAILED이고, 오류 문구에 API 키가 노출되지 않는다
+    # 알 수 없는 API 오류는 UNKNOWN_ERROR(재시도 불가)이고, 오류 문구에 API 키가 노출되지 않는다
     def test_embed_texts_failure_masks_key(self):
         self.model.fail = True
         with self.assertRaises(EmbeddingError) as ctx:
             embed_texts(["a"])
-        self.assertEqual(ctx.exception.code, "EMBED_FAILED")
+        self.assertEqual((ctx.exception.code, ctx.exception.retryable), ("UNKNOWN_ERROR", False))
         self.assertNotIn("sk-test-key-123456", ctx.exception.message)
 
     # 질문 임베딩: 정상은 벡터 길이 확인, 빈 질문은 EMPTY_QUERY, 2000자 초과는 QUERY_TOO_LONG
@@ -478,16 +490,92 @@ class EdgeCases(Base):
             self.assertEqual(delete_vectors("D1"), 1)
 
     def test_secret_not_in_failure_message(self):
-        # 실패 기록(EmbeddingFailure)에도 API 키가 남지 않는다
-        self.model.fail = True
+        # 실패 기록(EmbeddingFailure)에도 API 키가 남지 않고, 연결 오류는 재시도 가능으로 기록된다
+        self.model.fail = openai_error(openai.APIConnectionError, "connect failed sk-test-key-123456")
         report = embed_and_store([make_chunk(0)])
         self.assertNotIn("sk-test-key-123456", report.failures[0].message)
-        self.assertTrue(report.failures[0].retryable)
+        self.assertEqual((report.failures[0].code, report.failures[0].retryable), ("CONNECTION", True))
 
     def test_embedding_text_has_no_company_info(self):
         # 임베딩에 들어가는 글에는 회사명·문서 유형을 섞지 않는다(본문 그대로)
         embed_and_store([make_chunk(0, text="휴가 규정")])
         self.assertEqual(self.model.calls[0], ["휴가 규정"])
+
+
+# 오류 종류 구분과 시간 제한·재시도 설정을 시험하는 그룹 (리뷰 반영)
+class ApiErrors(Base):
+    # (openai 예외, 상태 코드, 기대 코드, 재시도 가능 여부). 인증·잘못된 요청은 다시 시도해도 소용없어 False
+    CASES = (
+        (openai.AuthenticationError, 401, "AUTH_ERROR", False),
+        (openai.PermissionDeniedError, 403, "AUTH_ERROR", False),
+        (openai.BadRequestError, 400, "BAD_REQUEST", False),
+        (openai.NotFoundError, 404, "BAD_REQUEST", False),
+        (openai.UnprocessableEntityError, 422, "BAD_REQUEST", False),
+        (openai.RateLimitError, 429, "RATE_LIMIT", True),
+        (openai.InternalServerError, 500, "SERVER_ERROR", True),
+        (openai.APITimeoutError, None, "TIMEOUT", True),
+        (openai.APIConnectionError, None, "CONNECTION", True),
+    )
+
+    def test_error_kinds_for_texts_and_query(self):
+        # 문서 임베딩(embed_texts)과 질문 임베딩(embed_query) 모두 같은 기준으로 구분한다
+        for cls, status, code, retryable in self.CASES:
+            for call in (lambda: embed_texts(["a"]), lambda: embed_query("질문")):
+                self.model.fail = openai_error(cls, status=status)
+                with self.assertRaises(EmbeddingError) as ctx:
+                    call()
+                self.assertEqual((ctx.exception.code, ctx.exception.retryable), (code, retryable), cls.__name__)
+
+    def test_quota_exceeded_is_not_retryable(self):
+        # 같은 429라도 '한도 소진'(insufficient_quota)은 기다려도 해결되지 않는다
+        self.model.fail = openai_error(openai.RateLimitError, "You exceeded your current quota", status=429)
+        with self.assertRaises(EmbeddingError) as ctx:
+            embed_texts(["a"])
+        self.assertEqual((ctx.exception.code, ctx.exception.retryable), ("QUOTA_EXCEEDED", False))
+
+    def test_error_kind_reaches_report(self):
+        # 보고서(db 작업 기록·UI 안내가 읽는 값)에 코드와 재시도 여부가 그대로 담긴다
+        self.model.fail = openai_error(openai.AuthenticationError, status=401)
+        report = embed_and_store([make_chunk(0)])
+        self.assertEqual((report.status, report.failures[0].code, report.failures[0].retryable),
+                         ("failed", "AUTH_ERROR", False))
+        self.model.fail = openai_error(openai.RateLimitError, status=429)
+        report = embed_and_store([make_chunk(1)])
+        self.assertEqual((report.failures[0].code, report.failures[0].retryable), ("RATE_LIMIT", True))
+
+    def test_api_key_masked_in_all_kinds(self):
+        # 어떤 종류의 오류 문구에서도 API 키가 가려진다
+        self.model.fail = openai_error(openai.AuthenticationError, "bad key sk-test-key-123456", status=401)
+        with self.assertRaises(EmbeddingError) as ctx:
+            embed_query("질문")
+        self.assertNotIn("sk-test-key-123456", ctx.exception.message)
+
+    def test_real_model_timeout_and_retries(self):
+        # 진짜 OpenAIEmbeddings 객체에 시간 제한·재시도 횟수가 들어간다(호출은 하지 않는다)
+        doc = REAL_GET_MODEL()
+        self.assertEqual((doc.request_timeout, doc.max_retries), (embedder.DOC_TIMEOUT_SEC, embedder.DOC_MAX_RETRIES))
+        query = REAL_GET_MODEL(timeout=embedder.QUERY_TIMEOUT_SEC, max_retries=embedder.QUERY_MAX_RETRIES)
+        self.assertEqual((query.request_timeout, query.max_retries), (10, 2))
+        self.assertIsNot(doc, query)
+        self.assertIs(doc, REAL_GET_MODEL())  # 같은 설정이면 같은 객체를 재사용
+
+    def test_call_sites_use_their_own_limits(self):
+        # 문서는 30초·3번, 질문은 10초·2번, 상태 점검은 5초·재시도 없음으로 모델을 만든다
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs)
+            return self.model
+
+        with patch.object(embedder, "get_embedding_model", spy):
+            embed_texts(["a"])
+            embed_query("질문")
+            check_embedding_health()
+        self.assertEqual(seen, [
+            {},  # 문서: 기본값(30초·3번)
+            {"timeout": 10, "max_retries": 2},
+            {"timeout": 5, "max_retries": 0},
+        ])
 
 
 if __name__ == "__main__":
