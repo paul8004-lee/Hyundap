@@ -44,6 +44,21 @@ def session_fixture(engine, user_id, company_id):
 class OfflineRuntimeTests(unittest.TestCase):
     """DB 없이 입력 경계와 비밀정보 비노출을 확인한다."""
 
+    def test_history_invalid_id_does_not_connect_and_database_error_is_safe(self):
+        """잘못된 ID를 연결 전에 거부하고 장애를 빈 이력으로 숨기지 않는다."""
+        with patch.object(runtime, 'get_engine') as engine:
+            for document_id in (None, '', ' ', 1, 'x' * 37):
+                with self.subTest(document_id=document_id), self.assertRaises(DbError) as caught:
+                    versions_repo.list_document_versions({}, document_id)
+                self.assertEqual(caught.exception.code, 'INVALID_INPUT')
+            engine.assert_not_called()
+        error = OperationalError('query', {}, Exception('synthetic-private-value'))
+        with patch.object(runtime, 'get_engine', side_effect=error):
+            with self.assertRaises(DbError) as caught:
+                versions_repo.list_document_versions({}, 'document')
+            self.assertEqual(caught.exception.code, 'DB_UNAVAILABLE')
+            self.assertNotIn('synthetic-private-value', str(caught.exception))
+
     def test_empty_document_ids_do_not_connect(self):
         """빈 검색 ID는 DB 접속 없이 빈 결과를 반환한다."""
         with patch.object(runtime, 'get_engine') as engine:
@@ -382,6 +397,79 @@ class DatabaseRuntimeTests(unittest.TestCase):
             database.execute(text("UPDATE users SET role='employee' WHERE id=:id"), {'id': self.user_id})
         with self.assertRaises(AccessError):
             versions_repo.list_document_versions(self.actor, candidate['document_id'])
+
+    def test_history_identifies_active_and_failed_versions_without_changing_pointer(self):
+        """활성·실패·처리중 이력을 구분하고 삭제/차단 상태에서도 관리자 이력을 보존한다."""
+        first = self.candidate()
+        self.publish_fixture(first)
+        second = self.candidate(document_id=first['document_id'], sha256='b' * 64)
+        versions_repo.mark_failed(second['version_id'])
+        jobs_repo.record_stage_result(second['job_id'], {'stage': 'ingest', 'status': 'failed'})
+        third = self.candidate(document_id=first['document_id'], sha256='c' * 64)
+        expected_fields = {'version_id', 'document_id', 'version_no', 'file_name', 'file_size',
+                           'version_status', 'data_category', 'expected_chunk_count', 'created_at', 'is_active'}
+        with self.engine.connect() as database:
+            tx = database.begin()
+            database.execute(text("UPDATE documents SET deleted_at=UTC_TIMESTAMP(6),publication_status='blocked' WHERE id=:id"),
+                             {'id': first['document_id']})
+            rows = versions_repo.list_document_versions(self.actor, first['document_id'], connection=database)
+            self.assertEqual([row['version_id'] for row in rows],
+                             [first['version_id'], second['version_id'], third['version_id']])
+            self.assertEqual([row['version_no'] for row in rows], [1, 2, 3])
+            self.assertEqual([row['version_status'] for row in rows], ['ready', 'failed', 'processing'])
+            self.assertEqual([row['is_active'] for row in rows], [True, False, False])
+            for row in rows:
+                self.assertEqual(set(row), expected_fields)
+                self.assertIs(type(row['is_active']), bool)
+            self.assertTrue(database.in_transaction())
+            tx.rollback()
+        with self.engine.connect() as database:
+            row = database.execute(text('SELECT active_version_id,deleted_at,publication_status FROM documents WHERE id=:id'),
+                                   {'id': first['document_id']}).mappings().one()
+            self.assertEqual(dict(row), {'active_version_id': first['version_id'],
+                                        'deleted_at': None, 'publication_status': 'published'})
+
+    def test_history_checks_current_role_company_and_session(self):
+        """전달된 역할을 믿지 않고 현재 회사와 세션을 기준으로 접근을 거부한다."""
+        candidate = self.candidate()
+        cases = (
+            ("UPDATE users SET role='employee' WHERE id=:user", 'ACCESS_DENIED'),
+            ("UPDATE users SET company_id=:other WHERE id=:user", 'ACCESS_DENIED'),
+            ("UPDATE companies SET is_active=0 WHERE id=:company", 'ACCESS_DENIED'),
+            ("UPDATE sessions SET revoked_at=UTC_TIMESTAMP(6) WHERE id=:session", 'SESSION_EXPIRED'),
+            ("UPDATE sessions SET expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 HOUR) WHERE id=:session", 'SESSION_EXPIRED'),
+        )
+        values = {'user': self.user_id, 'other': self.other_company,
+                  'company': self.company, 'session': self.actor['session_id']}
+        for sql, code in cases:
+            with self.subTest(change=sql), self.engine.connect() as database:
+                tx = database.begin()
+                database.execute(text(sql), values)
+                with self.assertRaises(AccessError) as caught:
+                    versions_repo.list_document_versions(self.actor, candidate['document_id'], connection=database)
+                self.assertEqual(caught.exception.code, code)
+                tx.rollback()
+        with self.assertRaises(AccessError) as caught:
+            versions_repo.list_document_versions(self.actor, 'missing')
+        self.assertEqual(caught.exception.code, 'ACCESS_DENIED')
+
+    def test_history_platform_admin_reads_other_active_company_and_empty_history(self):
+        """플랫폼 관리자는 다른 활성 회사의 이력도 읽지만 비활성 회사는 거부한다."""
+        with self.engine.begin() as database:
+            database.execute(text("UPDATE users SET role='platform_admin',company_id=NULL WHERE id=:id"), {'id': self.user_id})
+        candidate = self.candidate(company_id=self.other_company)
+        rows = versions_repo.list_document_versions(self.actor, candidate['document_id'])
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(rows[0]['is_active'])
+        empty_id = str(uuid4())
+        with self.engine.begin() as database:
+            database.execute(text('INSERT INTO documents (id,company_id,doc_type,uploaded_by) VALUES (:id,:company,\'manual\',:user)'),
+                             {'id': empty_id, 'company': self.company, 'user': self.user_id})
+            database.execute(text('UPDATE companies SET is_active=0 WHERE id=:id'), {'id': self.other_company})
+        self.assertEqual(versions_repo.list_document_versions(self.actor, empty_id), [])
+        with self.assertRaises(AccessError) as caught:
+            versions_repo.list_document_versions(self.actor, candidate['document_id'])
+        self.assertEqual(caught.exception.code, 'ACCESS_DENIED')
 
     def test_reports_preserve_stages_and_reject_late_results(self):
         """앞 단계 기록 보존·지연 결과 차단·보고서 소속 검사·비밀 필드 제거를 확인한다."""

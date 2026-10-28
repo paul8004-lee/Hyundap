@@ -24,6 +24,25 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 
 ## 모듈과 메인·보조 함수
 
+### P2-02 관리자 버전 이력 — #204
+
+`versions_repo.list_document_versions(actor, document_id, *, connection=None)`를 재사용한다.
+새 클래스·보조 함수·저장 테이블 없이 기존 9필드에 `is_active: bool`만 추가했다.
+기존 필드와 version_no 오름차순은 유지한다. 문서/회사/버전을 같은 SELECT에서 연결하여
+현재 활성 포인터 일치 여부를 계산한다. `is_active`는 검색·본문 접근 허가가 아니다.
+
+회사 관리자는 자신의 활성 회사, 플랫폼 관리자는 활성 회사들의 이력만 조회한다.
+직원·없는 문서·회사 범위 위반은 ACCESS_DENIED, 세션 무효는 SESSION_EXPIRED다.
+잘못된 ID는 DB 접근 전에 INVALID_INPUT, DB 장애는 DB_UNAVAILABLE로 전달한다.
+삭제·차단·비공개 문서의 과거/실패/처리중 이력도 관리자 조회에서는 기존대로 유지한다.
+문서는 있지만 버전이 없으면 []이며, 내부 경로·토큰·원시 오류는 반환하지 않는다.
+호출자가 제공한 연결을 커밋/종료하지 않고 조회만 수행한다.
+
+호출부 검색에서는 저장소 테스트만 확인되었으며 기존 키 사용은 유지된다.
+외부 호출자가 키 개수를 고정했다면 10필드 계약으로 맞춰야 한다. UI의 실제 이력 화면은
+이번 작업에 포함하지 않는다. 구현·검증 세부 사항은
+[P2-02 버전 이력 계약](../../../docs/db-design/P2_02_VERSION_HISTORY_CONTRACT.md)을 따른다.
+
 ### P2-01 상세 메타데이터 조회 — #203
 
 `documents_repo.get_document_detail(actor, document_id, *, version_id=None, connection=None)`는
