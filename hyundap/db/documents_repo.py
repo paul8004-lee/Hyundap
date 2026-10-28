@@ -1,10 +1,11 @@
-"""회사별 중복 조회·문서/후보 버전 생성·검색용 원시 행 일괄 조회."""
+"""회사별 중복 조회·문서/후보 버전 생성·검색용 원시 행과 상세 메타데이터 조회."""
 
 from uuid import uuid4
 
 from sqlalchemy import bindparam, text
 
 from hyundap.auth.errors import AccessError
+from hyundap.auth.permissions import allowed_companies
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
 from .runtime import require_hash, require_id, transaction
@@ -77,6 +78,72 @@ def get_documents_with_active_version(document_ids, *, connection=None):
     with transaction(connection) as database:
         # 조회된 행을 검색 모듈에서 읽을 수 있는 dict로 바꾼다.
         return [dict(row) for row in database.execute(query, {'ids': ids}).mappings()]
+
+
+def get_document_detail(actor, document_id, *, version_id=None, connection=None):
+    """현재 사용자가 읽을 수 있는 활성 운영 문서의 상세 정보 dict를 반환한다.
+
+    version_id는 화면이 기억한 버전이다. 생략하면 현재 활성 버전을 선택한다.
+    없는 문서·비공개·버전 변경은 STATE_CHANGED, 다른 회사는 ACCESS_DENIED다.
+    세션 오류는 SESSION_EXPIRED, 잘못된 ID는 INVALID_INPUT으로 전달한다.
+    size_bytes는 활성 버전의 파일 크기이며 indexed_at은 근거가 없어 None이다.
+    내부 경로·토큰·본문은 반환하지 않는다. 외부 연결은 커밋하거나 닫지 않는다.
+
+    이 결과는 조회 시점의 정보다. 이후 본문·요약 등 외부 작업을 수행하는 호출자는
+    반환 직전에 verify_documents_access로 같은 문서·버전을 다시 검사해야 한다.
+    """
+    # 1단계: DB에 연결하기 전에 문서 ID와 선택적으로 받은 버전 ID를 검사한다.
+    document_id = require_id(document_id)
+    if version_id is not None:
+        version_id = require_id(version_id)
+    with transaction(connection) as database:
+        # 2단계: 화면에서 전달한 역할 대신 현재 세션과 DB의 회사 권한을 사용한다.
+        current = current_actor(actor, connection=database)
+        allowed = allowed_companies(current, connection=database)
+        # 3단계: 문서와 활성 버전을 한 번에 읽는다. 회사·문서가 다른 버전은 연결하지 않는다.
+        # LEFT JOIN이므로 활성 버전이 없는 문서도 읽은 뒤 안전하게 거부할 수 있다.
+        row = database.execute(text('''
+            SELECT d.id AS document_id,d.company_id,c.name AS company_name,d.doc_type,
+                   d.publication_status,d.deleted_at,d.active_version_id,
+                   v.version_no,v.version_status,v.data_category,v.file_name,v.file_size
+            FROM documents d JOIN companies c ON c.id=d.company_id
+            LEFT JOIN document_versions v ON v.id=d.active_version_id
+              AND v.document_id=d.id AND v.company_id=d.company_id
+            WHERE d.id=:id
+        '''), {'id': document_id}).mappings().one_or_none()
+        _check_detail_access(row, allowed, version_id)
+        # 4단계: 허용한 필드만 새 사전에 담는다. 조회용 상태 필드도 외부로 내보내지 않는다.
+        # created_at은 후보 생성 시각이고 작업 finished_at은 실패 종료일 수도 있으므로
+        # 둘 중 어느 것도 색인 완료 시각으로 바꾸어 표시하지 않는다.
+        return {
+            'document_id': row['document_id'], 'company_id': row['company_id'],
+            'company_name': row['company_name'], 'version_id': row['active_version_id'],
+            'file_name': row['file_name'], 'doc_type': row['doc_type'],
+            'version_no': row['version_no'], 'size_bytes': row['file_size'],
+            'indexed_at': None,
+        }
+
+
+def _check_detail_access(document, allowed_company_ids, version_id):
+    """상세 조회 행의 회사·공개 상태·요청 버전을 검사한다. 성공하면 반환값은 없다.
+
+    일반 상세 조회는 auth의 문서 접근 규칙과 동일하게 공개된 활성 운영 버전만 허용한다.
+    관리자용 과거 버전 이력 조회는 versions_repo의 별도 계약을 따른다.
+    """
+    # 문서가 없으면 이후 필드를 읽지 않는다. 다른 회사라면 상태보다 권한을 먼저 거부한다.
+    if document is None:
+        raise AccessError('STATE_CHANGED')
+    if document['company_id'] not in allowed_company_ids:
+        raise AccessError('ACCESS_DENIED')
+    if document['deleted_at'] is not None or document['publication_status'] != 'published':
+        raise AccessError('STATE_CHANGED')
+    if document['active_version_id'] is None or document['version_status'] != 'ready':
+        raise AccessError('STATE_CHANGED')
+    if document['data_category'] != 'operational':
+        raise AccessError('STATE_CHANGED')
+    # 버전을 지정했을 때만 비교한다. 과거 버전을 요청해도 현재 버전으로 몰래 대체하지 않는다.
+    if version_id is not None and document['active_version_id'] != version_id:
+        raise AccessError('STATE_CHANGED')
 
 
 def validate_metadata(metadata):
