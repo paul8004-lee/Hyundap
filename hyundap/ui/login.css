@@ -27,7 +27,7 @@
 }
 #hd-login .hd-login-brand {display: flex; align-items: center;}
 #hd-login .hd-brand {gap: 10px; color: #121826;}
-#hd-login .hd-brand-symbol {width: 28px; height: 28px; background: #121826; font-size: 20px; line-height: 28px; border-radius: 5px;}
+#hd-login .hd-brand-symbol {width: 28px; height: 28px; border-radius: 5px;}
 #hd-login .hd-brand-name {font-size: 18px; line-height: 28px; font-weight: 700;}
 #hd-login .hd-login-main {
   min-height: 100vh;

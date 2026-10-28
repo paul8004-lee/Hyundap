@@ -22,7 +22,7 @@ from .services import DOC_TYPES, UIServiceError
 CHAT_CSS = """
 .hd-citation { border: 1px solid #dfe4ed; background: #f7f9fc; border-radius: 12px; padding: 16px; overflow-wrap: anywhere; }
 .hd-citation-title { display: flex; align-items: baseline; gap: 8px; color: #19212b; font-size: 14px; line-height: 22px; font-weight: 700; }
-.hd-citation-number { color: #062e5e; white-space: nowrap; }
+.hd-citation-number { color: var(--hd-page-accent, #062e5e); white-space: nowrap; }
 .hd-citation-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; color: #667389; font-size: 12px; line-height: 20px; margin-top: 6px; }
 .hd-citation blockquote { margin: 12px 0 0; padding: 0 0 0 12px; border-left: 3px solid #bdcde1; color: #39465a; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
 .hd-citation-empty { font-size: 13px; line-height: 21px; color: #667389; margin: 0; }
