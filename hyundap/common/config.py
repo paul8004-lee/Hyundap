@@ -18,13 +18,17 @@ DEFAULT_TOP_K_MAX = 80
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 150
 DEFAULT_SESSION_TTL_MINUTES = 480
+# 문서 하나에서 OCR로 읽는 쪽·그림 수 상한. 쪽당 2~5초(CPU 4코어 실측)라 50쪽이면 최악 2~4분이다.
+# 그림은 장당 약 0.5초라 100개여도 1분 안팎이다. 업로드는 한 요청 안에서 끝날 때까지 이어지므로 길게 잡지 않는다.
+DEFAULT_OCR_MAX_PAGES = 50
+DEFAULT_OCR_MAX_FIGURES = 100
 
 
 @dataclass(frozen=True)
 class Settings:
     """여러 모듈이 함께 읽는 변경 불가능한 설정 묶음.
 
-    모델명·저장 경로·검색 제한값·청크 크기를 보관한다. API 키는 없을 수 있으며,
+    모델명·저장 경로·검색 제한값·청크 크기·OCR 설정(상한·스레드 수·예열)을 보관한다. API 키는 없을 수 있으며,
     실제 API를 호출하는 모듈이 필요 여부를 검사한다. 필드 값을 직접 수정할 수 없다."""
     openai_api_key: str | None
     openai_embedding_model: str
@@ -36,6 +40,10 @@ class Settings:
     chunk_size: int
     chunk_overlap: int
     session_ttl_minutes: int
+    ocr_max_pages: int = DEFAULT_OCR_MAX_PAGES      # 0이면 글자 없는 쪽 전체 OCR을 하지 않는다
+    ocr_max_figures: int = DEFAULT_OCR_MAX_FIGURES  # 0이면 쪽·슬라이드 안의 그림 OCR을 하지 않는다
+    ocr_threads: int = 1                            # OCR이 쓰는 CPU 스레드 수
+    ocr_warmup: bool = True                         # 서버 시작 때 OCR 엔진을 미리 불러올지
 
 
 def _read(name: str) -> str | None:
@@ -72,6 +80,26 @@ def _read_number(name: str, default, cast, is_valid):
     return number if is_valid(number) else default
 
 
+def _read_bool(name: str, default: bool) -> bool:
+    """환경변수를 켜짐·꺼짐으로 읽는다.
+
+    0·false·no·off(대소문자 무관)는 False, 1·true·yes·on은 True다. 값이 없거나 그 밖의 글자면 default를 반환한다."""
+    value = (_read(name) or '').lower()
+    if value in ('0', 'false', 'no', 'off'):
+        return False
+    if value in ('1', 'true', 'yes', 'on'):
+        return True
+    return default
+
+
+def default_ocr_threads() -> int:
+    """OCR 스레드 수 기본값. 코어가 3개 이상이면 하나를 남겨 같은 서버의 검색·챗봇 요청과 덜 경쟁하게 한다.
+
+    4코어 실측으로 4개는 쪽당 2.6초, 3개는 3.1초(+18%), 2개는 4.0초, 1개는 6.5초라 코어가 2개 이하이면 전부 쓴다."""
+    cores = os.cpu_count() or 1
+    return cores if cores <= 2 else cores - 1
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """프로세스 환경변수와 레포 루트 .env에서 공통 설정을 읽는다.
@@ -98,4 +126,9 @@ def get_settings() -> Settings:
         # 로그인 세션 유효 시간(분). 5분~7일 밖이거나 숫자가 아니면 기본 480분을 쓴다.
         session_ttl_minutes=_read_number('SESSION_TTL_MINUTES', DEFAULT_SESSION_TTL_MINUTES, int,
                                          lambda v: 5 <= v <= 10080),
+        # OCR 설정. 상한이 0이면 해당 OCR을 끄고, 숫자가 아니거나 범위 밖이면 기본값을 쓴다.
+        ocr_max_pages=_read_number('OCR_MAX_PAGES', DEFAULT_OCR_MAX_PAGES, int, lambda v: 0 <= v <= 100000),
+        ocr_max_figures=_read_number('OCR_MAX_FIGURES', DEFAULT_OCR_MAX_FIGURES, int, lambda v: 0 <= v <= 100000),
+        ocr_threads=_read_number('OCR_THREADS', default_ocr_threads(), int, lambda v: 1 <= v <= 256),
+        ocr_warmup=_read_bool('OCR_WARMUP', True),
     )
