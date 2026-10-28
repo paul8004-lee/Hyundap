@@ -32,6 +32,21 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 
 ## 모듈과 메인·보조 함수
 
+### #207 미사용 코드 정리 — 2026-10-28
+
+업무 호출이 없는 `chunks_repo.get_expected_chunk_ids`를 삭제했다. 테스트 2곳은
+SQL로 청크 롤백·멱등 저장 결과를 직접 확인하여 기존 검증을 유지한다.
+실제 완전성 검증의 manifest_snapshot/compare_stored_chunks 경로는 그대로 사용한다.
+미참조 상수 schema.SUPPORTED_SCHEMA_VERSIONS와 connection의 text import도 제거했다.
+get_document_detail/list_document_versions/retry_upload 및 하위 보조 함수는 유지한다.
+이전 P1 계획의 함수명은 당시 이력이며 현재 공개 API가 아니다.
+
+검증(2026-10-28): 최신 develop 6e307ba 위의 정리 작업 트리에서 격리 MySQL 8.4.13과
+빈 테스트 DB 5개로 `python -m unittest discover -s hyundap/tests -t .`를 실행했다.
+전체 359개 통과, 실패·오류·건너뜀 0개(38.971초). 이전 389개와의 수 차이는 최신 develop의
+임베딩 테스트 재구성에 따른 것이며 이번 정리로 테스트를 삭제하지 않았다.
+파일 시스템·외부 벡터 등의 기존 대역 범위는 유지하고 Railway·실제 API에는 접속하지 않았다.
+
 ### P2-03 원본·버전 연결 — #205
 
 현재 v4의 원본 경로·해시·크기는 `document_versions`에만 저장한다.
@@ -113,7 +128,6 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 | `chunks_repo` | `save_manifest(version_id, chunks, *, connection=None)` | 메인 | 없음 |
 | `chunks_repo` | `_normalize_manifest(version_id, chunks)` | 보조 | 없음 |
 | `chunks_repo` | `_chunk_index(chunk)` | 보조 | 없음 |
-| `chunks_repo` | `get_expected_chunk_ids(version_id, *, connection=None)` | 메인 | 없음 |
 | `clock` | `epoch_now()` | 보조 | 없음 |
 | `connection` | `create_db_engine()` | 메인 | 없음 |
 | `connection` | `main()` | 메인 | 없음 |
