@@ -11,6 +11,7 @@
         validate_citations_answer — 빈 답변·너무 긴 답변을 거부한다.
         validate_citations_aliases — 이름표 유무와 준 적 없는 이름표를 검사한다.
         validate_citations_line — 줄 1개의 문장마다 이름표가 있는지 검사한다.
+        validate_citations_heading — 줄 전체가 마크다운 제목('### A사'·'**A사**')인지 판정한다.
         validate_citations_split — 줄을 문장으로 나눈다.
         validate_citations_exempt — 이름표 검사를 통과하는 문장인지 판정한다.
     FUN-415 build_citation — 원본 문서·버전·위치에 연결되는 출처를 만든다.
@@ -32,6 +33,9 @@ ALIAS_PATTERN = re.compile(r'\[(E\d+)\]')
 SENTENCE_END = re.compile(r'(?<=\D[.!?])\s+')
 # 문장 앞에 온 이름표. '…합니다. [E1]'·'…합니다. [E1] 다음 문장'처럼 마침표 뒤에 따로 붙은 이름표를 찾는다
 LEADING_ALIASES = re.compile(r'(?:\[E\d+\]\s*)+[.!?]?\s*')
+# 줄 전체가 마크다운 제목인 경우: '### 제목' / '**제목**' / '__제목__' (뒤에 ':' 하나는 허용)
+HEADING_LINE = re.compile(r'#{1,6}\s+(.+?)\s*:?|\*\*([^*]+)\*\*\s*:?|__([^_]+)__\s*:?')
+HEADING_MAX_CHARS = 40
 # version_id는 필수로 두지 않는다: 공유 DB는 아직 스키마 v3라 문서 버전이 없어 빈 값이 올 수 있다 (v4 적용 후 재검토)
 REQUIRED_FIELDS = ('company_name', 'file_name', 'document_id', 'location_label')
 
@@ -90,7 +94,10 @@ def validate_citations_aliases(answer, aliases):
 def validate_citations_line(line):
     """받는 것: 답변 1줄 / 돌려주는 것: 없음 (이름표 없이 끝난 문장이 있으면 INVALID_CITATION)
     문장 앞에 온 이름표('… . [E1] 다음 문장')는 앞에 이름표 없이 끝난 문장이 있으면 그 문장의 근거로 본다.
-    다음 줄의 이름표로는 앞 줄 문장을 인정하지 않는다."""
+    다음 줄의 이름표로는 앞 줄 문장을 인정하지 않는다.
+    '### A사'·'**A사**' 같은 마크다운 제목 줄은 이름표가 없어도 된다 (validate_citations_heading)."""
+    if validate_citations_heading(line):
+        return
     uncited = False  # 이름표 없이 끝난 문장이 남아 있는지
     for sentence in validate_citations_split(line):
         lead = LEADING_ALIASES.match(sentence)
@@ -102,6 +109,19 @@ def validate_citations_line(line):
         uncited = not validate_citations_exempt(sentence)
     if uncited:
         raise ChatbotError('INVALID_CITATION')
+
+
+def validate_citations_heading(line):
+    """받는 것: 답변 1줄 / 돌려주는 것: 마크다운 제목 줄이면 True
+    '### 현대경제연구원', '**현대경제연구원**', '__A사__:'처럼 줄 전체가 제목인 경우만 본다.
+    문장처럼 끝나거나(. ! ? 또는 '다'·'요') HEADING_MAX_CHARS(40자)를 넘으면 제목으로 보지 않아,
+    굵게 쓴 무인용 문장('**기한은 6 업무시간입니다**')이 검사를 빠져나가지 못한다."""
+    match = HEADING_LINE.fullmatch(line.strip())
+    if not match:
+        return False
+    title = (match.group(1) or match.group(2) or match.group(3)).strip()
+    return (0 < len(title) <= HEADING_MAX_CHARS and not title.endswith(('.', '!', '?', '다', '요'))
+            and not ALIAS_PATTERN.search(title))
 
 
 def validate_citations_split(line):

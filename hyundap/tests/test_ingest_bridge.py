@@ -1,5 +1,7 @@
 """업로드 호출 경계의 중복 조회·경고 개수 전달 계약."""
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from hyundap.db import upload_service
@@ -7,6 +9,30 @@ from hyundap.db.errors import DbError
 
 
 class IngestBridgeTests(unittest.TestCase):
+    def test_missing_and_unreadable_source_preserve_safe_code(self):
+        with TemporaryDirectory() as directory:
+            missing = Path(directory) / 'missing.pdf'
+            with self.assertRaises(DbError) as caught:
+                upload_service.prepare_upload_source(missing, {}, directory)
+            self.assertEqual(caught.exception.code, 'FILE_UNAVAILABLE')
+            source = Path(directory) / 'source.pdf'
+            source.write_bytes(b'sample')
+            with patch.object(upload_service, 'file_digest', side_effect=PermissionError('secret')):
+                with self.assertRaises(DbError) as caught:
+                    upload_service.prepare_upload_source(source, {}, directory)
+            self.assertEqual(caught.exception.code, 'FILE_UNAVAILABLE')
+            self.assertNotIn('secret', str(caught.exception))
+
+    def test_verified_hash_is_passed_only_to_compatible_ingest(self):
+        seen = []
+        def ingest(path, metadata, *, find_by_hash, file_hash=None):
+            seen.append(file_hash)
+            return {'status': 'failed', 'error_code': 'CORRUPTED_FILE'}
+        result = upload_service.ingest_and_save_chunks('file', {'company_id': 'c'},
+                                                       {'version_id': 'v'}, ingest, 'a' * 64)
+        self.assertEqual(result, (None, 'CORRUPTED_FILE'))
+        self.assertEqual(seen, ['a' * 64])
+
     def test_duplicate_callback_is_bound_to_current_server_candidate(self):
         info = {'company_id': 'c'}
         ids = {'version_id': 'v'}

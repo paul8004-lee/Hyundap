@@ -505,7 +505,8 @@ python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
 
 | 기준 | 실행 결과 |
 |---|---|
-| 현재 작업 브랜치 `77e5490` + 로컬 수정 | `Ran 363 tests in 30.745s` / `OK (skipped=72)` |
+| 병합 전 작업 브랜치 `77e5490` + 로컬 수정 | `Ran 363 tests in 30.745s` / `OK (skipped=72)` |
 | `develop(2d2be91)` + PR `77e5490` + 같은 수정 | `Ran 399 tests in 39.260s` / `OK (skipped=74)` |
+| 최신 원격 `develop(6e307ba)`를 `featurechat-ui-v2`에 실제 병합 | `Ran 389 tests in 19.578s` / `OK (skipped=85)` |
 
-두 검사 모두 프로젝트 `.venv/Scripts/python.exe -B -m unittest discover -s hyundap/tests -t .`를 사용했다. 리뷰 기준 병합 결과는 충돌 없이 계산되었으며 별도 검증용 복사본에 수정 파일을 적용하여 실행했다. 실제 작업 브랜치는 병합하지 않았다. 건너뛰기 조건을 바꾸지 않았고, 이 결과는 실제 MySQL·LLM 실행이나 병합 후 QA 예외(E1~E11)·권한(P7·P8) 시나리오 완료를 뜻하지 않는다.
+모든 검사는 프로젝트 `.venv/Scripts/python.exe -B -m unittest discover -s hyundap/tests -t .`를 사용했다. 리뷰 기준 `2d2be91`은 별도 검증용 복사본에서 검사했고, 최신 원격 `develop(6e307ba)`는 실제 작업 브랜치에 충돌 없이 병합한 뒤 다시 검사했다. 새 백엔드에 필요한 `langchain-chroma==1.1.0`을 팀 설치 목록대로 프로젝트 가상환경에 설치했다. 전체 건수 차이는 최신 develop의 테스트 구성 변경에 따른 것이다. 건너뛰기 조건은 바꾸지 않았고, 이 결과는 실제 MySQL·LLM 실행이나 병합 후 QA 예외(E1~E11)·권한(P7·P8) 시나리오 완료를 뜻하지 않는다.

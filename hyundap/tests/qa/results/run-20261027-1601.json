@@ -1,0 +1,350 @@
+{
+  "run_at": "20261027-1601",
+  "categories": "all",
+  "results": [
+    {
+      "id": "U-PDF",
+      "category": "format",
+      "title": "PDF 업로드·추출 (5건)",
+      "verdict": "FAIL",
+      "note": "HEL-PUB-027 업로드 failed/EMPTY_DOCUMENT",
+      "seconds": 30.7
+    },
+    {
+      "id": "U-DOCX",
+      "category": "format",
+      "title": "DOCX 업로드·추출 (14건)",
+      "verdict": "PASS",
+      "note": "MVX-SYN-MAN-001 섹션 8·청크 8·37.8초; MVX-SYN-MAN-002 섹션 8·청크 8·33.7초; MVX-SYN-MAN-005 섹션 8·청크 8·33.0초; MVX-SYN-MAN-009 섹션 8·청크 8·32.8초; HEL-SYN-MAN-001 섹션 8·청크 8·33.2초; HEL-SYN-MAN-002 섹션 8·청크 8·33.6초; HEL-SYN-MAN-005 섹션 8·청크 8·33.0초; HEL-SYN-MAN-009 섹션 8·청크 8·32.8초; HRI-SYN-MAN-001 섹션 8·청크 8·33.1초; HRI-SYN-MAN-002 섹션 8·청크 8·32.9초; HRI-SYN-MAN-005 섹션 8·청크 8·32.8초; HRI-SYN-MAN-009 섹션 8·청크 8·33.3초; HRI-SYN-MAN-013 섹션 8·청크 8·32.8초; HRI-SYN-BIZ-001 섹션 9·청크 9·32.8초; MVX-SYN-MAN-001 위치 ['섹션 1', '섹션 8 (검색 확인 질문)']; MVX-SYN-MAN-002 위치 ['섹션 1', '섹션 8 (검색 확인 질문)']; MVX-SYN-MAN-005 위치 ['섹션 1', '섹션 8 (검색 확인 질문)']",
+      "seconds": 27.2
+    },
+    {
+      "id": "U-PPTX",
+      "category": "format",
+      "title": "PPTX 업로드·추출 (6건)",
+      "verdict": "PASS",
+      "note": "MVX-SYN-EDU-001 섹션 4·청크 4·32.0초; MVX-SYN-EDU-004 섹션 4·청크 4·32.9초; HEL-SYN-EDU-001 섹션 4·청크 4·32.9초; HEL-SYN-EDU-004 섹션 4·청크 4·33.0초; HRI-SYN-EDU-001 섹션 4·청크 4·33.2초; HRI-SYN-EDU-004 섹션 4·청크 4·32.9초; MVX-SYN-EDU-001 위치 ['슬라이드 1', '슬라이드 2']; MVX-SYN-EDU-004 위치 ['슬라이드 1', '슬라이드 2']; HEL-SYN-EDU-001 위치 ['슬라이드 1']",
+      "seconds": 19.0
+    },
+    {
+      "id": "F1",
+      "category": "filter",
+      "title": "회사 1곳(hri) 필터",
+      "verdict": "PASS",
+      "note": "8건, 회사 ['HRI'], 유형 ['guide', 'manual', 'other']",
+      "seconds": 4.4
+    },
+    {
+      "id": "F2",
+      "category": "filter",
+      "title": "회사 2곳(mvx·hel) 필터",
+      "verdict": "PASS",
+      "note": "10건, 회사 ['HEL', 'MVX'], 유형 ['guide', 'manual']",
+      "seconds": 4.4
+    },
+    {
+      "id": "F3",
+      "category": "filter",
+      "title": "문서 유형 manual 필터",
+      "verdict": "PASS",
+      "note": "10건, 회사 ['HEL', 'HRI', 'MVX'], 유형 ['manual']",
+      "seconds": 4.4
+    },
+    {
+      "id": "F4",
+      "category": "filter",
+      "title": "문서 유형 guide 필터",
+      "verdict": "PASS",
+      "note": "5건, 회사 ['HEL', 'HRI', 'MVX'], 유형 ['guide']",
+      "seconds": 4.4
+    },
+    {
+      "id": "F5",
+      "category": "filter",
+      "title": "회사 hri + 유형 guide 조합",
+      "verdict": "PASS",
+      "note": "2건, 회사 ['HRI'], 유형 ['guide']",
+      "seconds": 4.4
+    },
+    {
+      "id": "F6",
+      "category": "filter",
+      "title": "문서가 없는 유형(policy) 필터",
+      "verdict": "PASS",
+      "note": "0건 (오류 없이 0건 기대)",
+      "seconds": 3.4
+    },
+    {
+      "id": "F7",
+      "category": "filter",
+      "title": "회사 관리자(hri) 필터 없이 검색",
+      "verdict": "PASS",
+      "note": "6건, 회사 ['HRI'], 유형 ['guide', 'manual']",
+      "seconds": 8.0
+    },
+    {
+      "id": "F8",
+      "category": "filter",
+      "title": "질문 범위를 문서 1개로 한정",
+      "verdict": "FAIL",
+      "note": "상태 ANSWERED, 출처 문서 ['HRI-SYN-MAN-001'], 답 접수 후 6 업무시간입니다 [1][2].",
+      "seconds": 14.7
+    },
+    {
+      "id": "P1",
+      "category": "permission",
+      "title": "타사 직원(mvx)이 hri 문서 주제로 검색",
+      "verdict": "PASS",
+      "note": "6건, hri 노출 []",
+      "seconds": 8.2
+    },
+    {
+      "id": "P2",
+      "category": "permission",
+      "title": "타사 직원(mvx)이 hri 회사 필터를 직접 지정",
+      "verdict": "PASS",
+      "note": "거부 COMPANY_FORBIDDEN: 선택한 회사의 문서를 볼 권한이 없습니다.",
+      "seconds": 4.0
+    },
+    {
+      "id": "P3",
+      "category": "permission",
+      "title": "타사 직원(mvx)이 hri 문서 내용을 질문",
+      "verdict": "PASS",
+      "note": "상태 NO_EVIDENCE, hri 출처 []",
+      "seconds": 12.5
+    },
+    {
+      "id": "P4",
+      "category": "permission",
+      "title": "타사 직원(mvx)이 hri 문서 ID로 요약 요청",
+      "verdict": "PASS",
+      "note": "ACCESS_DENIED: 이 문서 또는 회사에 접근할 권한이 없습니다.",
+      "seconds": 4.2
+    },
+    {
+      "id": "P5",
+      "category": "permission",
+      "title": "타사 직원(mvx)이 hri 문서 ID로 상세 조회",
+      "verdict": "PASS",
+      "note": "ACCESS_DENIED: 이 문서 또는 회사에 접근할 권한이 없습니다.",
+      "seconds": 5.2
+    },
+    {
+      "id": "P6",
+      "category": "permission",
+      "title": "타사 직원(mvx)이 hri 문서를 질문 범위로 지정",
+      "verdict": "PASS",
+      "note": "상태 NO_EVIDENCE, hri 출처 []",
+      "seconds": 4.4
+    },
+    {
+      "id": "P7",
+      "category": "permission",
+      "title": "직원(hri) 계정이 문서 업로드",
+      "verdict": "PASS",
+      "note": "ACCESS_DENIED: 이 문서 또는 회사에 접근할 권한이 없습니다.",
+      "seconds": 3.7
+    },
+    {
+      "id": "P8",
+      "category": "permission",
+      "title": "회사 관리자(hri)가 다른 회사(mvx)로 업로드",
+      "verdict": "PASS",
+      "note": "ACCESS_DENIED: 이 문서 또는 회사에 접근할 권한이 없습니다.",
+      "seconds": 3.7
+    },
+    {
+      "id": "P9",
+      "category": "permission",
+      "title": "플랫폼 관리자 전체 회사 검색",
+      "verdict": "PASS",
+      "note": "10건, 회사 ['HEL', 'HRI', 'MVX']",
+      "seconds": 4.4
+    },
+    {
+      "id": "P10",
+      "category": "permission",
+      "title": "로그아웃한 세션으로 검색",
+      "verdict": "PASS",
+      "note": "SESSION_EXPIRED: 로그인 시간이 만료되었습니다. 다시 로그인해 주세요.",
+      "seconds": 4.8
+    },
+    {
+      "id": "P11",
+      "category": "permission",
+      "title": "세션의 역할·회사를 위조한 hri 직원",
+      "verdict": "PASS",
+      "note": "8건, hri 외 노출 []",
+      "seconds": 5.1
+    },
+    {
+      "id": "E1",
+      "category": "exception",
+      "title": "중간이 잘린 PDF",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요. (기대 ['CORRUPTED_FILE'])",
+      "seconds": 18.4
+    },
+    {
+      "id": "E2",
+      "category": "exception",
+      "title": "암호 PDF",
+      "verdict": "PASS",
+      "note": "ENCRYPTED_FILE: 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. (기대 ['ENCRYPTED_FILE'])",
+      "seconds": 18.1
+    },
+    {
+      "id": "E3",
+      "category": "exception",
+      "title": "암호 PPTX",
+      "verdict": "PASS",
+      "note": "ENCRYPTED_FILE: 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. (기대 ['ENCRYPTED_FILE'])",
+      "seconds": 20.3
+    },
+    {
+      "id": "E4",
+      "category": "exception",
+      "title": "손상된 PPTX",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요. (기대 ['CORRUPTED_FILE'])",
+      "seconds": 20.4
+    },
+    {
+      "id": "E5",
+      "category": "exception",
+      "title": "글자 없는 스캔 PDF",
+      "verdict": "PASS",
+      "note": "EMPTY_DOCUMENT: 문서에서 글자를 읽을 수 없습니다. 스캔한 이미지 문서는 지원하지 않습니다. (기대 ['EMPTY_DOCUMENT'])",
+      "seconds": 22.0
+    },
+    {
+      "id": "E6",
+      "category": "exception",
+      "title": "0바이트 DOCX",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 비어 있는 파일(0바이트)은 업로드할 수 없습니다. (기대 ['CORRUPTED_FILE', 'EMPTY_FILE'])",
+      "seconds": 2.2
+    },
+    {
+      "id": "E7",
+      "category": "exception",
+      "title": "지원하지 않는 형식(.txt)",
+      "verdict": "PASS",
+      "note": "UNSUPPORTED_FORMAT: PDF, DOCX, PPTX 파일만 업로드할 수 있습니다. (기대 ['UNSUPPORTED_FORMAT'])",
+      "seconds": 2.2
+    },
+    {
+      "id": "E8",
+      "category": "exception",
+      "title": "구형 .doc를 .docx로 바꾼 파일",
+      "verdict": "FAIL",
+      "note": "ENCRYPTED_FILE: 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. (기대 ['LEGACY_FORMAT', 'UNSUPPORTED_FORMAT'])",
+      "seconds": 18.2
+    },
+    {
+      "id": "E9",
+      "category": "exception",
+      "title": "PDF를 .docx로 바꾼 파일",
+      "verdict": "PASS",
+      "note": "UNSUPPORTED_FORMAT: PDF, DOCX, PPTX 파일만 업로드할 수 있습니다. (기대 ['CORRUPTED_FILE', 'UNSUPPORTED_FORMAT'])",
+      "seconds": 18.1
+    },
+    {
+      "id": "E10",
+      "category": "exception",
+      "title": "본문 XML이 없는 DOCX",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요. (기대 ['CORRUPTED_FILE'])",
+      "seconds": 18.1
+    },
+    {
+      "id": "E11",
+      "category": "exception",
+      "title": "이미 올린 파일 다시 업로드",
+      "verdict": "PASS",
+      "note": "DUPLICATE_FILE: 같은 회사에 동일한 내용의 파일이 이미 등록되어 있습니다. (기대 ['DUPLICATE_FILE'])",
+      "seconds": 7.3
+    },
+    {
+      "id": "A-Q001",
+      "category": "accuracy",
+      "title": "Q001 문서 Hit@3 (mvx)",
+      "verdict": "PASS",
+      "note": "정답 MVX-SYN-MAN-001 순위 1, 상위 3 ['MVX-SYN-MAN-001', 'MVX-SYN-MAN-002', 'MVX-SYN-MAN-005']",
+      "seconds": 6.0
+    },
+    {
+      "id": "A-Q011",
+      "category": "accuracy",
+      "title": "Q011 문서 Hit@3 (mvx)",
+      "verdict": "PASS",
+      "note": "정답 MVX-SYN-MAN-002 순위 1, 상위 3 ['MVX-SYN-MAN-002', 'MVX-SYN-MAN-001', 'MVX-PUB-026']",
+      "seconds": 5.1
+    },
+    {
+      "id": "A-Q031",
+      "category": "accuracy",
+      "title": "Q031 문서 Hit@3 (mvx)",
+      "verdict": "PASS",
+      "note": "정답 MVX-SYN-EDU-001 순위 1, 상위 3 ['MVX-SYN-EDU-001', 'MVX-SYN-MAN-001', 'MVX-SYN-EDU-004']",
+      "seconds": 5.1
+    },
+    {
+      "id": "A-Q085",
+      "category": "accuracy",
+      "title": "Q085 문서 Hit@3 (mvx)",
+      "verdict": "FAIL",
+      "note": "정답 MVX-PUB-026 순위 5, 상위 3 ['MVX-SYN-MAN-001', 'MVX-SYN-EDU-001', 'MVX-SYN-MAN-002']",
+      "seconds": 5.1
+    },
+    {
+      "id": "A-Q004",
+      "category": "accuracy",
+      "title": "Q004 문서 Hit@3 (hel)",
+      "verdict": "PASS",
+      "note": "정답 HEL-SYN-MAN-001 순위 1, 상위 3 ['HEL-SYN-MAN-001', 'HEL-SYN-MAN-002', 'HEL-SYN-MAN-005']",
+      "seconds": 8.0
+    },
+    {
+      "id": "A-Q014",
+      "category": "accuracy",
+      "title": "Q014 문서 Hit@3 (hel)",
+      "verdict": "PASS",
+      "note": "정답 HEL-SYN-MAN-002 순위 1, 상위 3 ['HEL-SYN-MAN-002', 'HEL-SYN-MAN-001', 'HEL-SYN-EDU-001']",
+      "seconds": 5.1
+    },
+    {
+      "id": "A-Q034",
+      "category": "accuracy",
+      "title": "Q034 문서 Hit@3 (hel)",
+      "verdict": "PASS",
+      "note": "정답 HEL-SYN-EDU-001 순위 1, 상위 3 ['HEL-SYN-EDU-001', 'HEL-SYN-MAN-001', 'HEL-SYN-MAN-002']",
+      "seconds": 5.2
+    },
+    {
+      "id": "A-Q007",
+      "category": "accuracy",
+      "title": "Q007 문서 Hit@3 (hri)",
+      "verdict": "PASS",
+      "note": "정답 HRI-SYN-MAN-001 순위 1, 상위 3 ['HRI-SYN-MAN-001', 'HRI-SYN-MAN-002', 'HRI-SYN-MAN-009']",
+      "seconds": 5.1
+    },
+    {
+      "id": "A-Q017",
+      "category": "accuracy",
+      "title": "Q017 문서 Hit@3 (hri)",
+      "verdict": "PASS",
+      "note": "정답 HRI-SYN-MAN-002 순위 1, 상위 3 ['HRI-SYN-MAN-002', 'HRI-SYN-MAN-001', 'HRI-SYN-MAN-013']",
+      "seconds": 5.1
+    },
+    {
+      "id": "A-Q037",
+      "category": "accuracy",
+      "title": "Q037 문서 Hit@3 (hri)",
+      "verdict": "PASS",
+      "note": "정답 HRI-SYN-EDU-001 순위 3, 상위 3 ['HRI-SYN-MAN-001', 'HRI-SYN-MAN-002', 'HRI-SYN-EDU-001']",
+      "seconds": 5.1
+    }
+  ]
+}

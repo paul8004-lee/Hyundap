@@ -37,6 +37,11 @@ class FeedbackTests(unittest.TestCase):
         result = feedback.to_feedback(error)
         self.assertEqual(result['error_code'], 'CORRUPTED_FILE')
         self.assertNotIn('secret', repr(result))
+    def test_upload_input_codes_are_preserved(self):
+        for code in ('INVALID_DOC_TYPE', 'FILE_UNAVAILABLE'):
+            result = feedback.to_feedback(DbError(code))
+            self.assertEqual((result['status'], result['error_code']), ('input_error', code))
+            self.assertEqual(result['message'], feedback.safe_upload_message(code))
     def test_unknown_type_cannot_spoof_session(self):
         class AccessError(Exception):
             code = 'SESSION_EXPIRED'

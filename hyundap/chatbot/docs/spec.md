@@ -42,7 +42,7 @@
 | A1 | 화면이 질문 전달 | ui `on_question_submit` → `ask` | 질문, 필터, 사용자 | - |
 | A2 | 질문 검사 | `validate_question` | 질문 → 공백 정리된 질문 | EMPTY_QUESTION / QUESTION_TOO_LONG |
 | A3 | 근거 받기 | `retrieve_evidence` → `search.search_chunks` | 질문·필터·사용자 → ChunkHit 목록(점수순) | RETRIEVAL_FAILED / ACCESS_DENIED |
-| A4 | 근거 고르기 | `select_evidence` | 같은 청크 하나만, 문서당 4·전체 8개 | - |
+| A4 | 근거 고르기 | `select_evidence` | 같은 청크 하나만, 문서당 상한(근거 문서가 1개면 8, 여러 개면 4)·전체 8개 | - |
 | A5 | 근거 없으면 끝 | `build_no_evidence_response` | 0개면 LLM을 부르지 않고 유보 응답 | - |
 | A6 | 이름표 붙이기 | `assign_aliases` → `format_evidence` | 근거 → `[E1] A사 · 교육안내.pdf · p.2` + 본문 | - |
 | A7 | 답변 생성 | `generate_answer` → `build_answer_chain` → OpenAI | 질문 + 근거 → `…[E1]…` | LLM_FAILED / CONFIG_MISSING |
@@ -82,7 +82,7 @@ ui.services.BackendServices.ask (박경환)
    │   └─ search.search_chunks(user, query, company_ids, doc_types, document_ids, top_k)   (이준영)
    ├─ select_evidence                                 FUN-404
    │   ├─ select_evidence_dedupe                      FUN-404 보조  같은 청크 1개
-   │   └─ select_evidence_limit                       FUN-404 보조  문서당 4·전체 8
+   │   └─ select_evidence_limit                       FUN-404 보조  문서당 max(4, 8 // 문서 수)·전체 8
    ├─ build_no_evidence_response                      FUN-406  (근거 0개일 때)
    ├─ assign_aliases → format_evidence                FUN-411, 412 (format_source_label 417)
    ├─ generate_answer                                 FUN-405
@@ -92,6 +92,7 @@ ui.services.BackendServices.ask (박경환)
    │       ├─ validate_citations_answer               FUN-414 보조  빈 답·길이
    │       ├─ validate_citations_aliases              FUN-414 보조  이름표 유무·없는 이름표 (extract_cited_aliases 413)
    │       └─ validate_citations_line × 줄            FUN-414 보조  문장마다 이름표
+   │           ├─ validate_citations_heading          FUN-414 보조  마크다운 제목 줄이면 검사 생략
    │           ├─ validate_citations_split            FUN-414 보조  문장 나누기
    │           └─ validate_citations_exempt           FUN-414 보조  제목 줄·유보 문장
    ├─ build_citation × n                              FUN-415 (make_excerpt 416)
@@ -135,9 +136,9 @@ ui.services.BackendServices.summarize (박경환)
 | 401 보조 | `ask_build_response` | `answer`, `used`, `citations` | ChatResponse(`ANSWERED`) | `render_answer`·`group_citations_by_company`, 답변에 쓰인 문서 ID |
 | FUN-402 | `validate_question` | `question`, `max_chars=2000` | 공백 정리된 질문 | 문자열 아님·공백뿐 → EMPTY_QUESTION, 2000자 초과 → QUESTION_TOO_LONG |
 | FUN-403 | `retrieve_evidence` | `question`, `ChatFilters`, `user` | `list[ChunkHit]` | `search_chunks(user=, query=, company_ids=, doc_types=, document_ids=, top_k=TOP_K×2)`. min_score는 넘기지 않음(search 설정 0.3). import도 try 안에서 해 search가 없을 때(ImportError)도 FUN-427로 RETRIEVAL_FAILED |
-| FUN-404 | `select_evidence` | `hits` | `list[ChunkHit]` | 같은 chunk_id는 점수 높은 것 하나 → 점수순 → 문서당 4개 → 전체 8개 |
+| FUN-404 | `select_evidence` | `hits` | `list[ChunkHit]` | 같은 chunk_id는 점수 높은 것 하나 → 점수순 → 문서당 상한 → 전체 8개 |
 | 404 보조 | `select_evidence_dedupe` | `hits` | `list[ChunkHit]` | chunk_id마다 점수가 가장 높은 것 1개 |
-| 404 보조 | `select_evidence_limit` | 점수순 `hits` | `list[ChunkHit]` | 문서당 MAX_PER_DOCUMENT(4), 전체 TOP_K(8) |
+| 404 보조 | `select_evidence_limit` | 점수순 `hits` | `list[ChunkHit]` | 문서당 상한 = max(MAX_PER_DOCUMENT 4, TOP_K 8 // 근거에 나온 문서 수) → 문서 1개면 8, 2개 이상이면 4. 전체 TOP_K(8) (#182) |
 | FUN-405 | `generate_answer` | `question`, `evidence_text` | 답변 원문(str) | 체인 실행. 시간 초과·속도 제한 → LLM_FAILED(재시도 가능), 인증 오류 → CONFIG_MISSING |
 | FUN-406 | `build_no_evidence_response` | `filters` | ChatResponse(`NO_EVIDENCE`) | LLM 미호출. 문서·유형 필터가 걸려 있으면 "필터를 넓혀 보세요" 안내 |
 | FUN-407 | `recheck_before_return` | `user`, `cited`(ChunkHit) | 없음 | `(document_id, version_id)` 중복 제거 → `verify_documents_access(user, refs)` (성공 = None, 실패 = 예외. DB 계약 3절). 빈 목록이면 부르지 않음(auth가 INVALID_INPUT으로 거부). 예외는 FUN-427로: `AccessError(STATE_CHANGED)` → ChatbotError(STATE_CHANGED), 다른 AccessError는 그대로, `DbError` → RETRIEVAL_FAILED, 그 밖의 오류는 감추지 않고 그대로 |
@@ -160,7 +161,8 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-414 | `validate_citations` | `answer`, `aliases`, `max_chars=20000` | 쓰인 이름표 | ① 빈 답·초과 → INVALID_ANSWER ② 인용이 하나도 없고 유보 표현(`NO_EVIDENCE_HINTS`)이 있으면 NO_EVIDENCE, 없으면 INVALID_CITATION ③ 준 적 없는 이름표 → INVALID_CITATION ④ **문장마다 이름표 확인**: 줄·문장(숫자 바로 뒤가 아닌 `. ! ?` 뒤 공백)으로 나눠 이름표 없는 문장이 있으면 INVALID_CITATION. 제목 줄(`:`로 끝남)과 유보 문장은 예외. 번호 목록(`1. …`)·날짜(`2026. 11. 3.`) 마침표에서는 자르지 않음. 마침표 뒤에 온 이름표(`…합니다. [E1]`, `…합니다. [E1] 다음 문장 [E2].`)는 같은 줄 바로 앞 문장의 근거로 인정. 다음 줄 이름표는 인정 안 함 |
 | 414 보조 | `validate_citations_answer` | `answer`, `max_chars` | 공백 정리된 답변 | 빈 답·초과 → INVALID_ANSWER (①) |
 | 414 보조 | `validate_citations_aliases` | `answer`, `aliases` | 쓰인 이름표 | ②·③ |
-| 414 보조 | `validate_citations_line` | 답변 1줄 | 없음 | ④. 문장 앞 이름표(`LEADING_ALIASES`)는 앞에 무인용 문장이 있으면 그 문장의 근거 |
+| 414 보조 | `validate_citations_line` | 답변 1줄 | 없음 | ④. 마크다운 제목 줄이면 바로 통과. 문장 앞 이름표(`LEADING_ALIASES`)는 앞에 무인용 문장이 있으면 그 문장의 근거 |
+| 414 보조 | `validate_citations_heading` | 답변 1줄 | bool | 줄 전체가 `### 제목`·`**제목**`·`__제목__`(뒤 `:` 허용)이고, 제목이 40자 이하이며 `.` `!` `?` `다` `요`로 끝나지 않고 이름표가 없으면 True |
 | 414 보조 | `validate_citations_split` | 답변 1줄 | 문장 목록 | `SENTENCE_END`로 나누고 목록 기호 `-*#`·공백 제거 |
 | 414 보조 | `validate_citations_exempt` | 문장 1개 | bool | 이름표 있음·빈 문장·`:` 제목 줄·유보 표현이면 True |
 | FUN-415 | `build_citation` | `hit`, `number` | Citation | 필수 필드(company_name, file_name, document_id, location_label)가 비면 INVALID_CITATION. **version_id는 필수 아님**(실제 DB에 버전이 없어 빈 값 가능) |
@@ -241,7 +243,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 
 | 이름 | 값 | 근거 |
 |---|---|---|
-| TOP_K / MAX_PER_DOCUMENT | 8 / 4 | 제안값 (미정 D07). search에 16개 요청 |
+| TOP_K / MAX_PER_DOCUMENT | 8 / 4 | 제안값 (미정 D07). search에 16개 요청. 근거 문서가 1개면 문서당 상한은 8 (#182) |
 | 최소 점수 | 0.3 — search가 적용 | 통합본 L54 |
 | MAX_QUESTION_CHARS | 2000 | 통합본 L50·L104와 같은 기준 |
 | MAX_ANSWER_CHARS | 20000 | 기존 L13 |
@@ -279,12 +281,12 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | `FEEDBACK_STATUS` | 상수 | constants.py | 오류 코드 → 화면 상태 표 (`to_feedback_status`) | 내부용 |
 | `SENTENCE_END`, `LEADING_ALIASES`, `REQUIRED_FIELDS`, `ALIAS_PATTERN` | 상수 | citations.py | 문장 나누기(숫자 뒤 마침표 제외)·문장 앞 이름표·필수 출처 필드·이름표 정규식 | 내부용 |
 | ask의 dict 필터 받기 | 입력 형태 | ask.py `ask_normalize_filters` | UI가 dict를 넘김 (be58de7, 이성민) | 요청 |
-| 보조 함수 22개 (`모함수_…`) | 함수 | 각 파일 | 큰 함수를 단계별로 나눔. 새 기능 없음 | 선택 (통합본에 하위 항목으로) |
+| 보조 함수 23개 (`모함수_…`) | 함수 | 각 파일 | 큰 함수를 단계별로 나눔. 새 기능 없음 | 선택 (통합본에 하위 항목으로) |
 | `LLM_TIMEOUT_SECONDS` | 상수 | constants.py | LLM 호출 30초 제한 | 선택 |
 | Citation `version_no`, ChatResponse `citations_by_company`·`document_ids` | 클래스 필드 | models.py | WF-15 버전 표시, FR-06 회사별 출처(D08), ui 화면 섞임 방지(L29) | 요청 (D08) |
 | `map_dependency_error`의 stage 값 `'recheck'` | 인자 값 | models.py | 재검증 중 auth·DB 오류를 계약대로 바꾸고, 예상 못 한 오류는 감추지 않으려고 | 요청 |
 
-**기능은 통합본 FUN-401~427 그대로다.** 큰 함수 7개는 모함수 이름으로 시작하는 보조 함수 22개로 나눴다(10/26, 3절 호출 트리). 명세 밖 기능은 없다.
+**기능은 통합본 FUN-401~427 그대로다.** 큰 함수 7개는 모함수 이름으로 시작하는 보조 함수 23개로 나눴다(10/26, 3절 호출 트리). 명세 밖 기능은 없다.
 **삭제한 것:**
 
 - 리뷰 반영 중 `_setting`(설정 읽기 보조 함수)과 `DEFAULT_CHAT_MODEL`·`LLM_TEMPERATURE` 상수를 지웠다. `common.config.get_settings()`가 생겨 필요 없어졌다.
@@ -321,11 +323,13 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | 22 | search 미구현 ImportError가 변환 밖이라 화면에 일반 오류 | 고침 — import를 try 안으로, RETRIEVAL_FAILED (`retrieve_evidence`·`summarize_document_load`) |
 | 23 | dict 필터 키 오타가 TypeError → 화면에 일반 오류 | 고침 — RETRIEVAL_FAILED('검색 조건 형식이 올바르지 않습니다.') (`ask_normalize_filters`) |
 | 24 | 부분 요약 하나가 인용 검사에 걸리면 요약 전체 실패 | 고침 — 그 묶음만 빼고 제외 범위에 표시, is_full=False (`summarize_document_partials`·`_response`) |
-| 25 | 큰 함수 7개 | 고침 — 모함수 이름의 보조 함수 22개로 나눔 |
+| 25 | 큰 함수 7개 | 고침 — 모함수 이름의 보조 함수 23개로 나눔 |
 | 26 | 숫자로 끝난 무인용 문장이 다음 문장과 묶여 통과 | 남김 — 날짜 규칙(18)과 겹쳐 고치면 날짜가 거부됨. 한국어 답변에선 드묾 |
 | 27 | (#144 리뷰 1) 세션 만료가 재로그인 안내로 가지 않음 — SearchError(SESSION_EXPIRED)는 RETRIEVAL_FAILED, AccessError(SESSION_EXPIRED)는 ACCESS_DENIED로 바뀜 | 고침 — 오류 코드 SESSION_EXPIRED 추가, status `session_expired`로 전달 (`map_dependency_error_search`·`to_feedback_access`, `FEEDBACK_STATUS`) |
 | 28 | (#144 리뷰 2) 요약 묶음이 모두 인용 검사에 걸리면 '요약할 내용이 없습니다'(NO_EVIDENCE)로 안내 | 고침 — 근거 확인 실패(INVALID_CITATION)로 구분 (`summarize_document_empty_error`) |
 | 29 | (#144 리뷰 3) 명세 상태 문구가 #143 병합 전 내용 | 고침 — 0절 상태·6절 search 연결 상태 갱신 |
+| 30 | (#182) 질문 범위 '선택 문서'에서 문서당 4개 제한 때문에 정답 청크(5·8위)가 빠져 답을 못 찾음 | 고침 — 문서당 상한을 근거 문서 수로 정함: 문서 1개면 8 (`select_evidence_limit`) |
+| 31 | 여러 회사 답변에서 AI가 `**A사**`·`### A사` 같은 마크다운 제목 줄을 쓰면 무인용 문장으로 보고 답변 전체를 거부 | 고침 — 줄 전체가 짧은 제목이면 통과, 문장처럼 끝나면 그대로 검사 (`validate_citations_heading`) |
 
 ## 11. 미정 사항과 지금 코드의 가정
 
@@ -334,7 +338,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | D19 | 요약 경로 근거 형식(VectorHit) | `summarize_document_to_hit`에서 ChunkHit로 변환 | 박영준 공유 |
 | D10 | 요약 함수 이름·길이 | `summarize_document`, 청크 64개 | 박경환 |
 | D04 | 결과·필터 클래스 위치 | **확정 (10/26)** — 네 개 모두 `chatbot/models.py` | 이성민 결정, 통합본 반영은 이성민 |
-| D07 | 근거 개수 | 문서당 4·전체 8 | 이준영·이성민 (정확도 테스트 후) |
+| D07 | 근거 개수 | 문서당 max(4, 8 // 문서 수)·전체 8 (#182로 문서 1개일 때 8) | 이준영·이성민 (정확도 테스트 후) |
 | D08 | 여러 회사 질문 | 필터 범위 전체에서 8개, 회사별 답변·출처 | 팀 |
 | D11 | 오류 문구 | `ERROR_MESSAGES` 초안 | 박경환 |
 | - | 버전 정보 | db 코드는 v4(`document_versions`) 기준이고 embedding도 version_id를 필수로 저장한다. 공유 DB에 v4가 적용됐는지는 확인 필요. 빈 version_id는 출처는 만들지만 재검증에서 RETRIEVAL_FAILED | 전재경 (#119) |

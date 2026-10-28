@@ -168,10 +168,11 @@ python -m unittest discover -s hyundap/tests -t .
 
 | 검사 기준 | 마지막 요약 |
 |---|---|
-| 현재 브랜치 `77e5490` + 로컬 UI·테스트 수정 | `Ran 363 tests in 30.745s` / `OK (skipped=72)` |
+| 병합 전 브랜치 `77e5490` + 로컬 UI·테스트 수정 | `Ran 363 tests in 30.745s` / `OK (skipped=72)` |
 | 리뷰 기준 `develop(2d2be91)` + PR `77e5490` + 같은 수정 | `Ran 399 tests in 39.260s` / `OK (skipped=74)` |
+| 최신 원격 `develop(6e307ba)`를 `featurechat-ui-v2`에 실제 병합 | `Ran 389 tests in 19.578s` / `OK (skipped=85)` |
 
-병합본은 별도 검증용 복사본에서 실행했다. 실제 작업 브랜치의 병합·커밋·푸시를 뜻하지 않는다. 테스트의 기존 건너뛰기 조건을 유지했으며 실제 MySQL·LLM 및 병합 후 QA 시나리오 완료를 뜻하지 않는다.
+리뷰 기준 `2d2be91` 검사는 별도 검증용 복사본에서 실행했고, 마지막 행은 최신 원격 `develop(6e307ba)`를 현재 작업 브랜치에 충돌 없이 병합한 뒤 실행한 결과다. 최신 백엔드에서 필요한 `langchain-chroma==1.1.0`을 팀 설치 목록대로 프로젝트 가상환경에 설치했다. 최신 develop의 테스트 구성이 반영되어 전체 건수가 달라졌다. 테스트의 기존 건너뛰기 조건은 유지했으며 실제 MySQL·LLM 및 병합 후 QA 시나리오 완료를 뜻하지 않는다.
 
 ### 이전 화면 검증 기록
 

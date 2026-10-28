@@ -16,10 +16,10 @@ from .embedder import (
     build_embedding_text,
     check_embedding_health,
     embed_and_store,
-    embed_batch_with_retry,
+    embed_texts,
     embed_chunks,
     embed_query,
-    fit_to_token_limit,
+    fit_to_char_limit,
     get_embedding_model,
     validate_embeddings,
 )
@@ -39,7 +39,7 @@ from .vector_store import (
     collection_name_for_model,
     delete_vectors,
     filter_new_chunks,
-    get_collection,
+    get_vector_store,
     get_document_chunks,
     get_version_chunk_ids,
     query_vectors,
@@ -48,11 +48,11 @@ from .vector_store import (
 
 __all__ = [
     # 임베딩 생성 (embedder.py)
-    "get_embedding_model", "build_embedding_text", "fit_to_token_limit", "build_chunk_metadata",
-    "embed_batch_with_retry", "embed_chunks", "validate_embeddings", "embed_and_store",
+    "get_embedding_model", "build_embedding_text", "fit_to_char_limit", "build_chunk_metadata",
+    "embed_texts", "embed_chunks", "validate_embeddings", "embed_and_store",
     "embed_query", "check_embedding_health",
     # 벡터 저장·조회 (vector_store.py)
-    "collection_name_for_model", "get_collection", "filter_new_chunks", "upsert_chunks",
+    "collection_name_for_model", "get_vector_store", "filter_new_chunks", "upsert_chunks",
     "build_where_filter", "query_vectors", "activate_version", "delete_vectors",
     "get_version_chunk_ids", "get_document_chunks", "check_vector_store_health",
     # 결과 형식·오류 (models.py)

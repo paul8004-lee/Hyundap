@@ -23,7 +23,7 @@ from sqlalchemy.engine import make_url
 
 from hyundap.auth.errors import AccessError
 from hyundap.common.schemas import Chunk
-from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, version_service
+from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, version_service, versions_repo
 from hyundap.db.errors import DbError
 from .test_db_runtime import session_fixture
 
@@ -123,7 +123,7 @@ class UploadWorkflowTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """빈 전용 DB에 기존 기준 스키마와 추가 마이그레이션을 적용한다."""
+        """빈 전용 DB에 최종 v4 테이블을 직접 생성한다."""
         url = make_url(os.environ['DB_WORKFLOW_TEST_URL'])
         if url.host != '127.0.0.1' or url.database != 'hyundap_workflow_test':
             raise RuntimeError('로컬 전용 테스트 DB 이름을 확인하세요.')
@@ -179,6 +179,215 @@ class UploadWorkflowTests(unittest.TestCase):
         return self.upload_service.upload_document(
             self.actor, self.source, dict(company_id=self.company, doc_type='manual', **metadata),
             ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+
+    def test_p2_three_companies_and_roles_share_detail_history_and_original_contracts(self):
+        """같은 공개 문서들에 대해 상세·관리 이력의 역할별 접근 범위를 교차 검증한다."""
+        third_company = str(uuid4())
+        with self.engine.begin() as database:
+            database.execute(text('INSERT INTO companies (id,name) VALUES (:id,:name)'),
+                             {'id': third_company, 'name': '세 번째 합성 회사'})
+            database.execute(text("UPDATE users SET role='platform_admin',company_id=NULL WHERE id=:id"),
+                             {'id': self.user_id})
+        results = []
+        # 플랫폼 관리자로 세 회사의 문서를 만든다. 파일 해시는 같아도 회사가 달라 허용된다.
+        for company in (self.company, self.other_company, third_company):
+            result = self.upload_service.upload_document(
+                self.actor, self.source, {'company_id': company, 'doc_type': 'manual'},
+                ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+            self.assertEqual(result['status'], 'success')
+            results.append(result)
+        for role in ('platform_admin', 'company_admin', 'employee'):
+            with self.engine.begin() as database:
+                database.execute(text('UPDATE users SET role=:role,company_id=:company WHERE id=:id'),
+                                 {'id': self.user_id, 'role': role,
+                                  'company': None if role == 'platform_admin' else self.company})
+            for index, result in enumerate(results):
+                with self.subTest(role=role, company=index):
+                    can_read = role == 'platform_admin' or index == 0
+                    if not can_read:
+                        with self.assertRaises(AccessError) as caught:
+                            documents_repo.get_document_detail(self.actor, result['document_id'])
+                        self.assertEqual(caught.exception.code, 'ACCESS_DENIED')
+                    else:
+                        detail = documents_repo.get_document_detail(self.actor, result['document_id'])
+                        self.assertEqual(detail['version_id'], result['version_id'])
+                        self.assertEqual(detail['size_bytes'], self.source.stat().st_size)
+                        self.assertIsNone(detail['indexed_at'])
+                        self.assertNotIn('storage_path', detail)
+                    if role == 'employee' or not can_read:
+                        with self.assertRaises(AccessError):
+                            versions_repo.list_document_versions(self.actor, result['document_id'])
+                    else:
+                        history = versions_repo.list_document_versions(self.actor, result['document_id'])
+                        self.assertEqual(len(history), 1)
+                        self.assertTrue(history[0]['is_active'])
+                        self.assertNotIn('storage_path', history[0])
+
+    def test_p2_existing_ui_adapter_reads_real_database_and_rechecks_session(self):
+        """UI 상세 어댑터는 실제 DB/auth를 쓰고 본문만 대역으로 제공한다."""
+        from hyundap.ui import backend_documents
+        result = self.upload()
+        original_function = backend_documents._function
+        revoke = False
+
+        def read_chunks(document_id, version_id, active_only=False):
+            hits = self.embedding.get_document_chunks(document_id, version_id, active_only)
+            for hit in hits:
+                hit['metadata']['chunk_id'] = hit['chunk_id']
+                hit['metadata']['is_active'] = True
+            # 외부 본문을 읽는 사이 세션이 폐기되는 상황을 실제 DB 변경으로 재현한다.
+            if revoke:
+                with self.engine.begin() as database:
+                    database.execute(text('UPDATE sessions SET revoked_at=UTC_TIMESTAMP(6) WHERE id=:id'),
+                                     {'id': self.actor['session_id']})
+            return hits
+
+        def load_function(module, name):
+            if module == 'hyundap.embedding.vector_store' and name == 'get_document_chunks':
+                return read_chunks
+            return original_function(module, name)
+
+        with patch.object(backend_documents, '_function', side_effect=load_function):
+            detail = backend_documents.get_document(user=self.actor, document_id=result['document_id'])
+            self.assertEqual(detail['version_id'], result['version_id'])
+            self.assertTrue(detail['citations'])
+            # 아직 UI가 P2 상세 전용 함수를 연결하지 않았다는 현재 계약도 명확히 고정한다.
+            self.assertIsNone(detail['size_bytes'])
+            self.assertIsNone(detail['indexed_at'])
+            self.assertNotIn('storage_path', detail)
+            revoke = True
+            with self.assertRaises(AccessError) as caught:
+                backend_documents.get_document(user=self.actor, document_id=result['document_id'])
+            self.assertEqual(caught.exception.code, 'SESSION_EXPIRED')
+
+    def test_p2_failed_version_retry_updates_detail_and_history_preserving_originals(self):
+        """두 번째 버전 실패·재시도 후 상세·이력·파일이 같은 버전을 가리키는지 확인한다."""
+        first = self.upload()
+        first_bytes = self.source.read_bytes()
+        self.source.write_bytes(b'P2 next version')
+        self.embedding.partial = True
+        failed = self.upload(document_id=first['document_id'])
+        self.assertEqual(failed['status'], 'failed')
+        self.assertEqual(documents_repo.get_document_detail(
+            self.actor, first['document_id'])['version_id'], first['version_id'])
+        history = versions_repo.list_document_versions(self.actor, first['document_id'])
+        self.assertEqual([row['is_active'] for row in history], [True, False])
+        self.embedding.partial = False
+        retried = self.upload_service.retry_upload(self.actor, failed['version_id'],
+            ingest_document=self.ingest, embedding=self.embedding)
+        self.assertEqual(retried['status'], 'success')
+        self.assertEqual(retried['job_id'], failed['job_id'])
+        detail = documents_repo.get_document_detail(self.actor, first['document_id'])
+        self.assertEqual(detail['version_id'], failed['version_id'])
+        self.assertEqual(detail['size_bytes'], len(b'P2 next version'))
+        history = versions_repo.list_document_versions(self.actor, first['document_id'])
+        self.assertEqual([row['is_active'] for row in history], [False, True])
+        with self.assertRaises(AccessError) as caught:
+            documents_repo.get_document_detail(self.actor, first['document_id'], version_id=first['version_id'])
+        self.assertEqual(caught.exception.code, 'STATE_CHANGED')
+        with self.engine.connect() as database:
+            paths = database.execute(text('SELECT storage_path FROM document_versions WHERE document_id=:id ORDER BY version_no'),
+                                     {'id': first['document_id']}).scalars().all()
+        self.assertEqual([Path(path).read_bytes() for path in paths], [first_bytes, b'P2 next version'])
+
+    def test_retry_uses_existing_original_even_when_replacement_is_supplied(self):
+        self.embedding.partial = True
+        failed = self.upload()
+        self.embedding.partial = False
+        with patch.object(self.upload_service, 'copy_original') as copy:
+            retried = self.upload_service.retry_upload(
+                self.actor, failed['version_id'], source_path=self.directory / 'missing.txt',
+                ingest_document=self.ingest, embedding=self.embedding)
+        copy.assert_not_called()
+        self.assertEqual(retried['status'], 'success')
+        self.assertEqual(retried['version_id'], failed['version_id'])
+
+    def test_saved_original_missing_permission_and_escape_are_safe_failures(self):
+        self.embedding.partial = True
+        failed = self.upload()
+        with self.engine.connect() as database:
+            saved = Path(database.scalar(text('SELECT storage_path FROM document_versions WHERE id=:id'),
+                                         {'id': failed['version_id']}))
+        with patch.object(self.upload_service, 'file_digest', side_effect=PermissionError('synthetic-secret')):
+            denied = self.upload_service.retry_upload(self.actor, failed['version_id'],
+                ingest_document=self.ingest, embedding=self.embedding)
+        self.assertEqual(denied['error_code'], 'FILE_UNAVAILABLE')
+        saved.unlink()
+        missing = self.upload_service.retry_upload(self.actor, failed['version_id'],
+            ingest_document=self.ingest, embedding=self.embedding)
+        self.assertEqual(missing['error_code'], 'FILE_UNAVAILABLE')
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
+                             {'path': str(self.source), 'id': failed['version_id']})
+        with patch.object(self.upload_service, 'file_digest') as digest:
+            with self.assertRaises(DbError) as caught:
+                self.upload_service.read_attempt_source(failed)
+        self.assertEqual(caught.exception.code, 'INVALID_STATE')
+        digest.assert_not_called()
+
+    def test_new_version_and_duplicate_preserve_each_saved_original(self):
+        first = self.upload()
+        original_bytes = self.source.read_bytes()
+        self.source.write_bytes(b'new version original')
+        second = self.upload(document_id=first['document_id'])
+        self.assertEqual(second['status'], 'success')
+        with self.assertRaises(DbError) as caught:
+            self.upload(document_id=first['document_id'])
+        self.assertEqual(caught.exception.code, 'DUPLICATE_FILE')
+        with self.engine.connect() as database:
+            rows = database.execute(text('SELECT storage_path FROM document_versions WHERE document_id=:id ORDER BY version_no'),
+                                    {'id': first['document_id']}).scalars().all()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(Path(rows[0]).read_bytes(), original_bytes)
+        self.assertEqual(Path(rows[1]).read_bytes(), b'new version original')
+        self.assertEqual(self.active_version(first['document_id']), second['version_id'])
+
+    def test_candidate_database_failure_creates_no_original_or_partial_records(self):
+        def fail_path(conn, cursor, statement, parameters, context, many):
+            if statement.lstrip().startswith('UPDATE document_versions SET storage_path='):
+                raise OperationalError('synthetic', {}, Exception('synthetic-secret'))
+        event.listen(self.engine, 'before_cursor_execute', fail_path)
+        try:
+            with self.assertRaises(DbError) as caught:
+                self.upload()
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', fail_path)
+        self.assertEqual(caught.exception.code, 'DB_UNAVAILABLE')
+        self.assertFalse(self.upload_dir.exists())
+        with self.engine.connect() as database:
+            for table in ('documents', 'document_versions', 'index_jobs'):
+                count = database.scalar(text(f'SELECT COUNT(*) FROM {table} WHERE company_id=:company'),
+                                        {'company': self.company})
+                self.assertEqual(count, 0)
+
+    def test_pre_candidate_input_errors_do_not_create_records(self):
+        for source, doc_type, code in ((self.source, 'invalid', 'INVALID_DOC_TYPE'),
+                                       (self.directory / 'missing.pdf', 'manual', 'FILE_UNAVAILABLE')):
+            with self.subTest(code=code), self.assertRaises(DbError) as caught:
+                self.upload_service.upload_document(
+                    self.actor, source, {'company_id': self.company, 'doc_type': doc_type},
+                    ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+            self.assertEqual(caught.exception.code, code)
+        with self.engine.connect() as database:
+            count = database.execute(text('SELECT COUNT(*) FROM documents WHERE company_id=:id'),
+                                     {'id': self.company}).scalar_one()
+            self.assertEqual(count, 0)
+
+    def test_short_chunk_count_is_persisted_in_ingest_report(self):
+        def ingest(path, info, **kwargs):
+            result = self.ingest(path, info, **kwargs)
+            result['report'].update(chunk_count=2, short_chunk_count=2)
+            return result
+        result = self.upload_service.upload_document(
+            self.actor, self.source, {'company_id': self.company, 'doc_type': 'manual'},
+            ingest_document=ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+        self.assertEqual(result['status'], 'success')
+        with self.engine.connect() as database:
+            report = database.execute(text('SELECT report FROM index_jobs WHERE id=:id'),
+                                      {'id': result['job_id']}).scalar_one()
+        if isinstance(report, str):
+            report = json.loads(report)
+        self.assertEqual(report['ingest']['short_chunk_count'], 2)
 
     def active_version(self, document_id):
         """DB의 실제 활성 포인터를 조회한다."""

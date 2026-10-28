@@ -13,7 +13,7 @@ import unicodedata
 
 from hyundap.common.schemas import CommonDocument, Section
 
-INVISIBLE_CHARS = ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad"]
+LINE_BREAK_CHARS = ["\x0b", "\x0c", "\u2028", "\u2029"]
 SPECIAL_SPACES = ["\u00a0", "\u202f", "\u3000", "\t"]
 
 
@@ -22,14 +22,13 @@ def normalize_text(text):
     text = unicodedata.normalize("NFC", text)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    for ch in INVISIBLE_CHARS:
-        text = text.replace(ch, "")
-    result = ""
-    for ch in text:
-        if unicodedata.category(ch) == "Cc" and ch not in ("\n", "\t"):
-            continue
-        result += ch
-    text = result
+    for ch in LINE_BREAK_CHARS:
+        text = text.replace(ch, "\n")
+    # 제어(Cc)·서식(Cf)·짝 없는 서로게이트(Cs) 제거. Cs가 남으면 UTF-8 저장·임베딩 호출에서 예외가 난다.
+    text = "".join(
+        ch for ch in text
+        if ch in ("\n", "\t") or unicodedata.category(ch) not in ("Cc", "Cf", "Cs")
+    )
 
     for ch in SPECIAL_SPACES:
         text = text.replace(ch, " ")

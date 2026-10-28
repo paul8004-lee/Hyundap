@@ -13,9 +13,11 @@ from importlib.metadata import version
 from .chunker import chunk_document
 from .loaders import load_document
 from hyundap.common.config import get_settings
-from hyundap.common.schemas import DEFAULT_DOC_TYPE, HEADER_KEYS
+from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES, HEADER_KEYS
 from .models import (
     EMPTY_DOCUMENT,
+    FILE_UNAVAILABLE,
+    INVALID_DOC_TYPE,
     STATUS_FAILED,
     STATUS_SUCCESS,
     IngestError,
@@ -25,20 +27,26 @@ from .normalizer import normalize_document
 from .validator import validate_upload
 
 PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
+# 품질 판단이 아닌 진단용 임시 기준: 공백 제외 20자 미만.
+SHORT_CHUNK_CHARS = 20
 
 
-def ingest_document(file_path, upload_info, find_by_hash=None):
+def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
     """검증→로드→정규화→청킹을 순서대로 실행하고 결과를 IngestResult로 돌려준다."""
     upload_info = dict(upload_info)
-    if not upload_info.get("doc_type"):
+    if "doc_type" not in upload_info:
         upload_info["doc_type"] = DEFAULT_DOC_TYPE
 
     for key in HEADER_KEYS:
         if key not in upload_info:
             raise ValueError(f"upload_info에 {key} 가 없습니다")
+        if key != "doc_type" and (not isinstance(upload_info[key], str) or not upload_info[key].strip()):
+            raise ValueError(f"upload_info의 {key} 값이 올바르지 않습니다")
 
     try:
-        validate_upload(file_path, upload_info["company_id"], find_by_hash)
+        if not isinstance(upload_info["doc_type"], str) or upload_info["doc_type"] not in DOC_TYPE_CODES:
+            raise IngestError(INVALID_DOC_TYPE)
+        validate_upload(file_path, upload_info["company_id"], find_by_hash, file_hash)
         doc = load_document(file_path, upload_info)
         doc = normalize_document(doc)
         if len(doc.sections) == 0:
@@ -47,6 +55,9 @@ def ingest_document(file_path, upload_info, find_by_hash=None):
         report = build_ingest_report(file_path, doc, chunks)
     except IngestError as e:
         return IngestResult(status=STATUS_FAILED, error_code=e.code, error_message=e.message)
+    except (FileNotFoundError, PermissionError):
+        error = IngestError(FILE_UNAVAILABLE)
+        return IngestResult(status=STATUS_FAILED, error_code=error.code, error_message=error.message)
 
     return IngestResult(status=STATUS_SUCCESS, chunks=chunks, report=report)
 
@@ -64,4 +75,5 @@ def build_ingest_report(file_path, doc, chunks):
         "warnings": doc.warnings,
         "section_count": len(doc.sections),
         "chunk_count": len(chunks),
+        "short_chunk_count": sum(len(chunk.text.strip()) < SHORT_CHUNK_CHARS for chunk in chunks),
     }
