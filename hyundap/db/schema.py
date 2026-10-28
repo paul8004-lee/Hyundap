@@ -11,7 +11,6 @@ from sqlalchemy.engine import Engine
 
 from .connection import create_db_engine
 
-SUPPORTED_SCHEMA_VERSIONS = (4,)
 DESIGN_DIR = Path(__file__).resolve().parents[2] / 'docs' / 'db-design'
 
 

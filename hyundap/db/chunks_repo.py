@@ -89,13 +89,3 @@ def _normalize_manifest(version_id, chunks):
 def _chunk_index(chunk):
     """청크 dict에서 정렬 기준인 순번을 반환한다. sort가 항목마다 이 함수를 호출한다."""
     return chunk['chunk_index']
-
-
-def get_expected_chunk_ids(version_id, *, connection=None):
-    """서버 내부 완전성 비교용 ID 목록을 순번대로 반환한다. 없는 버전은 빈 목록이다."""
-    # scalars()는 조회된 각 행에서 첫 번째 컬럼인 청크 ID만 꺼낸다.
-    # connection을 받으면 호출자의 연결을 사용하고 없으면 자체 트랜잭션을 연다.
-    with transaction(connection) as database:
-        return list(database.execute(text('''
-            SELECT id FROM document_chunks WHERE version_id=:id ORDER BY chunk_index
-        '''), {'id': require_id(version_id)}).scalars())

@@ -292,6 +292,10 @@ python -m unittest hyundap.tests.test_db_connection hyundap.tests.test_schema_mi
 | 관련 기존 이슈 | #121 #122 |
 | 대상 파일·함수 | chunks_repo.save_manifest/_normalize_manifest/get_expected_chunk_ids, test_db_runtime.py |
 
+이력 주의(2026-10-28, #207): 위 표는 당시 계획이다. `get_expected_chunk_ids`는 업무 호출이
+없어 폐기했다. 현재 완전성 검증은 version_service의 manifest_snapshot/compare_stored_chunks를
+사용하며, 저장 회귀 테스트는 SQL로 직접 확인한다.
+
 ## 세부 실행 순서
 
 - [ ] 1. 기존 id/chunk_index/content_hash 저장 규격과 본문 미저장 정책을 명시한다.
