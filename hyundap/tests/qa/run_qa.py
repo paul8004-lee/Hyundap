@@ -302,11 +302,27 @@ def sample_path(name):
     return SAMPLES / name if '/' not in name else Path(CORPUS['source_root']) / name
 
 
+# 실패한 업로드도 중복 검사 대상이므로, 같은 파일을 다시 올리면 기대한 오류 대신 DUPLICATE_FILE이 난다.
+# 실행마다 파일 끝에 고유 표시를 붙인 복사본을 올려 해시를 바꾼다. 원본 목업 파일은 바꾸지 않는다.
+RUN_MARK = datetime.now().strftime('%Y%m%d-%H%M%S')
+
+
+def unique_sample(name):
+    source = sample_path(name)
+    data = source.read_bytes()
+    if not data:
+        return source  # 0바이트 파일은 비어 있어야 하므로 그대로 쓴다
+    target = SAMPLES / 'runs' / RUN_MARK / source.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data + f'\n%qa-run {RUN_MARK}\n'.encode('ascii'))
+    return target
+
+
 def make_exception_scenario(sid, name, title, codes):
     @scenario(sid, 'exception', title)
     async def run(client):
         try:
-            result = await client.service.upload(await client.session('hri_admin'), str(sample_path(name)),
+            result = await client.service.upload(await client.session('hri_admin'), str(sample_path(name) if sid == 'E11' else unique_sample(name)),
                                                   company_id('hri'), 'manual')
         except UIServiceError as error:
             code, message = error.code, str(error)
