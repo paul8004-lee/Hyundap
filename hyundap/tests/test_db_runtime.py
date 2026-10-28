@@ -199,7 +199,9 @@ class DatabaseRuntimeTests(unittest.TestCase):
         with self.engine.connect() as database:
             self.assertEqual(database.scalar(text('SELECT expected_chunk_count FROM document_versions WHERE id=:id'),
                                              {'id': version}), 0)
-        self.assertEqual(chunks_repo.get_expected_chunk_ids(version), [])
+            # 폐기된 조회 함수를 경유하지 않고 롤백 후 청크가 남지 않았는지 직접 검사한다.
+            self.assertEqual(database.scalar(text('SELECT COUNT(*) FROM document_chunks WHERE version_id=:id'),
+                                             {'id': version}), 0)
 
     def test_forged_role_and_company_cannot_expand_scope(self):
         """전달 문맥의 역할·회사·권한 버전 위조를 무시하고 DB의 현재 값을 사용한다."""
@@ -378,7 +380,12 @@ class DatabaseRuntimeTests(unittest.TestCase):
         with self.assertRaises(DbError) as caught:
             chunks_repo.save_manifest(version, changed)
         self.assertEqual(caught.exception.code, 'CONFLICT')
-        self.assertEqual(chunks_repo.get_expected_chunk_ids(version), [version + ':00000'])
+        with self.engine.connect() as database:
+            # 멱등 저장과 충돌 거부 뒤에도 원래 청크 ID가 그대로 유지되어야 한다.
+            saved_ids = list(database.execute(text(
+                'SELECT id FROM document_chunks WHERE version_id=:id ORDER BY chunk_index'),
+                {'id': version}).scalars())
+        self.assertEqual(saved_ids, [version + ':00000'])
         self.publish_fixture(candidate)
         with self.assertRaises(DbError):
             versions_repo.mark_failed(version)
