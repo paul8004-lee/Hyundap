@@ -4,7 +4,7 @@
 기준 명세: AI_문서검색_통합_기능명세서
 
 함수:
-    FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다."""
+    FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다. 그림은 PaddleOCR(있으면)로, Office 차트는 차트 XML에서 읽는다."""
 
 
 import zlib
@@ -17,12 +17,14 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from lxml.etree import XMLSyntaxError
 
+from . import charts, figures
 from .base import build_location_label, table_to_text
 from hyundap.common.schemas import CommonDocument, Section
 from ..models import CORRUPTED_FILE, IngestError
 
 # 글자를 읽지 않는 그림·도형·차트·텍스트 상자(w:drawing, 구형 w:pict). mc:Fallback 안의 중복 표현은 뺀다.
 UNREAD_OBJECTS_XPATH = ".//w:drawing | .//w:pict[not(ancestor::*[local-name()='Fallback'])]"
+EMU_PER_PT = 12700
 
 
 def add_docx_section(doc, title, lines):
@@ -41,6 +43,74 @@ def add_docx_section(doc, title, lines):
             text="\n\n".join(texts),
         )
     )
+
+
+def emu_to_pt(value):
+    """wp:extent의 cx·cy(EMU)를 pt로 바꾼다. 없거나 정수가 아니면 None(크기를 모르는 그림으로 다룬다)."""
+    try:
+        return int(value) / EMU_PER_PT
+    except (TypeError, ValueError):
+        return None
+
+
+def picture_groups(element):
+    """요소 안 개체(w:drawing, 구형 w:pict)마다 그 안 그림의 (관계 id, 표시 너비 pt, 표시 높이 pt) 목록을 돌려준다.
+
+    구형 w:pict 그림은 크기를 몰라 None이다. 그림이 없는 개체(도형·차트)는 빈 목록이다."""
+    groups = []
+    for drawing in element.xpath(".//w:drawing[not(ancestor::*[local-name()='Fallback'])]"):
+        extent = drawing.xpath(".//wp:extent")
+        width = height = None
+        if extent:
+            width, height = emu_to_pt(extent[0].get("cx")), emu_to_pt(extent[0].get("cy"))
+            if width is None or height is None:
+                width = height = None
+        groups.append([(rid, width, height) for rid in drawing.xpath(".//a:blip/@r:embed")])
+    for pict in element.xpath(".//w:pict[not(ancestor::*[local-name()='Fallback'])]"):
+        groups.append([(rid, None, None) for rid in pict.xpath(".//*[local-name()='imagedata']/@*[local-name()='id']")])
+    return groups
+
+
+def picture_refs(element):
+    """요소 안 그림의 (관계 id, 표시 너비 pt, 표시 높이 pt) 목록. 구형 w:pict 그림은 크기를 몰라 None이다."""
+    return [ref for group in picture_groups(element) for ref in group]
+
+
+def read_charts(docx_file, chart_reader, element):
+    """요소 안 Office 차트들에서 읽은 표 조각 목록을 돌려준다. 차트 XML은 문서 관계(r:id)로 찾는다."""
+    texts = []
+    for rid in element.xpath(".//w:drawing[not(ancestor::*[local-name()='Fallback'])]//c:chart/@r:id"):
+        try:
+            part = docx_file.part.related_parts.get(rid)   # 외부 연결 차트 등은 관계가 없다
+            if part is not None:
+                texts.extend(chart_reader.read(part.blob))
+        except Exception:   # 차트 하나를 꺼내지 못해도 업로드 전체가 실패하지 않게 건너뛴 차트로 센다
+            chart_reader.unreadable += 1
+    return texts
+
+
+def read_pictures(docx_file, reader, element, lines):
+    """요소 안 그림들에서 OCR로 읽은 글자 목록을 돌려준다. 같은 구간에 이미 모은 글(lines)과 겹치는 줄은 뺀다."""
+    texts = []
+    if not reader.enabled:
+        return texts
+    for group in picture_groups(element):
+        read_any = False
+        for rid, width, height in group:
+            try:
+                part = docx_file.part.related_parts.get(rid)   # 외부 연결 그림 등은 관계가 없다
+                if part is None:
+                    continue
+                text = reader.read_picture(part.blob, width, height, page_text=lambda: "\n".join(lines + texts))
+            except Exception:   # 그림 하나를 꺼내지 못해도 업로드 전체가 실패하지 않게 건너뛴 그림으로 센다
+                reader.unreadable += 1
+                continue
+            if text != "":
+                texts.append(text)
+                read_any = True
+        if read_any:
+            reader.objects_read += 1   # 개체 하나에 그림이 여러 장 있어도 읽은 개체는 1개다
+    return texts
 
 
 def iter_blocks(element, parent):
@@ -99,6 +169,8 @@ def load_docx(file_path, upload_info):
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))
+    reader = figures.FigureReader()
+    chart_reader = charts.ChartReader()   # 읽은 그림·차트 수는 글자를 읽지 않은 개체 수에서 뺀다
     title = None
     lines = []
     table_no = 0
@@ -119,6 +191,8 @@ def load_docx(file_path, upload_info):
                 lines = []
             elif text != "":
                 lines.append(text)
+            lines.extend(read_pictures(docx_file, reader, block._p, lines))
+            lines.extend(read_charts(docx_file, chart_reader, block._p))
         elif isinstance(block, Table):
             table_no += 1
             rows, merged_count, nested_count = read_table_rows(block)
@@ -127,9 +201,13 @@ def load_docx(file_path, upload_info):
             if nested_count > 0:
                 doc.warnings.append(f"표 {table_no}: 중첩 표가 든 {nested_count}칸은 안쪽 글자를 한 칸에 이어 붙임")
             lines.extend(table_to_text(rows))
+            lines.extend(read_pictures(docx_file, reader, block._tbl, lines))
+            lines.extend(read_charts(docx_file, chart_reader, block._tbl))
 
     add_docx_section(doc, title, lines)
-    unread = len(docx_file.element.body.xpath(UNREAD_OBJECTS_XPATH))
+    unread = len(docx_file.element.body.xpath(UNREAD_OBJECTS_XPATH)) - reader.objects_read - chart_reader.appended
     if unread > 0:
         doc.warnings.append(f"그림·도형·차트·텍스트 상자 {unread}개는 글자를 읽지 않음")
+    doc.warnings.extend(chart_reader.warnings())
+    doc.warnings.extend(reader.warnings())
     return doc
