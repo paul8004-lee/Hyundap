@@ -114,6 +114,36 @@ class SettingsTests(unittest.TestCase):
                 settings = self.load(env)
                 self.assertEqual((settings.chunk_size, settings.chunk_overlap), expected)
 
+    def test_ocr_settings_defaults(self):
+        """OCR 설정의 기본값(50쪽·그림 100개·예열 켜짐·코어 기준 스레드 수)이 적용되는지 확인한다."""
+        settings = self.load({})
+        self.assertEqual((settings.ocr_max_pages, settings.ocr_max_figures), (50, 100))
+        self.assertTrue(settings.ocr_warmup)
+        self.assertEqual(settings.ocr_threads, config.default_ocr_threads())
+
+    def test_reads_ocr_env_values(self):
+        """OCR 환경변수가 반영되고 상한 0(해당 OCR 끄기)과 예열 끄기를 받는지 확인한다."""
+        settings = self.load({'OCR_MAX_PAGES': '10', 'OCR_MAX_FIGURES': '0', 'OCR_THREADS': '2', 'OCR_WARMUP': 'False'})
+        self.assertEqual((settings.ocr_max_pages, settings.ocr_max_figures, settings.ocr_threads), (10, 0, 2))
+        self.assertFalse(settings.ocr_warmup)
+
+    def test_invalid_ocr_settings_fall_back(self):
+        """숫자가 아니거나 범위 밖인 OCR 값은 기본값을 쓰는지 확인한다."""
+        threads = config.default_ocr_threads()
+        for env in ({'OCR_MAX_PAGES': '-1', 'OCR_MAX_FIGURES': 'abc', 'OCR_THREADS': '0', 'OCR_WARMUP': 'maybe'},
+                    {'OCR_MAX_PAGES': '100001', 'OCR_THREADS': '257'}):
+            with self.subTest(env=env):
+                settings = self.load(env)
+                self.assertEqual((settings.ocr_max_pages, settings.ocr_max_figures, settings.ocr_threads),
+                                 (50, 100, threads))
+                self.assertTrue(settings.ocr_warmup)
+
+    def test_default_ocr_threads_leaves_one_core_free(self):
+        """코어가 3개 이상이면 하나를 남기고 2개 이하이면 전부 쓰며, 코어 수를 모르면 1인지 확인한다."""
+        for cores, expected in ((1, 1), (2, 2), (3, 2), (4, 3), (8, 7), (None, 1)):
+            with self.subTest(cores=cores), patch('os.cpu_count', return_value=cores):
+                self.assertEqual(config.default_ocr_threads(), expected)
+
     def test_settings_are_read_only(self):
         """고정된 Settings 필드를 직접 바꾸면 오류가 발생하는지 확인한다."""
         with self.assertRaises(AttributeError):
