@@ -1,4 +1,12 @@
 {
+  // 프로젝트 가상환경을 기본 Python으로 사용합니다.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.terminal.activateEnvironment": true,
+  "python.envFile": "${workspaceFolder}/.env",
+  // 새 터미널에서 Python의 한글 출력을 UTF-8로 통일합니다.
+  "terminal.integrated.env.windows": {
+    "PYTHONUTF8": "1"
+  },
   // 3분마다 서버 변경을 확인해 왼쪽 아래 동기화 아이콘에 받을 커밋 수(↓)를 표시합니다.
   // fetch만 하므로 내 작업 코드는 바뀌지 않습니다. 아이콘을 누르면 pull 됩니다.
   "git.autofetch": true,

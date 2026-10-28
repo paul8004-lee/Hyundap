@@ -55,6 +55,8 @@ def _read_layout(connection):
         for check in keys[table]['checks']:
             if check['name'] == name:
                 check['enforced'] = enforced
+                # 테이블 안에서 CHECK 이름은 유일하므로 현재 제약의 탐색만 끝낸다.
+                break
     return {'tables': tables, 'keys': keys}
 
 
@@ -68,15 +70,33 @@ def snapshot(connection):
     return dict(layout, version=versions[0])
 
 
+def _ascii_literal(match):
+    """re.sub가 찾은 문자셋 표기에서 ASCII 문자열의 접두사만 제거한다.
+
+    group(0)은 접두사를 포함한 전체 일치 부분, group(1)은 따옴표로 감싼 값이다.
+    한글 등 비ASCII 값은 문자셋 의미가 있으므로 원래 표기를 그대로 반환한다.
+    """
+    literal = match.group(1)
+    if literal.isascii():
+        return literal
+    return match.group(0)
+
+
 def _expression(value):
     """MySQL 메타데이터 표현식의 공백·식별자 인용 표기만 정규화한다."""
     if value is None:
         return None
     # MySQL은 ALTER CHECK 때 동일한 ASCII 상수의 문자셋 표기를 다시 쓴다.
-    value = re.sub(r"_(?:ascii|utf8mb4)('(?:''|[^'])*')",
-                   lambda match: match[1] if match[1].isascii() else match[0], str(value))
-    parts = re.findall(r"'(?:''|[^'])*'|[^'\s`]+", str(value))
-    return ''.join(part if part.startswith("'") else part.lower() for part in parts)
+    value = re.sub(r"_(?:ascii|utf8mb4)('(?:''|[^'])*')", _ascii_literal, str(value))
+    parts = re.findall(r"'(?:''|[^'])*'|[^'\s`]+", value)
+    normalized_parts = []
+    # 문자열 값은 대소문자까지 보존하고, SQL 이름과 연산자 부분만 소문자로 통일한다.
+    for part in parts:
+        if part.startswith("'"):
+            normalized_parts.append(part)
+        else:
+            normalized_parts.append(part.lower())
+    return ''.join(normalized_parts)
 
 
 def _structure(layout):
@@ -160,7 +180,14 @@ def create_v4_schema(engine):
         raise ValueError('MySQL 8.4 or later required')
     with engine.connect() as connection:
         server = str(connection.scalar(text('SELECT VERSION()')))
-        if 'mariadb' in server.lower() or tuple(map(int, server.split('-')[0].split('.')[:2])) < (8, 4):
+        if 'mariadb' in server.lower():
+            raise ValueError('MySQL 8.4 or later required')
+        # 버전의 앞 두 숫자만 비교한다. 예: 8.4.13은 (8, 4)가 된다.
+        version_parts = server.split('-')[0].split('.')[:2]
+        version_numbers = []
+        for part in version_parts:
+            version_numbers.append(int(part))
+        if tuple(version_numbers) < (8, 4):
             raise ValueError('MySQL 8.4 or later required')
         database = connection.scalar(text('SELECT DATABASE()'))
         if not database:
@@ -175,7 +202,12 @@ def create_v4_schema(engine):
             json.loads((DESIGN_DIR / 'schema_v4_contract.json').read_text(encoding='utf-8'))
             connection.execute(text("SET time_zone='+00:00'"))
             source = (DESIGN_DIR / 'schema_v4.sql').read_text(encoding='utf-8')
-            script = '\n'.join(line for line in source.splitlines() if not line.lstrip().startswith('--'))
+            sql_lines = []
+            # 먼저 설명 줄을 제외한다. 아래 문장 실행 반복과 별도로 끝나는 반복이다.
+            for line in source.splitlines():
+                if not line.lstrip().startswith('--'):
+                    sql_lines.append(line)
+            script = '\n'.join(sql_lines)
             # SQL 파일을 세미콜론 기준으로 나누고 비어 있지 않은 문장만 순서대로 실행한다.
             # 이 반복은 스키마 생성 명령에서만 실행되며 일반 조회에서는 실행되지 않는다.
             for statement in script.split(';'):
@@ -194,8 +226,14 @@ def audit_counts(connection):
     """읽기 전용 정합성 위반 건수를 반환한다. 외부 벡터 검사는 포함하지 않는다."""
     # 검증 SQL마다 위반 건수 한 행을 읽어 사전 목록으로 반환한다.
     queries = (DESIGN_DIR / 'schema_v4_verify.sql').read_text(encoding='utf-8')
-    return [dict(connection.execute(text(sql)).mappings().one())
-            for sql in queries.split(';') if sql.strip()]
+    counts = []
+    for sql in queries.split(';'):
+        if not sql.strip():
+            continue
+        # 검사 SQL 하나가 반환하는 위반 건수 행을 결과 목록에 추가한다.
+        row = connection.execute(text(sql)).mappings().one()
+        counts.append(dict(row))
+    return counts
 
 
 def main():
@@ -225,7 +263,10 @@ def main():
                 return 1
             counts = audit_counts(connection)
             print(json.dumps({'version': layout['version'], 'audit': counts}))
-            return int(any(row['violations'] for row in counts))
+            for row in counts:
+                if row['violations']:
+                    return 1
+            return 0
     except Exception as error:
         print(f'SCHEMA_CHECK_FAILED: {type(error).__name__}; inspect configuration and partial DDL')
         return 1

@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
 from .clock import epoch_now
+from .runtime import shared_table
 
 
 ROLE_MAP = {
@@ -75,8 +76,8 @@ def _read_valid_session(connection, session_id, digest, lock):
     # 세션 시간 비교에 사용할 현재 시각은 UTC Unix 초로 준비한다.
     parameters = {'id': session_id, 'token_hash': digest, 'now': epoch_now()}
     # 세션 확인 후 사용자 행을 읽어 같은 잠금 순서를 유지한다.
-    session = connection.execute(text('''
-        SELECT id,user_id,auth_version FROM sessions
+    session = connection.execute(text(f'''
+        SELECT id,user_id,auth_version FROM {shared_table('sessions')}
         WHERE id=:id AND token_hash=:token_hash
           AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP(6)
           AND idle_expires_at>:now AND absolute_expires_at>:now
@@ -93,8 +94,8 @@ def _read_active_user(connection, session, lock):
     suffix = ''
     if lock:
         suffix = ' FOR UPDATE'
-    user = connection.execute(text('''
-        SELECT id,company_id,role,auth_version,is_active FROM users WHERE id=:id
+    user = connection.execute(text(f'''
+        SELECT id,company_id,role,auth_version,is_active FROM {shared_table('users')} WHERE id=:id
     ''' + suffix), {'id': session['user_id']}).mappings().one_or_none()
     if not user or not user['is_active']:
         raise AccessError('SESSION_EXPIRED')
@@ -117,7 +118,7 @@ def _check_company_role(connection, user, lock):
         suffix = ' FOR UPDATE'
     # 플랫폼 관리자도 회사 ID가 있으면 회사의 활성 상태를 검사한다.
     if user['company_id']:
-        active = connection.execute(text('SELECT is_active FROM companies WHERE id=:id' + suffix),
+        active = connection.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id" + suffix),
                                     {'id': user['company_id']}).scalar_one_or_none()
         if not active:
             raise AccessError('ACCESS_DENIED')

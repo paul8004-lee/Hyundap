@@ -8,7 +8,7 @@ from hyundap.auth.errors import AccessError
 from hyundap.auth.permissions import allowed_companies
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
-from .runtime import require_hash, require_id, transaction
+from .runtime import require_hash, require_id, transaction, shared_table, split_layout
 from .sessions_repo import current_actor
 
 
@@ -35,7 +35,7 @@ def find_duplicate_document(company_id, sha256, *, exclude_version_id=None, conn
     values = {'company': require_id(company_id), 'sha256': require_hash(sha256)}
     if exclude_version_id is not None:
         values['exclude'] = require_id(exclude_version_id)
-    with transaction(connection) as database:
+    with transaction(connection, company_id=company_id) as database:
         if exclude_version_id is not None:
             # 제외할 버전이 같은 회사와 해시에 실제로 속하는지 먼저 확인한다.
             candidate = database.execute(text('''
@@ -53,7 +53,9 @@ def find_duplicate_document(company_id, sha256, *, exclude_version_id=None, conn
             query += ' AND v.id<>:exclude'
         # one_or_none()은 한 행 또는 None을 반환하며 여러 행이면 오류가 난다.
         row = database.execute(text(query), values).mappings().one_or_none()
-        return dict(row) if row else None
+        if row:
+            return dict(row)
+        return None
 
 
 def get_documents_with_active_version(document_ids, *, connection=None):
@@ -70,14 +72,54 @@ def get_documents_with_active_version(document_ids, *, connection=None):
     if not isinstance(document_ids, (list, tuple)):
         raise DbError('INVALID_INPUT')
     # 각 ID를 검증하고 중복을 제거한 뒤 정렬한다.
-    ids = sorted({require_id(value) for value in document_ids})
+    unique_ids = set()
+    for value in document_ids:
+        # 검증한 ID를 집합에 넣으면 같은 ID가 여러 번 와도 한 번만 조회한다.
+        unique_ids.add(require_id(value))
+    ids = sorted(unique_ids)
     if not ids:
         return []
+    if split_layout() and connection is None:
+        # 검색의 여러 문서 소유 회사를 한 SELECT로 읽는다. 버전마다 반복된 소유 행은 DISTINCT로 줄인다.
+        route_query = text(f'''
+            SELECT DISTINCT document_id,company_id FROM {shared_table('document_routes')}
+            WHERE document_id IN :ids
+        ''').bindparams(bindparam('ids', expanding=True))
+        owners = {}
+        ambiguous_ids = set()
+        with transaction(control=True) as database:
+            # 첫 반복은 등록 행에서 문서별 소유 회사를 정한다. 서로 다른 회사가 나오면 제외 표시한다.
+            for route in database.execute(route_query, {'ids': ids}).mappings():
+                document_id = route['document_id']
+                company = route['company_id']
+                if document_id in owners and owners[document_id] != company:
+                    ambiguous_ids.add(document_id)
+                owners[document_id] = company
+        groups = {}
+        # 두 번째 반복은 검증된 입력 ID 순서대로 회사별 목록을 만든다. 없는/소유가 모호한 문서는 제외한다.
+        for document_id in ids:
+            if document_id not in owners or document_id in ambiguous_ids:
+                continue
+            company = owners[document_id]
+            # 현재 문서의 회사가 처음 나오면 빈 목록을 만들고, 그 목록에 문서 ID를 추가한다.
+            if company not in groups:
+                groups[company] = []
+            groups[company].append(document_id)
+        result = []
+        for company, company_ids in groups.items():
+            # 앞 반복이 문서를 회사별로 모았다면, 이 반복은 회사 하나씩 DB를 조회한다.
+            with transaction(company_id=company) as database:
+                result.extend(get_documents_with_active_version(company_ids, connection=database))
+        return result
     # expanding=True는 ID 개수에 맞게 SQL의 IN 조건을 안전하게 준비한다.
-    query = text(DOCUMENT_INFO_SQL).bindparams(bindparam('ids', expanding=True))
+    query = text(DOCUMENT_INFO_SQL.replace('JOIN companies', 'JOIN ' + shared_table('companies'))).bindparams(bindparam('ids', expanding=True))
     with transaction(connection) as database:
         # 조회된 행을 검색 모듈에서 읽을 수 있는 dict로 바꾼다.
-        return [dict(row) for row in database.execute(query, {'ids': ids}).mappings()]
+        rows = database.execute(query, {'ids': ids}).mappings()
+        documents = []
+        for row in rows:
+            documents.append(dict(row))
+        return documents
 
 
 def get_document_detail(actor, document_id, *, version_id=None, connection=None):
@@ -96,17 +138,30 @@ def get_document_detail(actor, document_id, *, version_id=None, connection=None)
     document_id = require_id(document_id)
     if version_id is not None:
         version_id = require_id(version_id)
-    with transaction(connection) as database:
+    # 회사 등록부에는 문서 내용 없이 식별자만 저장한다. 없는 문서는 기존 상태 오류를 유지한다.
+    if split_layout():
+        from .tenancy import company_for_reference, authorize_company
+        authorize_company(actor)
+        try:
+            company_id = company_for_reference(document_id=document_id, connection=connection)
+        except DbError as error:
+            if error.code == 'INVALID_STATE':
+                raise AccessError('STATE_CHANGED') from None
+            raise
+        authorize_company(actor, company_id)
+    else:
+        company_id = None
+    with transaction(connection, company_id=company_id) as database:
         # 2단계: 화면에서 전달한 역할 대신 현재 세션과 DB의 회사 권한을 사용한다.
         current = current_actor(actor, connection=database)
         allowed = allowed_companies(current, connection=database)
         # 3단계: 문서와 활성 버전을 한 번에 읽는다. 회사·문서가 다른 버전은 연결하지 않는다.
         # LEFT JOIN이므로 활성 버전이 없는 문서도 읽은 뒤 안전하게 거부할 수 있다.
-        row = database.execute(text('''
+        row = database.execute(text(f'''
             SELECT d.id AS document_id,d.company_id,c.name AS company_name,d.doc_type,
                    d.publication_status,d.deleted_at,d.active_version_id,
                    v.version_no,v.version_status,v.data_category,v.file_name,v.file_size
-            FROM documents d JOIN companies c ON c.id=d.company_id
+            FROM documents d JOIN {shared_table('companies')} c ON c.id=d.company_id
             LEFT JOIN document_versions v ON v.id=d.active_version_id
               AND v.document_id=d.id AND v.company_id=d.company_id
             WHERE d.id=:id
@@ -157,10 +212,12 @@ def validate_metadata(metadata):
     if not isinstance(metadata, dict):
         raise DbError('INVALID_INPUT')
     required_fields = ('company_id', 'file_name', 'storage_path', 'sha256', 'file_size', 'data_category')
-    if not set(required_fields) <= metadata.keys():
-        raise DbError('INVALID_INPUT')
-    # 필요한 필드만 복사하므로 원본 metadata는 변경하지 않는다.
-    result = {name: metadata[name] for name in required_fields}
+    result = {}
+    # 필수 항목을 하나씩 확인하고 새 사전에 복사한다. 값 검사는 이 반복이 끝난 뒤다.
+    for name in required_fields:
+        if name not in metadata:
+            raise DbError('INVALID_INPUT')
+        result[name] = metadata[name]
     result['doc_type'] = metadata.get('doc_type', DEFAULT_DOC_TYPE)
     require_id(result['company_id'])
     require_hash(result['sha256'])
@@ -191,7 +248,7 @@ def create_document_version(actor, metadata, *, connection=None):
     버전 없는 문서가 남은 회사는 신규 업로드를 거부한다. 원본 저장은 #122다.
     """
     data = validate_metadata(metadata)
-    with transaction(connection) as database:
+    with transaction(connection, company_id=data['company_id']) as database:
         # 세 단계가 같은 연결을 사용하므로 일부 저장만 성공한 상태가 남지 않는다.
         current = _check_candidate_creation(database, actor, data)
         data['uploaded_by'] = current['user_id']
@@ -211,7 +268,7 @@ def _check_candidate_creation(database, actor, data):
         raise AccessError('ACCESS_DENIED')
     if current['role'] != 'platform_admin' and current['company_id'] != data['company_id']:
         raise AccessError('ACCESS_DENIED')
-    active = database.execute(text('SELECT is_active FROM companies WHERE id=:id FOR UPDATE'),
+    active = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
                               {'id': data['company_id']}).scalar_one_or_none()
     if not active:
         raise AccessError('ACCESS_DENIED')
@@ -237,7 +294,8 @@ def _prepare_document(database, data):
     """
     # 문서 ID가 있으면 기존 문서를 잠가 검사하고 없으면 새 문서를 생성한다.
     if 'document_id' in data:
-        document_id = data['document_id'] or str(uuid4())
+        # validate_metadata가 빈 ID를 거부했으므로 기존 문서 ID를 그대로 사용한다.
+        document_id = data['document_id']
         document = database.execute(text('''
             SELECT company_id,doc_type,deleted_at,publication_status FROM documents
             WHERE id=:id FOR UPDATE
@@ -281,4 +339,9 @@ def _insert_version_and_job(database, document_id, data):
         VALUES (:id,:version_id,:document_id,:company_id,:requested_by)
     '''), {'id': job_id, 'version_id': version_id, 'document_id': document_id,
           'company_id': data['company_id'], 'requested_by': data['uploaded_by']})
+    if split_layout():
+        # 같은 MySQL 트랜잭션에서 회사 원장과 식별자 라우팅을 함께 확정한다.
+        database.execute(text(f'''INSERT INTO {shared_table('document_routes')}
+            (document_id,version_id,job_id,company_id) VALUES (:document,:version,:job,:company)'''),
+            {'document': document_id, 'version': version_id, 'job': job_id, 'company': data['company_id']})
     return {'document_id': document_id, 'version_id': version_id, 'job_id': job_id}

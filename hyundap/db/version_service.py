@@ -13,7 +13,8 @@ from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
 from .errors import DbError
-from .runtime import require_id, transaction
+from .runtime import require_id, transaction, shared_table, split_layout
+from .tenancy import company_scope, company_for_reference, processing_lock, authorize_company
 from .sessions_repo import current_actor
 from . import jobs_repo
 
@@ -98,7 +99,9 @@ def read_candidate(database, document_id, version_id, *, lock=False):
     """문서와 버전을 일치시켜 읽는다. 잠금이 필요하면 문서→버전 순서를 따른다."""
     # 문서와 버전이 존재하며 서로 같은 문서와 회사에 속하는지 확인한다.
     # lock=True일 때만 SELECT에 FOR UPDATE를 붙여 행을 잠근다.
-    suffix = ' FOR UPDATE' if lock else ''
+    suffix = ''
+    if lock:
+        suffix = ' FOR UPDATE'
     document = database.execute(text('SELECT * FROM documents WHERE id=:id' + suffix),
                                 {'id': require_id(document_id)}).mappings().one_or_none()
     version = database.execute(text('SELECT * FROM document_versions WHERE id=:id' + suffix),
@@ -115,12 +118,20 @@ def read_candidate(database, document_id, version_id, *, lock=False):
 def manifest_snapshot(database, version):
     """원장과 후보 메타데이터의 해시를 만든다. 외부 검사 이후 변경 여부를 다시 비교한다."""
     # 현재 원장과 버전 정보를 묶어 나중에 변경 여부를 비교할 값을 만든다.
-    manifest = [dict(row) for row in database.execute(text('''
+    rows = database.execute(text('''
         SELECT id,chunk_index,content_hash FROM document_chunks WHERE version_id=:id ORDER BY chunk_index
-    '''), {'id': version['id']}).mappings()]
+    '''), {'id': version['id']}).mappings()
+    manifest = []
+    # 첫 반복은 DB가 순번대로 반환한 청크 행을 원장 목록으로 옮긴다.
+    for row in rows:
+        manifest.append(dict(row))
     fields = ('id', 'document_id', 'company_id', 'sha256', 'file_size', 'storage_path',
               'data_category', 'expected_chunk_count')
-    payload = [{key: version[key] for key in fields}, manifest]
+    version_snapshot = {}
+    # 원장 반복이 끝난 뒤 버전의 비교 대상 필드만 별도 사전에 복사한다.
+    for key in fields:
+        version_snapshot[key] = version[key]
+    payload = [version_snapshot, manifest]
     # 정렬된 JSON의 해시로 외부 검사 중 원장이나 후보 정보의 변경을 확인한다.
     seal = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     return manifest, seal
@@ -134,7 +145,7 @@ def validate_completeness(document_id, version_id, *, embedding=None):
     """
     # DB 원장을 읽은 뒤 외부 저장소의 청크와 비교한다.
     backend = get_embedding_backend(embedding)
-    with transaction() as database:
+    with transaction(document_id=document_id, version_id=version_id) as database:
         # 먼저 DB에서 문서·버전과 기준 원장을 읽고 트랜잭션을 종료한다.
         document, version = read_candidate(database, document_id, version_id)
         manifest, seal = manifest_snapshot(database, version)
@@ -213,10 +224,12 @@ def collect_chunk_comparison(identity, manifest, ids, hits):
     # DB 원장과 벡터 저장소의 ID를 집합으로 비교해 누락과 초과를 찾는다.
     if not isinstance(ids, list) or not isinstance(hits, list):
         raise DbError('INVALID_INPUT')
-    # 첫 번째 반복은 외부 저장소가 반환한 ID의 자료형을 검증한다.
+    actual_chunk_ids = set()
+    # 첫 번째 반복은 ID를 검증하고 집합에도 추가한다. 원본 목록은 중복 개수 확인에 보존한다.
     for identifier in ids:
         if not isinstance(identifier, str):
             raise DbError('INVALID_INPUT')
+        actual_chunk_ids.add(identifier)
 
     expected_chunks_by_id = {}
     chunk_indexes = []
@@ -225,8 +238,6 @@ def collect_chunk_comparison(identity, manifest, ids, hits):
     for row in manifest:
         expected_chunks_by_id[row['id']] = row
         chunk_indexes.append(row['chunk_index'])
-    # 집합은 ID 비교에 쓰며 원래 목록의 중복은 개수 비교에서 확인한다.
-    actual_chunk_ids = set(ids)
     seen_chunk_ids, invalid_chunk_ids = inspect_chunk_contents(identity, expected_chunks_by_id, hits)
     return {
         'indexes': chunk_indexes, 'actual_ids': actual_chunk_ids, 'seen_ids': seen_chunk_ids,
@@ -265,12 +276,21 @@ def inspect_chunk_contents(identity, expected, hits):
 def read_job(database, version_id, *, lock=False):
     """버전당 하나인 작업과 안전한 JSON 기록을 읽는다. 중복 작업은 자동 선택하지 않는다."""
     # 버전에 연결된 작업이 정확히 하나인지 확인하고 저장 보고서를 읽는다.
-    rows = database.execute(text('SELECT * FROM index_jobs WHERE version_id=:id' +
-                                 (' FOR UPDATE' if lock else '')), {'id': version_id}).mappings().all()
+    suffix = ''
+    if lock:
+        suffix = ' FOR UPDATE'
+    query = text('SELECT * FROM index_jobs WHERE version_id=:id' + suffix)
+    rows = database.execute(query, {'id': version_id}).mappings().all()
     if len(rows) != 1:
         raise DbError('INVALID_STATE')
     job = dict(rows[0])
-    reports = json.loads(job['report']) if isinstance(job['report'], str) else (job['report'] or {})
+    stored_report = job['report']
+    if isinstance(stored_report, str):
+        reports = json.loads(stored_report)
+    elif stored_report:
+        reports = stored_report
+    else:
+        reports = {}
     if not isinstance(reports, dict):
         raise DbError('INVALID_STATE')
     return job, reports
@@ -281,27 +301,38 @@ def write_publication(database, job, reports, publication, *, complete=False, er
     # 게시 단계에 맞는 작업 상태와 복구 정보를 보고서에 함께 기록한다.
     reports['_publication'] = publication
     phase = publication['phase']
+    stage = 'publish'
     if complete:
         status = 'SUCCEEDED'
+        stage = 'complete'
     elif phase in ('restored', 'superseded'):
         status = 'FAILED'
     elif phase in ('pending_activation', 'restore_pending'):
         status = 'QUEUED'
     else:
         status = None
-    jobs_repo.store_job_result(database, job['id'], 'complete' if complete else 'publish', reports,
-        status=status, error_code=error_code, error_message='게시 상태 복구 필요' if error_code else None)
+    message = None
+    if error_code:
+        message = '게시 상태 복구 필요'
+    jobs_repo.store_job_result(database, job['id'], stage, reports,
+        status=status, error_code=error_code, error_message=message)
 
 
 def ensure_no_pending_publication(database, document_id, *, except_job=None):
     """같은 문서에 미복구 외부 전환이 있으면 새 게시를 막는다. 호출자는 문서 행을 잠근다."""
     # 아직 복구가 끝나지 않은 게시가 있으면 다음 게시와 충돌시킨다.
-    pending = database.execute(text('''
+    query = '''
         SELECT j.id FROM index_jobs j JOIN document_versions v ON v.id=j.version_id
         WHERE v.document_id=:id AND JSON_UNQUOTE(JSON_EXTRACT(j.report,'$._publication.phase'))
           IN ('pending_activation','restore_pending')
-    '''), {'id': document_id}).scalars().all()
-    if any(identifier != except_job for identifier in pending):
+    '''
+    parameters = {'id': document_id}
+    if except_job is not None:
+        query += ' AND j.id<>:except_job'
+        parameters['except_job'] = except_job
+    # 전체 ID 목록 대신 제외 대상 이외의 미완료 작업 하나만 확인한다.
+    pending = database.execute(text(query + ' LIMIT 1'), parameters).first()
+    if pending is not None:
         raise DbError('CONFLICT')
 
 
@@ -312,7 +343,7 @@ def require_manager(actor, database, company_id):
     if (current['role'] not in ('platform_admin', 'company_admin')
             or (current['role'] != 'platform_admin' and current['company_id'] != company_id)):
         raise AccessError('ACCESS_DENIED')
-    active = database.execute(text('SELECT is_active FROM companies WHERE id=:id FOR UPDATE'),
+    active = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
                               {'id': company_id}).scalar_one_or_none()
     if not active:
         raise AccessError('ACCESS_DENIED')
@@ -320,6 +351,17 @@ def require_manager(actor, database, company_id):
 
 
 def publish_version(actor, document_id, candidate_id, expected_active_id, *, embedding=None):
+    """회사 범위를 고정한 뒤 검증·CAS·벡터 공개·복구의 기존 순서를 실행한다."""
+    authorize_company(actor, manager=True)
+    company = None
+    if split_layout():
+        company = company_for_reference(document_id=document_id, version_id=candidate_id)
+    authorize_company(actor, company, manager=True)
+    with company_scope(company):
+        return _publish_version(actor, document_id, candidate_id, expected_active_id, embedding=embedding)
+
+
+def _publish_version(actor, document_id, candidate_id, expected_active_id, *, embedding=None):
     """완전한 운영 후보만 조건부 게시하고 커밋 후 벡터를 활성화한다.
 
     외부 검사 후 잠금 안에서 원장·권한·상태를 재확인한다. 기대 포인터가 다르면
@@ -327,7 +369,7 @@ def publish_version(actor, document_id, candidate_id, expected_active_id, *, emb
     RECOVERY_REQUIRED다. 정상 완료한 동일 후보의 재호출은 멱등 성공이다.
     """
     backend = get_embedding_backend(embedding)
-    with PUBLICATION_LOCK:
+    with processing_lock(PUBLICATION_LOCK, publication=True):
         # 1. 권한 확인 → 2. 실제 벡터 검사 → 3. DB 전환 → 4. 벡터 활성화 순서다.
         company_id = check_publication_access(actor, document_id, candidate_id)
         result = validate_completeness(document_id, candidate_id, embedding=backend)
@@ -352,14 +394,14 @@ def publish_version(actor, document_id, candidate_id, expected_active_id, *, emb
 def check_publication_access(actor, document_id, candidate_id):
     """외부 벡터를 읽기 전에 현재 관리자 권한을 확인하고 문서의 회사 ID를 반환한다."""
     # 외부 벡터 조회 전에 현재 사용자와 대상 회사의 접근 권한을 확인한다.
-    with transaction() as database:
+    with transaction(document_id=document_id, version_id=candidate_id) as database:
         current = current_actor(actor, connection=database)
         document, _ = read_candidate(database, document_id, candidate_id)
         if current['role'] not in ('platform_admin', 'company_admin'):
             raise AccessError('ACCESS_DENIED')
         if current['role'] != 'platform_admin' and current['company_id'] != document['company_id']:
             raise AccessError('ACCESS_DENIED')
-        active_company = database.execute(text('SELECT is_active FROM companies WHERE id=:id'),
+        active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id"),
                                          {'id': document['company_id']}).scalar_one_or_none()
         if not active_company:
             raise AccessError('ACCESS_DENIED')
@@ -374,7 +416,7 @@ def read_publishable_candidate(database, actor, document_id, candidate_id, compa
     """
     # 외부 검사 이후에도 권한, 문서 상태, 원장이 바뀌지 않았는지 다시 확인한다.
     current = current_actor(actor, connection=database, lock=True)
-    active_company = database.execute(text('SELECT is_active FROM companies WHERE id=:id FOR UPDATE'),
+    active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
                                      {'id': company_id}).scalar_one_or_none()
     if not active_company:
         raise AccessError('ACCESS_DENIED')
@@ -403,7 +445,7 @@ def prepare_publication(actor, document_id, candidate_id, company_id, expected_a
     이미 같은 후보의 게시가 끝났으면 False를 반환한다. expected_active_id는
     호출자가 처음 본 활성 버전이며, 그 사이 다른 버전이 게시됐으면 충돌로 중단한다.
     """
-    with transaction() as database:
+    with transaction(document_id=document_id, version_id=candidate_id) as database:
         document, version = read_publishable_candidate(
             database=database,
             actor=actor,
@@ -485,11 +527,11 @@ def activate_candidate(backend, document_id, candidate_id, expected_count):
 def finish_publication(document_id, candidate_id):
     """벡터 활성화 후 DB 상태가 그대로인지 확인하고 게시 완료를 기록한다. 반환값은 없다."""
     # 외부 활성화 이후에도 후보와 문서 상태가 유효한지 확인하고 완료를 기록한다.
-    with transaction() as database:
+    with transaction(document_id=document_id, version_id=candidate_id) as database:
         document, version = read_candidate(database, document_id, candidate_id, lock=True)
         job, reports = read_job(database, candidate_id, lock=True)
         publication = reports.get('_publication', {})
-        active_company = database.execute(text('SELECT is_active FROM companies WHERE id=:id'),
+        active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id"),
                                          {'id': document['company_id']}).scalar_one_or_none()
         if document['active_version_id'] != candidate_id or publication.get('phase') != 'pending_activation':
             raise DbError('RECOVERY_REQUIRED')
@@ -504,6 +546,15 @@ def finish_publication(document_id, candidate_id):
 
 
 def recover_publication(document_id, version_id, *, embedding=None):
+    """서버 내부 복구 요청을 해당 회사 DB로만 라우팅한다."""
+    company = None
+    if split_layout():
+        company = company_for_reference(document_id=document_id, version_id=version_id)
+    with company_scope(company):
+        return _recover_publication(document_id, version_id, embedding=embedding)
+
+
+def _recover_publication(document_id, version_id, *, embedding=None):
     """서버 운영자가 미완료 게시를 이전 상태로 복구한다. 사용자 입력으로 직접 노출하지 않는다.
 
     DB 포인터가 여전히 후보인 경우만 되돌리고, 이전 버전은 현재도 적격해야 한다.
@@ -511,7 +562,7 @@ def recover_publication(document_id, version_id, *, embedding=None):
     유지해 새 게시를 막고 명시적 재시도를 기다린다. 더 최신 포인터는 덮지 않는다.
     """
     backend = get_embedding_backend(embedding)
-    with PUBLICATION_LOCK:
+    with processing_lock(PUBLICATION_LOCK, publication=True):
         # DB 되돌리기 → 외부 벡터 복구 → DB 완료 기록으로 나눈다.
         recovery = prepare_recovery(document_id, version_id)
         if recovery['phase'] != 'restore_pending':
@@ -532,7 +583,7 @@ def check_previous_version(database, document, document_id, previous_id):
     """
     # 이전 버전과 회사가 현재도 공개 가능한지 확인해 복구 대상을 결정한다.
     eligible = document['deleted_at'] is None and document['publication_status'] != 'blocked'
-    active_company = database.execute(text('SELECT is_active FROM companies WHERE id=:id'),
+    active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id"),
                                      {'id': document['company_id']}).scalar_one_or_none()
     eligible = eligible and bool(active_company)
     previous_count = None
@@ -552,7 +603,7 @@ def prepare_recovery(document_id, version_id):
     새 버전이 이미 게시됐다면 superseded를 반환해 덮어쓰지 않는다. 복구 대상이
     None인 경우도 기록해 두어, 벡터 삭제에 실패한 뒤 같은 복구를 다시 실행할 수 있다.
     """
-    with transaction() as database:
+    with transaction(document_id=document_id, version_id=version_id) as database:
         document, _ = read_candidate(database, document_id, version_id, lock=True)
         job, reports = read_job(database, version_id, lock=True)
         publication = reports.get('_publication', {})
@@ -633,7 +684,7 @@ def restore_vectors(backend, document_id, version_id, recovery):
 def finish_recovery(document_id, version_id):
     """후보가 비활성인지 마지막으로 확인하고 실패 상태·복구 완료를 저장한다. 반환값은 없다."""
     # 후보가 더 이상 활성 버전이 아닌지 확인한 후 복구 완료를 기록한다.
-    with transaction() as database:
+    with transaction(document_id=document_id, version_id=version_id) as database:
         document, _ = read_candidate(database, document_id, version_id, lock=True)
         job, reports = read_job(database, version_id, lock=True)
         publication = reports['_publication']

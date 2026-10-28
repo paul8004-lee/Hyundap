@@ -162,6 +162,7 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 | `schema` | `_read_layout(connection)` | 보조 | 없음 |
 | `schema` | `snapshot(connection)` | 메인 | 없음 |
 | `schema` | `_expression(value)` | 보조 | 없음 |
+| `schema` | `_ascii_literal(match)` | 보조 — 정규식이 찾은 ASCII 문자셋 접두사 정리 | 없음 |
 | `schema` | `_structure(layout)` | 보조 | 없음 |
 | `schema` | `validate_v4(layout)` | 메인 | 없음 |
 | `schema` | `create_v4_schema(engine)` | 메인 | 없음 |

@@ -4,13 +4,13 @@ from sqlalchemy import bindparam, text
 
 from .errors import AccessError
 from hyundap.db.errors import DbError
-from hyundap.db.runtime import require_id, transaction
+from hyundap.db.runtime import require_id, transaction, shared_table, split_layout
 from hyundap.db.sessions_repo import current_actor
 
 
 def allowed_companies(current, *, connection):
     """재인증한 사용자 문맥으로 현재 유효한 회사 ID 집합을 반환하는 내부 함수."""
-    query = 'SELECT id FROM companies WHERE is_active=1'
+    query = f"SELECT id FROM {shared_table('companies')} WHERE is_active=1"
     values = {}
     if current['role'] != 'platform_admin':
         query += ' AND id=:company_id'
@@ -41,6 +41,12 @@ def verify_documents_access(actor, document_version_pairs):
         if not isinstance(pair, (list, tuple)) or len(pair) != 2:
             raise DbError('INVALID_INPUT')
         refs.add((require_id(pair[0]), require_id(pair[1])))
+    if split_layout():
+        # 여러 회사의 인용은 회사별로 읽되 하나라도 실패하면 전체 응답을 거부한다.
+        from hyundap.db.documents_repo import get_document_detail
+        for document_id, version_id in refs:
+            get_document_detail(actor, document_id, version_id=version_id)
+        return
     with transaction() as database:
         current = current_actor(actor, connection=database)
         allowed = allowed_companies(current, connection=database)

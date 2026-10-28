@@ -43,7 +43,8 @@ def database_user(user):
     database.execute.return_value.mappings.return_value.one_or_none.return_value = user
 
     @contextmanager
-    def transaction():
+    def transaction(*, control=False):
+        assert control, "인증은 공통 DB를 선택해야 한다"
         yield database
 
     with patch.object(auth, "transaction", transaction), patch.object(
