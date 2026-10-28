@@ -20,8 +20,11 @@ from pptx import Presentation
 from pptx.util import Inches
 
 from hyundap.ingest.loaders.base import table_to_text
+from hyundap.ingest.loaders.docx_loader import load_docx
 from hyundap.ingest.loaders.pdf_loader import load_pdf
-from hyundap.ingest.models import (CORRUPTED_FILE, UNSUPPORTED_FORMAT, IngestError)
+from hyundap.ingest.loaders.pptx_loader import load_pptx
+from hyundap.ingest import validator
+from hyundap.ingest.models import (CORRUPTED_FILE, ENCRYPTED_FILE, LEGACY_FORMAT, UNSUPPORTED_FORMAT, IngestError)
 from hyundap.ingest.normalizer import normalize_text
 from hyundap.ingest.pipeline import ingest_document
 
@@ -86,6 +89,16 @@ class CorruptedFileTests(IngestTestCase):
             result = self.ingest('a.pptx')
         self.assertEqual((result.status, result.error_code), ('failed', CORRUPTED_FILE))
 
+    def test_loaders_turn_bodyless_package_into_corrupted(self):
+        """[Content_Types].xml만 있는 zip을 로더에 직접 넣어도 AttributeError 대신 CORRUPTED_FILE이 되는지 확인한다 (#198)."""
+        for name, loader in (('no_body.docx', load_docx), ('no_body.pptx', load_pptx)):
+            with zipfile.ZipFile(self.path(name), 'w') as archive:
+                archive.writestr('[Content_Types].xml', '<Types/>')
+            with self.subTest(name=name):
+                with self.assertRaises(IngestError) as caught:
+                    loader(self.path(name), dict(INFO))
+                self.assertEqual(caught.exception.code, CORRUPTED_FILE)
+
     def test_pdf_parse_errors_are_corrupted(self):
         """pypdf가 깨진 PDF에서 내는 예외들이 CORRUPTED_FILE이 되는지 확인한다."""
         Path(self.path('a.pdf')).write_bytes(minimal_pdf('hello'))
@@ -131,6 +144,38 @@ class FormatTests(IngestTestCase):
             with self.subTest(name=name):
                 result = self.ingest(name)
                 self.assertEqual((result.status, result.error_code), ('failed', UNSUPPORTED_FORMAT))
+
+    def ole2_file(self, name, *stream_names, padding=4096):
+        """OLE2 시작값 뒤에 스트림 이름(UTF-16LE)이 든 가짜 파일을 만든다. 실제 구조까지 흉내 내지는 않는다."""
+        body = bytes.fromhex('D0CF11E0A1B11AE1') + bytes(padding)
+        for stream in stream_names:
+            body += stream.encode('utf-16-le') + bytes(64)
+        Path(self.path(name)).write_bytes(body)
+
+    def test_ole2_office_files_are_told_apart(self):
+        """OLE2 파일은 암호 문서·구형 Word/PowerPoint·그 밖으로 구분되는지 확인한다 (#145)."""
+        cases = (
+            ('enc.docx', ('EncryptionInfo', 'EncryptedPackage'), ENCRYPTED_FILE),
+            ('enc.pptx', ('EncryptedPackage',), ENCRYPTED_FILE),
+            ('old.docx', ('1Table', 'WordDocument'), LEGACY_FORMAT),
+            ('old.pptx', ('PowerPoint Document',), LEGACY_FORMAT),
+            ('other.docx', ('Workbook',), UNSUPPORTED_FORMAT),
+            ('blank.docx', (), UNSUPPORTED_FORMAT),
+        )
+        for name, streams, code in cases:
+            with self.subTest(name=name):
+                self.ole2_file(name, *streams)
+                result = self.ingest(name)
+                self.assertEqual((result.status, result.error_code), ('failed', code))
+
+    def test_ole2_stream_name_across_read_block_is_found(self):
+        """읽기 블록 경계에 걸쳐 있는 스트림 이름도 찾는지 확인한다."""
+        raw = 'EncryptedPackage'.encode('utf-16-le')
+        for cut in (1, len(raw) // 2, len(raw) - 1):
+            with self.subTest(cut=cut):
+                Path(self.path('enc.docx')).write_bytes(bytes(100 - cut) + raw + bytes(100))
+                found = validator.find_ole2_stream_names(self.path('enc.docx'), ('EncryptedPackage',), block_size=100)
+                self.assertEqual(found, {'EncryptedPackage'})
 
     def test_macro_file_is_rejected(self):
         """vbaProject.bin이 든 파일이 거부되는지 확인한다."""

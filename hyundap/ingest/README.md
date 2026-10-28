@@ -80,13 +80,14 @@ else:
 | `UNSUPPORTED_FORMAT` | 지원하지 않는 형식 (PDF·DOCX·PPTX만 가능) |
 | `FILE_TOO_LARGE` | 100MiB 초과 |
 | `ENCRYPTED_FILE` | 암호가 걸린 문서 |
+| `LEGACY_FORMAT` | 구형 .doc/.ppt를 .docx/.pptx로 이름만 바꾼 파일 |
 | `CORRUPTED_FILE` | 깨진 파일 또는 0바이트 |
 | `DUPLICATE_FILE` | 같은 회사에 같은 내용의 파일이 이미 있음 |
 | `EMPTY_DOCUMENT` | 글자를 꺼낼 수 없음 (스캔한 이미지 문서 등) |
 | `INVALID_DOC_TYPE` | 지원하지 않는 문서 유형 |
 | `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 |
 
-`LEGACY_FORMAT`은 안내 문구만 준비됐으며 구형 Office 파일 판별은 미구현입니다. DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다. 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수이며 임시 진단값입니다.
+DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다. 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수이며 임시 진단값입니다.
 
 ## 알아 둘 점
 
