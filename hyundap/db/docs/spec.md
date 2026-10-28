@@ -4,6 +4,14 @@
 
 대상: feature/db. 2026-10-27 사용자 결정으로 v3 이행·과거 혼합 v4 호환은 폐기했다. 현재 생성 진입점은 `schema.create_v4_schema(engine)` 하나다. [초기화 절차](../../../docs/db-design/V4_INITIALIZATION.md), [물리 계약](../../../docs/db-design/DB_schema.md), [공개 함수 계약](../../../docs/db-design/DB_contract.md)을 따른다.
 
+## P2 현재 상태 — 2026-10-28 / #203~#206
+
+P2 상세 조회·관리자 버전 이력·원본 보존은 구현했고, #206에서 세 기능의 연결을 검증한다.
+상단의 기존 P1 검증 수치는 당시 이력이며 P2 실행 결과를 뜻하지 않는다.
+현재 계약·검증 범위와 UI 담당 전달 사항은
+[P2 최종 연계 검증](../../../docs/db-design/P2_04_INTEGRATION_VALIDATION.md)을 우선 확인한다.
+기존 UI 어댑터의 P2 상세 함수 연결과 실제 브라우저/Chroma/요약 E2E는 별도 후속 항목이다.
+
 ## 구조와 저장 계약
 
 11개 최종 테이블을 빈 DB에 직접 생성하고 구조 검증 뒤 버전 4를 기록한다. 기존 DB·부분 생성 DB는 거부하며 자동 DROP은 없다. 관리 실측은 매번 조회하고, 업무 Engine은 최초 준비 시 최종 계약을 검사한다. 이후 업무 SQL에는 컬럼 존재 검사·구조 캐시·동적 INSERT가 없다.
@@ -24,6 +32,80 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 
 ## 모듈과 메인·보조 함수
 
+### P2-03 원본·버전 연결 — #205
+
+현재 v4의 원본 경로·해시·크기는 `document_versions`에만 저장한다.
+`documents.storage_key` 및 별도 최초 원본 포인터는 제거된 과거 구조다.
+최초 버전의 원본은 해당 버전 행과 파일로 보존되고 `active_version_id`는 공개 버전 선택만 담당한다.
+
+`upload_service.resolve_stored_source(source, root)`를 추가해 재시도와 원본 재조회에서
+절대 경로 및 링크 해석 후 루트 내부 여부를 공통 검사한다. 이 파일 시스템 작업은 DB TX 밖이다.
+`read_attempt_source`는 작업 보고서의 저장 루트를 읽고 경로·해시·크기를 확인한다.
+파일 없음·읽기 권한 오류는 FILE_UNAVAILABLE, 루트 밖/상대 경로는 INVALID_STATE,
+해시·크기 불일치는 CONFLICT다. 재시도에서 저장 원본이 있으면 재공급 경로는 무시하고
+기존 원본을 검증한다. 저장 원본이 없을 때만 같은 해시·크기의 원본을 재공급할 수 있다.
+
+조회 응답의 내부 경로 비노출, 버전별 파일 보존 및 검증 근거는
+[P2-03 원본 보존 계약](../../../docs/db-design/P2_03_ORIGINAL_STORAGE_CONTRACT.md)에 기록한다.
+
+### P2-02 관리자 버전 이력 — #204
+
+`versions_repo.list_document_versions(actor, document_id, *, connection=None)`를 재사용한다.
+새 클래스·보조 함수·저장 테이블 없이 기존 9필드에 `is_active: bool`만 추가했다.
+기존 필드와 version_no 오름차순은 유지한다. 문서/회사/버전을 같은 SELECT에서 연결하여
+현재 활성 포인터 일치 여부를 계산한다. `is_active`는 검색·본문 접근 허가가 아니다.
+
+회사 관리자는 자신의 활성 회사, 플랫폼 관리자는 활성 회사들의 이력만 조회한다.
+직원·없는 문서·회사 범위 위반은 ACCESS_DENIED, 세션 무효는 SESSION_EXPIRED다.
+잘못된 ID는 DB 접근 전에 INVALID_INPUT, DB 장애는 DB_UNAVAILABLE로 전달한다.
+삭제·차단·비공개 문서의 과거/실패/처리중 이력도 관리자 조회에서는 기존대로 유지한다.
+문서는 있지만 버전이 없으면 []이며, 내부 경로·토큰·원시 오류는 반환하지 않는다.
+호출자가 제공한 연결을 커밋/종료하지 않고 조회만 수행한다.
+
+호출부 검색에서는 저장소 테스트만 확인되었으며 기존 키 사용은 유지된다.
+외부 호출자가 키 개수를 고정했다면 10필드 계약으로 맞춰야 한다. UI의 실제 이력 화면은
+이번 작업에 포함하지 않는다. 구현·검증 세부 사항은
+[P2-02 버전 이력 계약](../../../docs/db-design/P2_02_VERSION_HISTORY_CONTRACT.md)을 따른다.
+
+### P2-01 상세 메타데이터 조회 — #203
+
+`documents_repo.get_document_detail(actor, document_id, *, version_id=None, connection=None)`는
+상세 전용 메인 함수다. `_check_detail_access(document, allowed_company_ids, version_id)`는
+회사·공개 상태·요청 버전을 검사하는 보조 함수이며 두 함수 모두 클래스 없는 모듈 함수다.
+검색용 `get_documents_with_active_version`의 기존 11필드와 호출 규격은 변경하지 않는다.
+
+반환값은 `document_id/company_id/company_name/version_id/file_name/doc_type/version_no/size_bytes/indexed_at`
+9필드 dict다. `size_bytes`는 활성 버전의 `file_size`이고 `indexed_at`은 항상 `None`이다.
+후보의 생성 시각과 작업 종료 시각은 색인 완료 시각을 보장하지 않으므로 대체하지 않는다.
+내부 경로·토큰·본문·벡터·관리용 상태는 반환하지 않는다.
+
+현재 세션과 DB의 역할·회사를 재검증한다. 회사 밖 접근은 `ACCESS_DENIED`,
+없는 문서·삭제·비공개·활성 버전 없음·ready가 아닌 버전·평가 자료·요청 버전 불일치는
+`STATE_CHANGED`다. 입력 ID 오류는 `INVALID_INPUT`, 세션 무효는 `SESSION_EXPIRED`,
+DB 장애는 안전한 `DB_UNAVAILABLE`로 전달한다. 권한 있는 직원도 공개 운영 문서를 조회할 수 있다.
+과거 버전 조회나 다운로드 권한을 새로 제공하지 않는다.
+
+```python
+from hyundap.db.documents_repo import get_document_detail
+from hyundap.auth.permissions import verify_documents_access
+
+detail = get_document_detail(actor, document_id, version_id=selected_version_id)
+# UI/embedding 담당은 detail의 문서·버전으로 본문을 읽는다.
+# 본문을 읽는 동안 공개 상태나 세션이 바뀔 수 있으므로 반환 직전에 재검증한다.
+verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
+```
+
+이 함수의 정보는 조회 시점 기준이다. `connection`을 전달하면 호출자 트랜잭션에 참여하고
+커밋·종료하지 않는다. 긴 트랜잭션의 스냅샷을 최신 권한 보장으로 간주하지 않으며,
+외부 작업 후 재검증은 새 조회 경계에서 수행한다. UI의 기존 조회 전후 재검증은 유지해야 한다.
+현재 UI 어댑터는 기존 11필드 함수를 사용한다. UI 담당이 상세 함수를 연결하고
+`size_bytes`를 전달하는 변경은 후속 연계이며 이번 DB 변경으로 화면 연결 완료를 주장하지 않는다.
+
+검증: `test_access_queries`의 합성 SQLite는 권한·상태·반환·오류 및 기존 검색 계약을,
+`test_db_runtime`의 격리 MySQL은 최종 v4 조회와 호출자 롤백 소유권을 확인한다.
+2026-10-28 전체 375개 통과(실패·오류·건너뜀 0)의 실행 조건과 UI 인계 사항은
+[P2-01 상세 조회 계약](../../../docs/db-design/P2_01_DETAIL_CONTRACT.md)에 기록했다.
+
 업무 코드는 모듈 함수이며 새 클래스는 없다. 오류 형식 `errors.DbError`만 예외 클래스다. 테스트의 unittest.TestCase와 수동 시험 어댑터 클래스는 업무 서비스 클래스가 아니다. 아래 목록은 현재 소스의 함수 서명을 기준으로 작성했다.
 
 | 모듈 | 함수 서명 | 역할 | 클래스 |
@@ -37,6 +119,8 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 | `connection` | `main()` | 메인 | 없음 |
 | `documents_repo` | `find_duplicate_document(company_id, sha256, *, exclude_version_id=None, connection=None)` | 메인 | 없음 |
 | `documents_repo` | `get_documents_with_active_version(document_ids, *, connection=None)` | 메인 | 없음 |
+| `documents_repo` | `get_document_detail(actor, document_id, *, version_id=None, connection=None)` | 메인 | 없음 |
+| `documents_repo` | `_check_detail_access(document, allowed_company_ids, version_id)` | 보조 | 없음 |
 | `documents_repo` | `validate_metadata(metadata)` | 메인 | 없음 |
 | `documents_repo` | `create_document_version(actor, metadata, *, connection=None)` | 메인 | 없음 |
 | `documents_repo` | `_check_candidate_creation(database, actor, data)` | 보조 | 없음 |
@@ -79,6 +163,7 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 | `upload_service` | `file_digest(path)` | 보조 | 없음 |
 | `upload_service` | `source_destination(root, company_id, document_id, version_id, suffix)` | 보조 | 없음 |
 | `upload_service` | `copy_original(source, destination, expected_hash, expected_size)` | 보조 | 없음 |
+| `upload_service` | `resolve_stored_source(source, root)` | 보조 | 없음 |
 | `upload_service` | `failure_code(error)` | 보조 | 없음 |
 | `upload_service` | `record_upload_failure(ids, stage, error, backend)` | 보조 | 없음 |
 | `upload_service` | `read_attempt_source(ids)` | 보조 | 없음 |
