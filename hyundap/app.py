@@ -8,7 +8,7 @@ FUN-177 main: 실행 옵션을 읽고 Gradio 앱을 실행한다.
 저장소 최상위에서 설치: python -m pip install -r requirements.txt
 저장소 최상위에서 실행: python -m hyundap.app
 팀 import 기준은 저장소 루트의 hyundap 패키지이며 실행 경로를 우회하지 않는다.
-기본은 실제 백엔드 연결 모드이며 인증만 임시 체험 계정을 유지한다.
+기본은 실제 백엔드와 인증 함수를 연결하는 모드다.
 전체 예시 실행은 --mode demo. 연결 환경 점검은 --check-backend.
 백엔드/DB/수집 모듈은 이 파일에서 구현하거나 변경하지 않는다.
 """
@@ -110,8 +110,9 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
             from hyundap.ui.mock_services import MockServices
             service = MockServices()
         elif mode == "backend":
+            from hyundap.auth import session_service
             from hyundap.ui.backend_bindings import create_bindings
-            service = BackendServices(create_bindings())
+            service = BackendServices(create_bindings(authentication=session_service))
         else:
             raise ValueError("mode must be demo or backend")
     demo_mode = bool(service.demo)
@@ -217,7 +218,7 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
 
 
 def main():
-    """FUN-177: 내 컴퓨터에서 실행. 인증 준비 전에는 체험 계정으로 화면 확인."""
+    """FUN-177: 실제 인증 또는 예시 모드로 내 컴퓨터에서 실행."""
     parser = argparse.ArgumentParser(description="Hyundap Gradio UI")
     parser.add_argument("--mode", choices=["demo", "backend"], default="backend")
     parser.add_argument("--check-backend", action="store_true", help="외부 호출 없이 백엔드 함수·설정 준비 상태 확인")

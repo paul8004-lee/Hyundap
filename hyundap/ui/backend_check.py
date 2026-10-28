@@ -20,6 +20,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # 검증용 health 함수는 실제 접속/호출을 수행할 수 있으므로 여기에 넣지 않는다.
 PUBLIC_FUNCTIONS = (
+    ("실제 로그인 함수", "hyundap.auth.session_service", "login"),
+    ("세션 확인 함수", "hyundap.auth.session_service", "validate_session"),
+    ("로그아웃 함수", "hyundap.auth.session_service", "logout"),
     ("검색", "hyundap.search.search", "search"),
     ("질문 근거 검색", "hyundap.search.search", "search_chunks"),
     ("질문", "hyundap.chatbot.ask", "ask"),
@@ -139,8 +142,8 @@ def _function_status() -> list[dict[str, str]]:
 def collect_backend_status() -> list[dict[str, str]]:
     """B24~B32: 로컬 준비 상태만 반환. ok는 실제 연결·인증·업무 성공을 뜻하지 않는다."""
     rows = [
-        _row("인증", "pending", "임시 체험 인증을 사용합니다. 실제 로그인·세션 발급/폐기 함수가 필요합니다."),
-        _row("보호된 업무 요청", "pending", "실제 서버 세션이 없으면 AUTH_BACKEND_PENDING으로 요청을 차단합니다."),
+        _row("인증", "pending", "기본 backend 모드는 실제 인증 함수를 사용합니다. DB 접속과 계정 로그인은 별도 검수가 필요합니다."),
+        _row("보호된 업무 요청", "pending", "실제 서버 세션·권한·업무 데이터 연결은 별도 검수가 필요합니다."),
         _row("원본 다운로드", "pending", "권한을 재검증해 원본을 제공하는 공개 다운로드 함수가 아직 없습니다."),
     ]
     rows.extend(_package_status())

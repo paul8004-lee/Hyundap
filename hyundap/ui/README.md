@@ -22,7 +22,7 @@ VS Code에서도 저장소 최상위가 작업 경로인 터미널에서 위 명
 루트에 예전 `app.py`를 새로 만들 필요는 없습니다. 이전 `ui/`에 남은 `__pycache__`는 실행 대상이 아닙니다. CSS·아이콘도 현재 UI 파일을 기준으로 읽으므로 작업 폴더에 따라 경로가 달라지지 않습니다.
 
 브라우저에서 `http://127.0.0.1:7860`을 엽니다. 포트가 사용 중이면 `python -m hyundap.app --port 7861`로 실행합니다.
-기본 실행은 **백엔드 연결 모드(`backend`)**이며 외부 공유 링크를 만들지 않습니다. 사용자 요청에 따라 로그인만 기존 체험 계정 3개를 임시로 유지합니다. 실제 서버 세션이 없는 체험 계정으로 검색·질문·요약·상세·업로드·다운로드를 요청하면 `AUTH_BACKEND_PENDING`을 안내하고 요청을 차단합니다. 임시 로그인은 유지되며 실제 업무 데이터로 바뀌지 않습니다.
+기본 실행은 **백엔드 연결 모드(`backend`)**이며 외부 공유 링크를 만들지 않습니다. `hyundap.auth.session_service`의 실제 로그인·세션 확인·로그아웃을 사용하므로 DB 연결 설정과 실제 등록된 계정이 필요합니다. 실제 인증이 실패해도 체험 계정으로 자동 전환하지 않습니다.
 
 | 로그인 후 표시 탭 | 아이디 | 역할·범위 |
 |---|---|---|
@@ -32,7 +32,7 @@ VS Code에서도 저장소 최상위가 작업 경로인 터미널에서 위 명
 
 로그인 탭은 표시용입니다. 어느 탭에서 입력하든 인증에 성공하면 계정의 실제 역할에 맞춰 탭과 메뉴를 자동으로 맞춥니다.
 
-공통 예시 비밀번호는 `demo1234`입니다. 위 역할·회사 범위는 임시 화면 확인용이며 실제 서버 권한이 아닙니다. 전체 화면 흐름을 예시 데이터로 확인하려면 다음 명령을 사용합니다. 이 모드에서 로그인 후 `점검`을 검색하면 결과·짧은 AI 답변·오른쪽 문서 상세/출처·요약 흐름을 확인할 수 있습니다.
+공통 예시 비밀번호는 `demo1234`입니다. 위 체험 계정은 **demo 모드에서만** 사용할 수 있으며 실제 서버 계정이 아닙니다. 전체 화면 흐름을 예시 데이터로 확인하려면 다음 명령을 사용합니다. 이 모드에서 로그인 후 `점검`을 검색하면 결과·짧은 AI 답변·오른쪽 문서 상세/출처·요약 흐름을 확인할 수 있습니다.
 
 ```powershell
 python -m hyundap.app --mode demo
@@ -113,7 +113,7 @@ python -m hyundap.app --check-backend
 
 | 기능 | 현재 등록된 연결 |
 |---|---|
-| 로그인·세션 | 사용자 요청으로 `MockServices`의 로그인·검증·로그아웃만 임시 지정. 자동 fallback이 아님 |
+| 로그인·세션 | 기본 backend 실행에서 `hyundap.auth.session_service`의 `login`·`validate_session`·`logout` 연결. demo는 예시 인증 사용 |
 | 검색 | PR #143의 `hyundap.search.search(user=, query=, company_ids=, doc_types=, limit=10)` |
 | 질문 | `hyundap.chatbot.ask.ask(question=, filters=, user=)`; dict 필터 전달, `filters_factory` 불필요 |
 | 요약 | `hyundap.chatbot.summary.summarize_document(document_id=, user=)`; 반환 버전 비교 |
@@ -127,9 +127,9 @@ python -m hyundap.app --check-backend
 
 실제 인증 제공자는 `create_bindings(authentication=...)`에 전달하며 UI 규격의 `login`·`logout`·`validate_session`을 제공해야 합니다. SPEC-AUTH-001의 반환 필드는 `user_id`, `display_name`, `role`, `company_id`, `company_name`, `allowed_company_ids`, `token`, `session_id`입니다. 변환 함수는 검증된 `token`을 DB 내부 actor의 `_session_token`으로 전달하고, 사용자 ID·회사 ID·역할·세션 ID만 함께 넘깁니다. 인증 결과에 `auth_version`이나 별도 `_session_token`을 요구하지 않으며 권한 버전과 실제 세션 유효성은 DB가 다시 확인합니다. `session_id` 또는 `token`이 없으면 `AUTH_BACKEND_PENDING`으로 업무 호출을 막고 임시 로그인은 유지합니다. 기존 체험 계정에는 `session_id`가 없으므로 이 제한이 그대로 적용됩니다.
 
-`hyundap.auth.session_service`의 실제 인증 함수를 사용하려면 `create_bindings(authentication=...)`에 해당 모듈을 명시적으로 주입합니다. 기본 실행의 인증 제공자는 계속 임시 체험 계정입니다. 현재 기본 실행은 임시 로그인 + backend 모드이며, 예시 데이터로 검색·질문까지 확인하려면 `python -m hyundap.app --mode demo`를 사용합니다.
+기본 실행의 `build_app()`은 `create_bindings(authentication=hyundap.auth.session_service)`로 실제 인증 모듈을 주입합니다. `create_bindings()`를 인증 인자 없이 직접 호출하는 별도 실행기는 기존 임시 인증을 사용하므로 혼동하지 않도록 주의합니다. 예시 데이터로 검색·질문까지 확인하려면 `python -m hyundap.app --mode demo`를 사용합니다.
 
-`hyundap/ui/services.py`는 동기 함수를 작업 스레드에서 호출하고 async 함수를 기다립니다. 실제 권한 판정은 백엔드가 수행하며 메뉴 숨김만으로 권한을 보장하지 않습니다. 아직 필요한 항목은 실제 인증 제공자, 권한을 검증하는 다운로드 공개 함수, 실행 환경·테스트 계정/문서와 실제 통합 검수입니다.
+`hyundap/ui/services.py`는 동기 함수를 작업 스레드에서 호출하고 async 함수를 기다립니다. 실제 권한 판정은 백엔드가 수행하며 메뉴 숨김만으로 권한을 보장하지 않습니다. 실제 DB 연결·계정·문서와 통합 검수, 권한을 검증하는 다운로드 공개 함수는 별도로 필요합니다.
 검색의 `total_hits`는 문서 전체 개수가 아닌 청크 수이므로 현재 받은 문서 목록 길이를 표시합니다. 작업 성공과 검색 가능 여부도 구분합니다.
 
 검색 어댑터는 `search(user=검증 사용자, query=, company_ids=, doc_types=, limit=10)`으로 호출합니다. 문서 유형 선택값은 DB CHECK 제약에 맞춘 `manual`(매뉴얼), `policy`(규정), `guide`(가이드), `other`(기타)입니다. 예시 문서의 유형도 이 네 값으로 정리했으며, 실제 백엔드의 알 수 없는 유형을 임의로 `other`로 바꾸지는 않습니다.
@@ -202,10 +202,10 @@ UI 검사 16개는 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`�
 - [x] 팀 import 규칙에 맞춰 저장소 최상위의 `python -m hyundap.app` 실행으로 통일하고 앱의 경로 우회를 제거했습니다.
 - [x] 검색·질문·요약·상세·업로드 함수와 오류 변환기를 UI 연결부에 등록했습니다.
 - [x] 연결 검사를 `hyundap/tests/`에 추가하고, SPEC-AUTH-001의 `token`을 DB의 `_session_token`으로 전달하도록 맞췄습니다.
-- [ ] 실제 인증·다운로드 공개 함수를 연결하고 설정·테스트 문서를 갖춘 환경에서 통합 동작을 검수합니다.
+- [ ] 실제 인증과 다운로드를 설정·테스트 문서를 갖춘 환경에서 통합 검수합니다.
 - [x] PR #140에서 UI 검사 16개를 `hyundap/tests/test_ui_controller.py`·`test_ui_services.py`로 이전하고 기존 UI 테스트 원본을 제거했습니다.
 
-함수 등록과 응답 변환 완료는 실제 DB·인증·검색·LLM 통합 실행 완료를 뜻하지 않습니다. 현재 임시 로그인은 유지하며 실제 인증·다운로드 연결과 환경 준비가 남아 있습니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.
+함수 등록과 응답 변환 완료는 실제 DB·인증·검색·LLM 통합 실행 완료를 뜻하지 않습니다. 기본 실행에는 실제 인증을 연결했으며 실제 DB 통합 검수, 다운로드 연결과 환경 준비가 남아 있습니다. PR 본문과 화면 캡처는 사용자 검토용으로 준비하며 PR 생성·수정은 사용자가 진행합니다.
 
 
 ## #188 확인 범위
