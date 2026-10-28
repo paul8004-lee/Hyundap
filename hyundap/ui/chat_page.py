@@ -2,8 +2,8 @@
 
 기준 명세: AI_문서검색_통합_기능명세서 (MOD-034).
 B06/B07/B13/B14/B22/B23: 현재 질문과 그 답변의 출처만 표시한다.
-FUN-164 build_chat_page. 질문 제출(FUN-165 on_question_submit)은
-app.py와 controller.py에서 챗봇 담당 함수에 연결한다.
+질문은 검색창에서 입력하며 app.py와 controller.py가 챗봇 담당 함수에 연결한다.
+짧은 답변은 검색창 아래에, 출처는 기존 문서 상세 영역에 표시한다.
 요약(FUN-166 on_summary_request)은 검색 화면의 선택 문서 상세에 있으며 이곳에 중복하지 않는다.
 백엔드의 답변 번호·문서/버전 식별자를 유지하고 대화 이력(P3)은 만들지 않는다.
 """
@@ -13,36 +13,20 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from html import escape
+import re
 from typing import Any
 
-import gradio as gr
-from .services import DOC_TYPES
+from .services import DOC_TYPES, UIServiceError
 
 
 CHAT_CSS = """
-#hd-chat-panel { gap: 14px; margin-top: 20px; }
-#hd-chat-panel .hd-chat-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-#hd-chat-panel .hd-chat-heading h2 { margin: 0; color: #19212b; font-size: 18px; line-height: 28px; font-weight: 700; }
-#hd-chat-panel .hd-chat-heading p { margin: 4px 0 0; font-size: 13px; color: #667389; line-height: 21px; }
-#hd-chat-panel .hd-chat-label { background: #edf3fb; color: #062e5e; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-#hd-chat-panel .hd-scope-hint { color: #667389; font-size: 12px; line-height: 20px; margin: 0; }
-#hd-chat-question textarea { min-height: 92px; }
-#hd-chat-actions { align-items: end; }
-#hd-chat-submit { max-width: 160px; min-height: 42px; margin-left: auto; }
-#hd-chat-answer { border-top: 1px solid #e9edf3; padding-top: 16px; }
-#hd-chat-answer .prose { color: #19212b; font-size: 14px; line-height: 1.85; }
-#hd-chat-answer:empty { display: none; }
 .hd-citation { border: 1px solid #dfe4ed; background: #f7f9fc; border-radius: 12px; padding: 16px; overflow-wrap: anywhere; }
 .hd-citation-title { display: flex; align-items: baseline; gap: 8px; color: #19212b; font-size: 14px; line-height: 22px; font-weight: 700; }
 .hd-citation-number { color: #062e5e; white-space: nowrap; }
 .hd-citation-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; color: #667389; font-size: 12px; line-height: 20px; margin-top: 6px; }
 .hd-citation blockquote { margin: 12px 0 0; padding: 0 0 0 12px; border-left: 3px solid #bdcde1; color: #39465a; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
 .hd-citation-empty { font-size: 13px; line-height: 21px; color: #667389; margin: 0; }
-#hd-citation-open { min-height: 38px; max-width: 180px; }
-@media (max-width: 640px) {
-  #hd-chat-panel .hd-chat-heading { flex-wrap: wrap; gap: 8px; }
-  #hd-chat-submit { max-width: none; width: 100%; }
-}
+.hd-citation-list { display: grid; gap: 12px; }
 """
 
 
@@ -60,8 +44,8 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 def render_answer(response: Any) -> str:
     """B13: preserve the backend answer and its citation numbering exactly.
 
-    This text goes into gr.Markdown(sanitize_html=True); it is never inserted into
-    gr.HTML. Citation choices are built from the same response by app.py.
+    render_compact_answer가 이 문자열을 짧게 가공하고 HTML 이스케이프한다.
+    출처 메타정보는 같은 응답에서 controller가 기존 상세·모달에 연결한다.
     """
     if not response:
         return ""
@@ -74,6 +58,68 @@ def render_answer(response: Any) -> str:
     if str(data.get("status", "")).upper() == "NO_EVIDENCE":
         return str(data.get("message") or "이 질문에 답할 근거를 찾지 못했어요. 질문이나 검색 범위를 바꿔 주세요.")
     return ""
+
+
+def checked_answer_citations(response: Any) -> list[dict]:
+    """#188: 표시 전에 답변의 고유 인용 번호와 실제 출처를 대조한다.
+
+    반복 인용은 허용한다. 누락된 출처를 추측하거나 번호를 다시 매기지
+    않는다. 짧은 답변에서 번호를 숨기더라도 원본 응답을 먼저 검사한다.
+    """
+    data = _mapping(response)
+    if str(data.get("status", "")).upper() != "ANSWERED":
+        return []
+    answer, citations = data.get("answer"), data.get("citations")
+    invalid = UIServiceError(
+        "INVALID_CITATION",
+        "답변과 출처 정보가 일치하지 않아 답변을 표시하지 못했어요. 다시 검색해 주세요.",
+        "failed",
+    )
+    if not isinstance(answer, str) or not isinstance(citations, list) or not citations:
+        raise invalid
+    sources, numbers = [], set()
+    for citation in citations:
+        source = dict(_mapping(citation))
+        number = source.get("number")
+        if (type(number) is not int or number < 1 or number in numbers
+                or not source.get("document_id") or not source.get("version_id")):
+            raise invalid
+        numbers.add(number)
+        sources.append(source)
+    cited = {int(number) for group in re.findall(r"\[([0-9]+(?:\s*[,，]\s*[0-9]+)*)\]", answer)
+             for number in re.split(r"\s*[,，]\s*", group)}
+    if cited != numbers or re.search(r"\[E[0-9]+\]", answer):
+        raise invalid
+    return sources
+
+
+def render_compact_answer(response: Any) -> str:
+    """B13: 검색창 아래에는 첫 문장만 표시하고 출처는 상세 패널에 둔다.
+
+    백엔드 응답과 검색 질문은 바꾸지 않는다. 긴 첫 문장은 80자 이내의
+    발췌로 표시하며, 원문 출처 정보는 controller가 별도로 보관한다.
+    """
+    data = _mapping(response)
+    if str(data.get("status", "")).upper() == "NO_EVIDENCE":
+        text = "답변할 근거를 찾지 못했어요."
+    else:
+        text = render_answer(response).strip()
+        # 숫자 인용 링크/번호만 제거한다. 금액·기간 등의 일반 숫자는 유지한다.
+        text = re.sub(r"\[\d+(?:\s*[,，]\s*\d+)*\]\([^)]*\)", "", text)
+        text = re.sub(r"\[\d+(?:\s*[,，]\s*\d+)*\]", "", text)
+        text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+        text = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*•]\s+|\d+[.)]\s+)", "", text)
+        text = text.replace("**", "").replace("__", "").replace("`", "")
+        text = re.sub(r"\s+", " ", text).strip()
+        text = re.split(r"(?<=[.!?。])\s+", text, maxsplit=1)[0]
+        if len(text) > 80:
+            text = text[:79].rstrip() + "…"
+        text = text or "답변을 제공받지 못했어요."
+    return (
+        '<div class="hd-inline-answer" role="status" aria-live="polite">'
+        '<span class="hd-inline-answer-label">AI 답변</span>'
+        f'<span class="hd-inline-answer-text">{escape(text)}</span></div>'
+    )
 
 
 def render_citation(citation: Any) -> str:
@@ -104,61 +150,3 @@ def render_citation(citation: Any) -> str:
         f'<blockquote>{excerpt}</blockquote>'
         '</article>'
     )
-
-
-def render_scope_hint(scope: str, selected_name: str | None = None) -> str:
-    """B06/B22: make the active question boundary visible before submission."""
-    if scope == "선택 문서":
-        message = (
-            f"선택한 문서 ‘{selected_name}’에서 답변의 근거를 찾아요."
-            if selected_name else "검색 결과에서 문서를 선택해 주세요. 선택한 문서에 관해 질문할 수 있어요."
-        )
-    else:
-        message = "현재 적용한 회사·문서 유형 범위에서 답변의 근거를 찾아요."
-    return f'<p class="hd-scope-hint">{escape(message)}</p>'
-
-
-def build_chat_page() -> dict[str, Any]:
-    """FUN-164: construct the single-question panel; app.py binds all events."""
-    with gr.Column(elem_id="hd-chat-panel", elem_classes=["hd-card"]) as container:
-        gr.HTML(
-            '<div class="hd-chat-heading"><div><h2>문서에 질문하기</h2>'
-            '<p>필요한 내용을 질문하고, 답변의 근거를 함께 확인하세요.</p></div>'
-            '<span class="hd-chat-label">문서 기반 AI 답변</span></div>'
-        )
-        scope = gr.Radio(
-            ["선택 문서", "현재 검색 범위"], value="선택 문서",
-            label="질문 범위", interactive=True,
-            elem_id="hd-chat-scope", elem_classes=["hd-select"],
-        )
-        scope_hint = gr.HTML(render_scope_hint("선택 문서"))
-        question = gr.Textbox(
-            label="질문", placeholder="예: 이 문서의 주요 내용과 핵심 수치를 알려줘",
-            lines=3, max_lines=6, max_length=2000,
-            elem_id="hd-chat-question", elem_classes=["hd-input"],
-        )
-        with gr.Row(elem_id="hd-chat-actions"):
-            submit = gr.Button(
-                "질문하기", variant="primary", interactive=True,
-                elem_id="hd-chat-submit", elem_classes=["hd-button"],
-            )
-        feedback = gr.HTML("", elem_classes=["hd-feedback"])
-        answer = gr.Markdown(
-            "", sanitize_html=True, line_breaks=True,
-            elem_id="hd-chat-answer",
-        )
-        citation_choice = gr.Dropdown(
-            choices=[], value=None, label="출처 확인", interactive=True,
-            visible=False, elem_classes=["hd-select"],
-        )
-        citation_detail = gr.HTML("", visible=False)
-        open_source = gr.Button(
-            "이 문서 상세 보기", variant="secondary", visible=False,
-            elem_id="hd-citation-open", elem_classes=["hd-button"],
-        )
-    return {
-        "container": container, "scope": scope, "question": question,
-        "submit": submit, "feedback": feedback, "answer": answer,
-        "citation_choice": citation_choice, "citation_detail": citation_detail,
-        "open_source": open_source, "scope_hint": scope_hint,
-    }

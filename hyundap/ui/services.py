@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import inspect
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -31,17 +32,28 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 
 
-def company_choices(user: dict, *, demo: bool = False) -> list[tuple[str, str]]:
-    """인증 결과의 허용 회사만 표시한다. 실제 회사 ID에 예시 이름을 붙이지 않는다."""
+def _company_names(user: dict, *, demo: bool = False) -> dict[str, str]:
+    """허용 목록 안의 검증된 표시명만 모은다. 없는 이름은 추측하지 않는다."""
     allowed = list(dict.fromkeys(user.get("allowed_company_ids") or []))
     names = dict((code, name) for name, code in COMPANIES) if demo else {}
     for company in user.get("companies") or []:
         if isinstance(company, dict) and company.get("company_id") in allowed:
-            names[company["company_id"]] = str(company.get("company_name") or company["company_id"])
+            name = company.get("company_name")
+            if isinstance(name, str) and name.strip():
+                names[company["company_id"]] = name.strip()
     own_company = user.get("company_id")
-    if own_company in allowed and user.get("company_name"):
-        names[own_company] = str(user["company_name"])
-    return [(names.get(code, code), code) for code in allowed]
+    own_name = user.get("company_name")
+    if own_company in allowed and isinstance(own_name, str) and own_name.strip():
+        names[own_company] = own_name.strip()
+    return {code: names[code] for code in allowed if code in names}
+
+
+def company_choices(user: dict, *, demo: bool = False) -> list[tuple[str, str]]:
+    """회사명과 내부 ID를 분리한다. 누락된 이름 대신 ID·UUID를 노출하지 않는다."""
+    allowed = list(dict.fromkeys(user.get("allowed_company_ids") or []))
+    names = _company_names(user, demo=demo)
+    return [(names.get(code, f"회사명 확인 필요 ({index})"), code)
+            for index, code in enumerate(allowed, 1)]
 
 
 class UIServiceError(Exception):
@@ -132,6 +144,7 @@ class BackendBindings:
     user_factory는 검증된 세션을 공통 UserContext로, filters_factory는 dict를
     실제 ChatFilters로 바꾼다. 계약이 확정되면 해당 생성자를 지정한다.
     normalizers에는 기능 이름별 응답 변환 함수를 지정할 수 있다.
+    company_names(session=)는 권한 안의 회사 ID·표시명 목록만 보강한다.
     """
 
     login: Callable | None = None
@@ -148,6 +161,7 @@ class BackendBindings:
     to_feedback: Callable | None = None
     normalizers: dict[str, Callable] = field(default_factory=dict)
     temporary_auth: bool = False
+    company_names: Callable | None = None
 
 
 class BackendServices:
@@ -190,6 +204,31 @@ class BackendServices:
             raise UIServiceError("INVALID_RESPONSE", f"{name} 반환 형식이 화면 연결 규격과 다릅니다. 응답 변환을 확인해 주세요.")
         return value
 
+    async def _with_company_names(self, result: dict, previous: dict | None = None) -> dict:
+        """인증이 제공하지 않은 회사명만 보강한다. 표시명은 권한 판단에 쓰지 않는다."""
+        allowed = list(dict.fromkeys(result.get("allowed_company_ids") or []))
+        names = {}
+        if previous and previous.get("user_id") == result.get("user_id") and previous.get("session_id") == result.get("session_id"):
+            # 재검증한 허용 ID와 교집합만 유지한다. 권한 자체는 캐시하지 않는다.
+            names.update({code: name for code, name in _company_names(previous).items() if code in allowed})
+        names.update(_company_names(result, demo=self.temporary_auth))
+        if (not result.get("must_change_password")
+                and any(code not in names for code in allowed)
+                and self.bindings.company_names is not None):
+            try:
+                companies = await self._call("company_names", session=result)
+                if not isinstance(companies, list):
+                    raise UIServiceError("INVALID_RESPONSE", "회사 목록 형식을 확인해 주세요.")
+                names.update(_company_names({**result, "companies": companies}))
+            except Exception as error:
+                if isinstance(error, UIServiceError) and (error.code in {"SESSION_EXPIRED", "ACCESS_DENIED", "AUTH_REQUIRED", "UNAUTHENTICATED"} or error.status == "session_expired"):
+                    raise
+                # 이름 조회 실패로 이미 발급된 로그인 세션을 버리지 않는다.
+                # 내부 오류 원문·토큰은 기록하지 않으며, 업무 권한 검증은 그대로 수행한다.
+                logging.getLogger(__name__).warning("Company display names unavailable (%s)", type(error).__name__)
+        return {**result, "companies": [{"company_id": code, "company_name": names[code]}
+                                         for code in allowed if code in names]}
+
     async def login(self, username: str, password: str) -> dict:
         if not username or not username.strip() or not password:
             raise UIServiceError("LOGIN_REQUIRED", "아이디와 비밀번호를 입력해 주세요.", "input_error")
@@ -197,7 +236,7 @@ class BackendServices:
         required = {"user_id", "display_name", "role", "company_id", "company_name", "allowed_company_ids", "token"}
         if required - result.keys() or not result.get("token"):
             raise UIServiceError("INVALID_SESSION", "로그인 응답의 사용자·세션 정보를 확인해 주세요.")
-        return {**result, "demo": False}
+        return await self._with_company_names({**result, "demo": False})
 
     async def logout(self, session: dict) -> None:
         await self._call("logout", session=session)
@@ -210,17 +249,20 @@ class BackendServices:
         required = {"user_id", "role", "company_id", "allowed_company_ids"}
         if required - result.keys():
             raise UIServiceError("INVALID_SESSION", "세션 확인 응답의 사용자 정보를 확인해 주세요.")
-        return {
+        return await self._with_company_names({
             **result,
             "token": result.get("token", session["token"]),
             # 인증 확인 결과가 이 플래그를 생략하면 로그인 때의 변경 요구를 유지.
             # 변경 완료 후에는 auth가 명시적으로 False를 반환해야 한다.
             "must_change_password": result.get("must_change_password", bool(session.get("must_change_password"))),
             "demo": False,
-        }
+        }, previous=session)
 
     async def _user(self, session: dict) -> Any:
-        checked = await self.validate_session(session)
+        return await self._actor(await self.validate_session(session))
+
+    async def _actor(self, checked: dict) -> Any:
+        """검증된 세션만 실제 업무 함수가 요구하는 사용자 형태로 변환한다."""
         if checked.get("must_change_password"):
             raise UIServiceError("PASSWORD_CHANGE_REQUIRED", "비밀번호 변경이 필요합니다. 인증 담당의 비밀번호 변경 기능을 연결해 주세요.", "denied")
         factory = self.bindings.user_factory
@@ -269,9 +311,11 @@ class BackendServices:
         return response
 
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
-        user = await self._user(session)
+        checked = await self.validate_session(session)
+        user = await self._actor(checked)
         path = validate_upload_file(file_path)
-        return self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, doc_type=doc_type), "업로드")
+        result = self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, doc_type=doc_type), "업로드")
+        return {**result, "company_name": _company_names(checked, demo=self.temporary_auth).get(company_id, "회사명 확인 필요")}
 
     async def download(self, session: dict, document_id: str, version_id=None) -> str:
         result = await self._call("download", user=await self._user(session), document_id=document_id, version_id=version_id)

@@ -126,17 +126,29 @@ class BindingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, "COMPANY_FORBIDDEN")
         embed.assert_not_called()
 
-    async def test_ask_wrapped_session_expiry_returns_login(self):
-        parts = [ComponentKeys(prefix) for prefix in ("login", "search", "chat", "admin", "shell")]
+    async def test_inline_answer_wrapped_session_expiry_returns_login(self):
+        parts = [ComponentKeys(prefix) for prefix in ("login", "search", "admin", "shell")]
         controller = UIController(self.service, *parts)
-        controller.state("test").user = deepcopy(self.session)
+        ctx = controller.state("test")
+        ctx.user = deepcopy(self.session)
+        ctx.query, ctx.company, ctx.doc_type = "leave?", "fixture-company", "policy"
+        ctx.results = [{"document_id": "fixture-doc", "version_id": "fixture-version"}]
+        ctx.selected = deepcopy(ctx.results[0])
         final = {}
+        # 실제 검색·챗봇의 래핑된 만료 오류가 자동 인라인 답변에서도
+        # 로그인 화면 복귀 및 문서·답변·출처 초기화로 이어져야 한다.
         with patch("hyundap.search.filters._load_allowed_company_ids", side_effect=AccessError("SESSION_EXPIRED")):
-            async for changes in controller.run("ask", "test", "leave?", "현재 검색 범위"):
+            async for changes in controller.run_inline_answer(ctx, ctx.inline_generation):
                 final.update(changes)
-        self.assertIsNone(controller.state("test").user)
+        self.assertIsNone(ctx.user)
+        self.assertEqual(ctx.results, [])
+        self.assertIsNone(ctx.selected)
+        self.assertEqual(ctx.answer_citations, [])
         self.assertTrue(final["login.container"]["visible"])
         self.assertFalse(final["shell.container"]["visible"])
+        self.assertFalse(final["search.answer"]["visible"])
+        self.assertEqual(final["search.answer"]["value"], "")
+        self.assertFalse(final["shell.modal"]["visible"])
 
     async def test_actor_accepts_public_auth_contract_without_private_fields(self):
         self.assertNotIn("auth_version", self.session)

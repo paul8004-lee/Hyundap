@@ -23,12 +23,12 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 import gradio as gr
 
 from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page
-from hyundap.ui.chat_page import CHAT_CSS, build_chat_page
-from hyundap.ui.components import brand_html, footer_html, get_css, get_theme
+from hyundap.ui.chat_page import CHAT_CSS
+from hyundap.ui.components import apply_common_style, brand_html, footer_html, get_theme
 from hyundap.ui.controller import UIController
 from hyundap.ui.login_page import build_login_page
 from hyundap.ui.search_page import SEARCH_CSS, build_search_page
-from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices
+from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices, UIServices
 
 
 APP_CSS = """
@@ -51,7 +51,6 @@ APP_CSS = """
 #hd-type {padding:0!important;border:0!important;border-radius:10px!important;margin:0!important;}
 #hd-filter-reset {border:1px solid #dfe4ed;border-radius:10px;background:transparent;font-size:12px;}
 #hd-shell .hd-notice span {color:inherit;}
-#hd-result-table td * {font-size:12px;}
 #hd-search-submit {background:#032b5c!important;border-color:#032b5c!important;color:white!important;}
 #hd-results-card.hd-card {padding:0!important;}
 #hd-modal {position:fixed!important;z-index:1000;inset:0;width:100%;height:100dvh;background:rgb(8 20 35 / 42%);display:flex;align-items:center;justify-content:center;padding:24px!important;box-sizing:border-box;}
@@ -101,7 +100,7 @@ APP_JS = """() => {
 }"""
 
 
-def build_app(service=None, *, mode="backend") -> gr.Blocks:
+def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks:
     """FUN-176: 동일 화면에 예시 서비스 또는 실제 담당 함수 어댑터를 주입."""
     if service is None:
         if mode == "demo":
@@ -133,8 +132,7 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
             gr.HTML(mode_note, elem_id="hd-mode")
             with gr.Column(elem_id="hd-content", elem_classes=["hd-content"]):
                 search = build_search_page(companies, DOC_TYPES, demo_mode)
-                chat = build_chat_page()
-                chat["container"].visible = False
+                # 질문은 검색 입력으로 받으며 답변·출처는 검색 스플릿뷰에 표시한다.
                 admin = build_admin_page(companies, DOC_TYPES, demo_mode)
             gr.HTML(footer_html(mode_note), elem_classes=["hd-footer", "hd-plain-html"])
         with gr.Column(visible=False, elem_id="hd-modal") as modal:
@@ -143,10 +141,10 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
                 modal_body = gr.HTML("")
                 modal_close = gr.Button("닫기", elem_id="hd-modal-close")
         shell = dict(container=container, nav_search=nav_search, upload_nav=upload_nav, account=account, logout=logout, modal=modal, modal_body=modal_body, modal_close=modal_close)
-        controller = UIController(service, login, search, chat, admin, shell)
+        controller = UIController(service, login, search, admin, shell)
         key.delete_callback = controller.discard
         # 반환 dict의 일부 항목만 갱신한다. 다른 화면/입력은 그대로 유지한다.
-        outputs = list(dict.fromkeys(component for refs in [login, search, chat, admin, shell] for component in refs.values() if isinstance(component, (gr.components.Component, gr.layouts.Column, gr.layouts.Row))))
+        outputs = list(dict.fromkeys(component for refs in [login, search, admin, shell] for component in refs.values() if isinstance(component, (gr.components.Component, gr.layouts.Column, gr.layouts.Row))))
 
         def handler(action):
             async def callback(session_key, *values):
@@ -183,11 +181,18 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
         bind(search["summarize"].click, "summarize", [])
         bind(search["source"].click, "source", [])
         bind(search["download"].click, "download", [])
-        bind(chat["submit"].click, "ask", [chat["question"], chat["scope"]])
-        bind(chat["scope"].input, "scope", [chat["scope"]], trigger_mode="always_last")
-        bind(chat["citation_choice"].input, "citation", [chat["citation_choice"]])
-        bind(chat["open_source"].click, "open_citation", [chat["citation_choice"]])
         bind(admin["submit"].click, "upload", [admin["file"], admin["company"], admin["doc_type"]])
+        async def on_upload_input(session_key, file_path):
+            # 큐를 거치지 않는 입력 검사는 스트리밍 대신 최종 변경을 한 번에 반환한다.
+            result = {}
+            async for patch in controller.run("upload_input", session_key, file_path):
+                result.update(patch)
+            return result
+
+        # 파일 교체·제거와 메타정보 변경은 이전 처리 결과를 즉시 지운다.
+        for event in (admin["file"].change, admin["company"].input, admin["doc_type"].input):
+            event(on_upload_input, inputs=[key, admin["file"]], outputs=outputs,
+                  trigger_mode="always_last", queue=False, api_visibility="private", show_progress="hidden")
         bind(modal_close.click, "close", [])
 
         def navigation(destination):
@@ -198,8 +203,10 @@ def build_app(service=None, *, mode="backend") -> gr.Blocks:
         for button, destination in [(nav_search, "search"), (upload_nav, "upload")]:
             button.click(navigation(destination), inputs=[key], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
 
+    # 로컬 회귀 검사·디버깅에서 화면 상태와 연결을 확인하는 Python 접근점.
+    # 공개 API나 인증 근거로 사용하지 않는다.
     demo.hyundap_controller = controller
-    demo.hyundap_css = get_css() + SEARCH_CSS + CHAT_CSS + ADMIN_CSS + APP_CSS
+    demo.hyundap_css = apply_common_style() + SEARCH_CSS + CHAT_CSS + ADMIN_CSS + APP_CSS
     return demo.queue(default_concurrency_limit=4)
 
 
