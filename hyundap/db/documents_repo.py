@@ -30,11 +30,13 @@ def find_duplicate_document(company_id, sha256, *, exclude_version_id=None, conn
     연결을 받으면 호출자 TX에 참여하고 커밋하지 않는다. 생략하면 자체 읽기 TX다.
     삭제/실패 후보도 포함하며 조회만으로 동시 중복을 막지는 못한다.
     """
+    # 제외 후보가 있으면 먼저 같은 회사와 같은 해시의 버전인지 확인한다.
     values = {'company': require_id(company_id), 'sha256': require_hash(sha256)}
     if exclude_version_id is not None:
         values['exclude'] = require_id(exclude_version_id)
     with transaction(connection) as database:
         if exclude_version_id is not None:
+            # 제외할 버전이 같은 회사와 해시에 실제로 속하는지 먼저 확인한다.
             candidate = database.execute(text('''
                 SELECT id FROM document_versions
                 WHERE id=:exclude AND company_id=:company AND sha256=:sha256
@@ -48,23 +50,32 @@ def find_duplicate_document(company_id, sha256, *, exclude_version_id=None, conn
         '''
         if exclude_version_id is not None:
             query += ' AND v.id<>:exclude'
+        # one_or_none()은 한 행 또는 None을 반환하며 여러 행이면 오류가 난다.
         row = database.execute(text(query), values).mappings().one_or_none()
         return dict(row) if row else None
 
 
 def get_documents_with_active_version(document_ids, *, connection=None):
-    """검색용 11필드 원시 행 목록을 반환한다. 없는 ID는 누락하고 빈 입력은 []다.
+    """문서 ID 목록으로 검색에 필요한 문서와 활성 버전 정보를 조회한다.
+
+    document_ids는 문자열 ID의 list 또는 tuple이다. 연결을 전달받으면 해당 연결을
+    사용한다. 반환값은 검색용 11필드 dict의 list이며 없는 ID는 제외한다.
+    빈 입력은 DB에 접속하지 않고 []를 반환한다. 결과 순서는 입력 순서와 다를 수 있다.
 
     서버 내부 함수다. DTO 변환·사용자 회사 범위·공개 판정은 search에서 수행한다.
-    DB 장애는 DbError이며 빈 검색 결과로 바꾸지 않는다. 입력 순서는 보장하지 않는다.
+    잘못된 입력이나 DB 장애는 DbError로 알리며 장애를 빈 검색 결과로 바꾸지 않는다.
     """
+    # ID를 반복해서 검사할 수 있도록 목록 또는 튜플만 받는다.
     if not isinstance(document_ids, (list, tuple)):
         raise DbError('INVALID_INPUT')
+    # 각 ID를 검증하고 중복을 제거한 뒤 정렬한다.
     ids = sorted({require_id(value) for value in document_ids})
     if not ids:
         return []
+    # expanding=True는 ID 개수에 맞게 SQL의 IN 조건을 안전하게 준비한다.
     query = text(DOCUMENT_INFO_SQL).bindparams(bindparam('ids', expanding=True))
     with transaction(connection) as database:
+        # 조회된 행을 검색 모듈에서 읽을 수 있는 dict로 바꾼다.
         return [dict(row) for row in database.execute(query, {'ids': ids}).mappings()]
 
 
@@ -75,11 +86,13 @@ def validate_metadata(metadata):
     doc_type 생략은 공통 기본값이며 명시적 None/빈 값/미등록 코드는 INVALID_DOC_TYPE이다.
     입력을 변경하거나 DB에 연결하지 않는다.
     """
+    # 필수 항목을 새 사전에 복사한 뒤 값과 범위를 차례로 확인한다.
     if not isinstance(metadata, dict):
         raise DbError('INVALID_INPUT')
     required_fields = ('company_id', 'file_name', 'storage_path', 'sha256', 'file_size', 'data_category')
     if not set(required_fields) <= metadata.keys():
         raise DbError('INVALID_INPUT')
+    # 필요한 필드만 복사하므로 원본 metadata는 변경하지 않는다.
     result = {name: metadata[name] for name in required_fields}
     result['doc_type'] = metadata.get('doc_type', DEFAULT_DOC_TYPE)
     require_id(result['company_id'])
@@ -88,6 +101,9 @@ def validate_metadata(metadata):
         raise DbError('INVALID_DOC_TYPE')
     if result['data_category'] not in ('operational', 'evaluation'):
         raise DbError('INVALID_INPUT')
+    # 파일명과 내부 경로의 빈 문자열, 최대 길이, 널 문자를 검사한다.
+    # 첫 번째 반복은 file_name과 255를, 두 번째 반복은 storage_path와 1024를 꺼낸다.
+    # 두 값은 같은 검사를 받지만 각자 다른 길이 제한을 적용한다.
     for field_name, max_length in (('file_name', 255), ('storage_path', 1024)):
         value = result[field_name]
         if not isinstance(value, str) or not value.strip() or len(value) > max_length or '\x00' in value:
@@ -122,6 +138,7 @@ def _check_candidate_creation(database, actor, data):
     호출자의 같은 트랜잭션에서 세션·사용자·회사 순서로 잠근다.
     회사 잠금은 다른 요청의 중복 확인과 후보 생성이 동시에 진행되지 않게 한다.
     """
+    # 전달받은 역할을 그대로 믿지 않고 현재 세션과 회사 상태를 다시 확인한다.
     current = current_actor(actor, connection=database, lock=True)
     if current['role'] not in ('platform_admin', 'company_admin'):
         raise AccessError('ACCESS_DENIED')
@@ -131,6 +148,7 @@ def _check_candidate_creation(database, actor, data):
                               {'id': data['company_id']}).scalar_one_or_none()
     if not active:
         raise AccessError('ACCESS_DENIED')
+    # 버전이 없는 문서가 남아 있으면 업로드를 중단한다.
     orphan_document = database.execute(text('''
         SELECT d.id FROM documents d WHERE d.company_id=:company
           AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.document_id=d.id)
@@ -150,6 +168,7 @@ def _prepare_document(database, data):
     기존 문서는 회사·상태·유형이 맞아야 한다. 문서 잠금은 버전 번호를 저장할 때까지
     호출자의 트랜잭션에서 유지하므로 같은 문서에 버전 번호가 중복되지 않는다.
     """
+    # 문서 ID가 있으면 기존 문서를 잠가 검사하고 없으면 새 문서를 생성한다.
     if 'document_id' in data:
         document_id = data['document_id'] or str(uuid4())
         document = database.execute(text('''
@@ -177,6 +196,8 @@ def _insert_version_and_job(database, document_id, data):
     앞 단계에서 잠근 같은 DB 연결을 사용한다. 작업 저장이 실패하면 버전과 새 문서도
     호출자의 트랜잭션에서 함께 취소된다. 이 함수는 직접 커밋하지 않는다.
     """
+    # 문서별 다음 버전 번호를 정하고 버전과 작업을 같은 연결에 저장한다.
+    # 기존 버전이 없을 때 COALESCE가 최대 번호 대신 0을 사용한다.
     number = database.execute(text('''
         SELECT COALESCE(MAX(version_no),0)+1 FROM document_versions WHERE document_id=:id
     '''), {'id': document_id}).scalar_one()
