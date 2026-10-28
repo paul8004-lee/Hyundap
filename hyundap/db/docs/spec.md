@@ -24,6 +24,22 @@ BIGINT 시간은 UTC Unix 초, DATETIME(6)은 UTC다. 세션은 필수 CSRF 해�
 
 ## 모듈과 메인·보조 함수
 
+### P2-03 원본·버전 연결 — #205
+
+현재 v4의 원본 경로·해시·크기는 `document_versions`에만 저장한다.
+`documents.storage_key` 및 별도 최초 원본 포인터는 제거된 과거 구조다.
+최초 버전의 원본은 해당 버전 행과 파일로 보존되고 `active_version_id`는 공개 버전 선택만 담당한다.
+
+`upload_service.resolve_stored_source(source, root)`를 추가해 재시도와 원본 재조회에서
+절대 경로 및 링크 해석 후 루트 내부 여부를 공통 검사한다. 이 파일 시스템 작업은 DB TX 밖이다.
+`read_attempt_source`는 작업 보고서의 저장 루트를 읽고 경로·해시·크기를 확인한다.
+파일 없음·읽기 권한 오류는 FILE_UNAVAILABLE, 루트 밖/상대 경로는 INVALID_STATE,
+해시·크기 불일치는 CONFLICT다. 재시도에서 저장 원본이 있으면 재공급 경로는 무시하고
+기존 원본을 검증한다. 저장 원본이 없을 때만 같은 해시·크기의 원본을 재공급할 수 있다.
+
+조회 응답의 내부 경로 비노출, 버전별 파일 보존 및 검증 근거는
+[P2-03 원본 보존 계약](../../../docs/db-design/P2_03_ORIGINAL_STORAGE_CONTRACT.md)에 기록한다.
+
 ### P2-02 관리자 버전 이력 — #204
 
 `versions_repo.list_document_versions(actor, document_id, *, connection=None)`를 재사용한다.
@@ -139,6 +155,7 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 | `upload_service` | `file_digest(path)` | 보조 | 없음 |
 | `upload_service` | `source_destination(root, company_id, document_id, version_id, suffix)` | 보조 | 없음 |
 | `upload_service` | `copy_original(source, destination, expected_hash, expected_size)` | 보조 | 없음 |
+| `upload_service` | `resolve_stored_source(source, root)` | 보조 | 없음 |
 | `upload_service` | `failure_code(error)` | 보조 | 없음 |
 | `upload_service` | `record_upload_failure(ids, stage, error, backend)` | 보조 | 없음 |
 | `upload_service` | `read_attempt_source(ids)` | 보조 | 없음 |

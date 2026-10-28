@@ -123,7 +123,7 @@ class UploadWorkflowTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """빈 전용 DB에 기존 기준 스키마와 추가 마이그레이션을 적용한다."""
+        """빈 전용 DB에 최종 v4 테이블을 직접 생성한다."""
         url = make_url(os.environ['DB_WORKFLOW_TEST_URL'])
         if url.host != '127.0.0.1' or url.database != 'hyundap_workflow_test':
             raise RuntimeError('로컬 전용 테스트 DB 이름을 확인하세요.')
@@ -179,6 +179,76 @@ class UploadWorkflowTests(unittest.TestCase):
         return self.upload_service.upload_document(
             self.actor, self.source, dict(company_id=self.company, doc_type='manual', **metadata),
             ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+
+    def test_retry_uses_existing_original_even_when_replacement_is_supplied(self):
+        self.embedding.partial = True
+        failed = self.upload()
+        self.embedding.partial = False
+        with patch.object(self.upload_service, 'copy_original') as copy:
+            retried = self.upload_service.retry_upload(
+                self.actor, failed['version_id'], source_path=self.directory / 'missing.txt',
+                ingest_document=self.ingest, embedding=self.embedding)
+        copy.assert_not_called()
+        self.assertEqual(retried['status'], 'success')
+        self.assertEqual(retried['version_id'], failed['version_id'])
+
+    def test_saved_original_missing_permission_and_escape_are_safe_failures(self):
+        self.embedding.partial = True
+        failed = self.upload()
+        with self.engine.connect() as database:
+            saved = Path(database.scalar(text('SELECT storage_path FROM document_versions WHERE id=:id'),
+                                         {'id': failed['version_id']}))
+        with patch.object(self.upload_service, 'file_digest', side_effect=PermissionError('synthetic-secret')):
+            denied = self.upload_service.retry_upload(self.actor, failed['version_id'],
+                ingest_document=self.ingest, embedding=self.embedding)
+        self.assertEqual(denied['error_code'], 'FILE_UNAVAILABLE')
+        saved.unlink()
+        missing = self.upload_service.retry_upload(self.actor, failed['version_id'],
+            ingest_document=self.ingest, embedding=self.embedding)
+        self.assertEqual(missing['error_code'], 'FILE_UNAVAILABLE')
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
+                             {'path': str(self.source), 'id': failed['version_id']})
+        with patch.object(self.upload_service, 'file_digest') as digest:
+            with self.assertRaises(DbError) as caught:
+                self.upload_service.read_attempt_source(failed)
+        self.assertEqual(caught.exception.code, 'INVALID_STATE')
+        digest.assert_not_called()
+
+    def test_new_version_and_duplicate_preserve_each_saved_original(self):
+        first = self.upload()
+        original_bytes = self.source.read_bytes()
+        self.source.write_bytes(b'new version original')
+        second = self.upload(document_id=first['document_id'])
+        self.assertEqual(second['status'], 'success')
+        with self.assertRaises(DbError) as caught:
+            self.upload(document_id=first['document_id'])
+        self.assertEqual(caught.exception.code, 'DUPLICATE_FILE')
+        with self.engine.connect() as database:
+            rows = database.execute(text('SELECT storage_path FROM document_versions WHERE document_id=:id ORDER BY version_no'),
+                                    {'id': first['document_id']}).scalars().all()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(Path(rows[0]).read_bytes(), original_bytes)
+        self.assertEqual(Path(rows[1]).read_bytes(), b'new version original')
+        self.assertEqual(self.active_version(first['document_id']), second['version_id'])
+
+    def test_candidate_database_failure_creates_no_original_or_partial_records(self):
+        def fail_path(conn, cursor, statement, parameters, context, many):
+            if statement.lstrip().startswith('UPDATE document_versions SET storage_path='):
+                raise OperationalError('synthetic', {}, Exception('synthetic-secret'))
+        event.listen(self.engine, 'before_cursor_execute', fail_path)
+        try:
+            with self.assertRaises(DbError) as caught:
+                self.upload()
+        finally:
+            event.remove(self.engine, 'before_cursor_execute', fail_path)
+        self.assertEqual(caught.exception.code, 'DB_UNAVAILABLE')
+        self.assertFalse(self.upload_dir.exists())
+        with self.engine.connect() as database:
+            for table in ('documents', 'document_versions', 'index_jobs'):
+                count = database.scalar(text(f'SELECT COUNT(*) FROM {table} WHERE company_id=:company'),
+                                        {'company': self.company})
+                self.assertEqual(count, 0)
 
     def test_pre_candidate_input_errors_do_not_create_records(self):
         for source, doc_type, code in ((self.source, 'invalid', 'INVALID_DOC_TYPE'),

@@ -150,6 +150,25 @@ def record_upload_failure(ids, stage, error, backend):
         return dict(ids, status='failed', error_code=code, recovery_required=cleanup_pending)
 
 
+def resolve_stored_source(source, root):
+    """DB의 원본 경로와 저장 루트가 절대 경로인지 검사하고 루트 내부 Path를 반환한다.
+
+    파일이 아직 없을 수 있어 존재 여부는 검사하지 않는다. 링크가 루트 밖을 가리키면
+    INVALID_STATE다. 파일 시스템 검사는 호출자의 DB 트랜잭션이 끝난 뒤 수행한다.
+    """
+    source, root = Path(source), Path(root)
+    if not source.is_absolute() or not root.is_absolute():
+        raise DbError('INVALID_STATE')
+    try:
+        resolved_root = root.resolve()
+        resolved_source = source.resolve()
+    except (OSError, RuntimeError):
+        raise DbError('INVALID_STATE') from None
+    if not resolved_source.is_relative_to(resolved_root):
+        raise DbError('INVALID_STATE')
+    return resolved_source
+
+
 def read_attempt_source(ids):
     """문서·버전 ID로 저장 원본을 확인하고 (파일 경로, 수집 정보, 검증한 해시)를 반환한다.
 
@@ -159,14 +178,21 @@ def read_attempt_source(ids):
     with transaction() as database:
         document, version = version_service.read_candidate(
             database, ids['document_id'], ids['version_id'])
+        _, reports = version_service.read_job(database, ids['version_id'])
         company_name = database.execute(
             text('SELECT name FROM companies WHERE id=:id'),
             {'id': document['company_id']},
         ).scalar_one()
 
     # DB 조회가 끝난 뒤 파일을 읽어 저장 당시 해시와 크기를 비교한다.
-    source = Path(version['storage_path'])
-    if file_digest(source) != (version['sha256'], version['file_size']):
+    if '_upload_root' not in reports:
+        raise DbError('INVALID_STATE')
+    source = resolve_stored_source(version['storage_path'], reports['_upload_root'])
+    try:
+        actual_digest = file_digest(source)
+    except (FileNotFoundError, PermissionError):
+        raise DbError('FILE_UNAVAILABLE') from None
+    if actual_digest != (version['sha256'], version['file_size']):
         raise DbError('CONFLICT')
     info = {
         'document_id': ids['document_id'],
@@ -526,10 +552,7 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
 
         # prepare_retry의 DB 변경이 확정된 뒤 파일과 외부 벡터 저장소에 접근한다.
         try:
-            root = retry_info['root'].resolve()
-            source = retry_info['source'].resolve()
-            if not source.is_relative_to(root):
-                raise DbError('INVALID_STATE')
+            source = resolve_stored_source(retry_info['source'], retry_info['root'])
         except (DbError, OSError) as error:
             return record_upload_failure(ids, 'received', error, backend)
         # 이전 시도에서 남은 벡터를 삭제한 뒤 같은 후보를 다시 처리한다.
@@ -539,8 +562,13 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
             return record_upload_failure(ids, 'received', error, backend)
         if source_path is not None:
             try:
-                replacement = Path(source_path).resolve(strict=True)
-                copy_original(replacement, source, retry_info['sha256'], retry_info['file_size'])
+                # 저장 원본이 있으면 재공급 경로는 사용하지 않는다. 기존 파일을 먼저 보존하고
+                # run_attempt에서 저장 원본의 해시·크기를 확인한다. 변조된 원본도 덮지 않는다.
+                if not source.exists():
+                    replacement = Path(source_path).resolve(strict=True)
+                    copy_original(replacement, source, retry_info['sha256'], retry_info['file_size'])
+            except (FileNotFoundError, PermissionError):
+                return record_upload_failure(ids, 'received', DbError('FILE_UNAVAILABLE'), backend)
             except (DbError, OSError) as error:
                 return record_upload_failure(ids, 'received', error, backend)
         return run_attempt(actor, ids, retry_info['expected_active_id'], ingest_function, backend)
