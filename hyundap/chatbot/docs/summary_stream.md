@@ -24,7 +24,7 @@
 
 | type | 필드 | 언제 | ui가 할 일 |
 |---|---|---|---|
-| `status` | `stage`(`wait`·`step`·`final`), `message`, `step`(`[현재, 전체]`, wait에는 없음) | 다른 요약이 끝나기를 기다릴 때, 구간 요약을 시작할 때 | 로딩 문구를 `message`로 바꾼다 |
+| `status` | `stage`(`wait`·`step`·`final`), `message`, `step`(`[현재, 전체]`, wait에는 없음) | 다른 요약이 진행 중이라 자리를 기다릴 때(최대 1초), 구간 요약을 시작할 때 | 로딩 문구를 `message`로 바꾼다 |
 | `delta` | `text` | 마지막 단계에서 **인용 검사를 통과한 줄**이 하나 완성될 때마다. 줄 끝 `\n` 포함, 출처 번호는 이미 `[1]` 형식 | 요약 칸 글 뒤에 이어 붙인다 |
 | `reset` | `reason` | 인용 검사 실패로 마지막 단계를 다시 만들 때, 입력이 길어 다시 나눌 때, 끝난 뒤 문서 권한 재검증이 실패할 때 | 요약 칸을 비우고 `reason`을 로딩 문구로 보여 준다 |
 | `done` | `response`(SummaryResponse 객체) | 마지막. 이후 이벤트 없음 | `to_plain`으로 dict로 바꿔 지금 `do_summarize`처럼 요약·범위·버튼을 표시한다 |
@@ -58,11 +58,15 @@ status(step, '구간 1/3 요약 중') → status(step, '구간 2/3 요약 중') 
 status → delta × 2 → reset('근거 확인에 실패해 다시 생성합니다.') → delta × n → done
 ```
 
-다른 사용자가 요약 중일 때 (서버 전체 동시 요약 1개):
+다른 사용자가 요약 중일 때 (서버 전체 동시 요약 1개, 대기는 1초까지):
 
 ```
-status(wait, '다른 요약이 끝나기를 기다리는 중입니다.') → (앞 요약이 끝나면) status(final, …) → …
+status(wait, '다른 요약이 끝나기를 기다리는 중입니다.') → 1초 안에 자리가 나면 status(final, …) → …
+                                                      → 자리가 안 나면 ChatbotError(LLM_FAILED, retryable=True,
+                                                         '다른 요약이 진행 중입니다. 잠시 후 다시 시도해 주세요.')
 ```
+
+대기를 짧게 둔 이유: ui는 백엔드 함수를 `asyncio.to_thread`로 부르므로, 요약이 오래 기다리면 대기 요청마다 공용 스레드 풀을 하나씩 붙잡아 검색·질문·세션 확인까지 멈춘다. 이 오류는 지금 `to_feedback`으로 다른 오류와 같이 안내 문구가 나가므로 ui가 따로 처리할 것은 없다. `summarize_document`(지금 ui 연결)도 같은 오류를 던진다.
 
 ## 3. 반영할 곳 1 — `ui/backend_bindings.py`, `ui/services.py` (BackendBindings)
 
@@ -181,7 +185,7 @@ async def do_summarize_stream(self, ctx, ticket):
 | 오류 | delta 뒤 예외(ChatbotError INVALID_CITATION·STATE_CHANGED) → 요약 칸 비움, 오류 안내 |
 | 세션 만료 | 이벤트 도중 SESSION_EXPIRED → 로그인 화면 |
 | 버전 바뀜 | done의 `version_id`가 선택 문서와 다르면 DOCUMENT_CHANGED |
-| 대기 | status(wait) → 로딩 문구가 "다른 요약이 끝나기를 기다리는 중입니다." |
+| 대기 | status(wait) → 로딩 문구가 "다른 요약이 끝나기를 기다리는 중입니다.", 1초 뒤 오류면 "다른 요약이 진행 중입니다. 잠시 후 다시 시도해 주세요." 안내 |
 | 데모 | `MockServices.summarize_stream`으로 같은 흐름 |
 
 chatbot 쪽 동작 시험은 `hyundap/tests/test_chatbot_summary.py`에 있다 (이벤트 순서, 무인용 줄 미노출, reset, 재시도·호출 상한 등).

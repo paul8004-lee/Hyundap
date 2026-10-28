@@ -22,6 +22,8 @@ SUMMARY_MAX_CALLS = 3                  # 문서 1개 요약의 LLM 호출 상한
 SUMMARY_TOKEN_MARGIN = 1.03            # 토크나이저 차이·메시지 형식 토큰 여유
 SUMMARY_REPLAN_RATIO = 0.85            # 입력 길이 초과로 거절되면 단계 상한을 이만큼 줄여 다시 나눈다
 SUMMARY_MAX_CONCURRENT = 1             # 서버 전체 동시 요약 수 (분당 토큰 한도 보호)
+SUMMARY_SLOT_WAIT_SECONDS = 1          # 자리가 없을 때 기다리는 최대 시간. 지나면 '진행 중' 안내 (ui 작업 스레드를 붙잡는 시간 상한)
+SUMMARY_BUSY_MESSAGE = '다른 요약이 진행 중입니다. 잠시 후 다시 시도해 주세요.'
 MAX_SUMMARY_CHARS = 30_000             # 요약 글자 상한 (질문 답변 MAX_ANSWER_CHARS와 별개)
 # 요약 LLM: 큰 입력이라 질문 답변(30초)과 따로 둔다
 SUMMARY_TIMEOUT_SECONDS = 300

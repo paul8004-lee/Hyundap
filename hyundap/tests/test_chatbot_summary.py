@@ -2,6 +2,8 @@
 
 실행: 저장소 맨 위에서 python -m unittest hyundap.tests.test_chatbot_summary -v
 LLM 체인·벡터 저장소·auth는 대역으로 바꾸고, 토큰 수와 단계 상한은 작게 고정해 구간 수를 정한다."""
+import asyncio
+import time
 import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
@@ -184,6 +186,12 @@ class SummaryModelTests(unittest.TestCase):
     def test_other_model_has_no_reasoning_effort(self):
         self.assertIsNone(self.model_with('gpt-4o-mini').reasoning_effort)
 
+    def test_o_series_reasoning_model_gets_effort(self):
+        self.assertEqual(self.model_with('o3-mini').reasoning_effort, 'low')
+
+    def test_other_o_prefixed_model_has_no_reasoning_effort(self):
+        self.assertIsNone(self.model_with('omni-moderation-latest').reasoning_effort)
+
     def test_answer_model_timeout_unchanged(self):
         from types import SimpleNamespace
         from hyundap.chatbot import prompts
@@ -202,6 +210,46 @@ class PlanTokenTests(unittest.TestCase):
         self.assertEqual(len(plan.segments), 1)
         self.assertEqual(plan.excluded, [])
         self.assertGreater(plan.total_tokens, 0)
+
+
+
+class SummarySlotTests(unittest.IsolatedAsyncioTestCase):
+    """요약 자리가 없을 때 시간 제한 안에 '진행 중' 안내로 끝나고 공용 스레드 풀을 붙잡지 않는지 확인한다."""
+
+    def setUp(self):
+        self.assertTrue(summary._SLOT.acquire(blocking=False))  # 요약 1건이 자리를 잡은 상태
+        self.stack = ExitStack()
+        self.stack.enter_context(patch.object(summary, 'SUMMARY_SLOT_WAIT_SECONDS', 0.2))
+        self.stack.enter_context(patch('hyundap.embedding.vector_store.get_document_chunks', return_value=[vhit(0)]))
+        self.stack.enter_context(patch('hyundap.auth.permissions.verify_documents_access'))
+
+    def tearDown(self):
+        self.stack.close()
+        summary._SLOT.release()
+
+    def test_busy_slot_returns_retryable_error(self):
+        started = time.monotonic()
+        with self.assertRaises(ChatbotError) as caught:
+            summary.summarize_document('d1', {'user_id': 'u'})
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(caught.exception.code, 'LLM_FAILED')
+        self.assertTrue(caught.exception.retryable)
+        self.assertEqual(caught.exception.message, '다른 요약이 진행 중입니다. 잠시 후 다시 시도해 주세요.')
+
+    def test_busy_slot_stream_sends_wait_status_first(self):
+        events = summary.summarize_document_stream('d1', {'user_id': 'u'})
+        self.assertEqual(next(events)['stage'], 'wait')
+        with self.assertRaises(ChatbotError):
+            next(events)
+
+    async def test_waiting_summaries_do_not_starve_thread_pool(self):
+        # 리뷰 재현: 기다리는 요약 12건이 asyncio 기본 스레드 풀을 채워도 다른 백엔드 호출이 곧 실행된다
+        waiting = [asyncio.create_task(asyncio.to_thread(summary.summarize_document, 'd1', {'user_id': 'u'}))
+                   for _ in range(12)]
+        other = await asyncio.wait_for(asyncio.to_thread(lambda: 'other'), timeout=2)
+        results = await asyncio.gather(*waiting, return_exceptions=True)
+        self.assertEqual(other, 'other')
+        self.assertTrue(all(isinstance(r, ChatbotError) and r.retryable for r in results))
 
 
 if __name__ == '__main__':

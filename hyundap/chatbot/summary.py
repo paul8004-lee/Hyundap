@@ -9,7 +9,7 @@ LLM 호출은 구간 수만큼(최대 SUMMARY_MAX_CALLS=3회) 차례로 하고, 
 함수:
     FUN-420 summarize_document — 선택 문서 요약 입구. 스트림을 끝까지 돌려 SummaryResponse만 돌려준다.
         summarize_document_stream — 요약 전체를 진행하며 이벤트(status·delta·reset·done)를 내보낸다.
-        acquire_summary_slot — 서버 전체에서 요약을 한 번에 SUMMARY_MAX_CONCURRENT개만 돌린다.
+        acquire_summary_slot — 서버 전체에서 요약을 한 번에 SUMMARY_MAX_CONCURRENT개만 돌린다 (대기는 SUMMARY_SLOT_WAIT_SECONDS까지).
         summary_event — 이벤트 dict를 만든다.
         summarize_document_load — 문서 청크를 받아 ChunkHit 목록으로 바꾼다.
         summarize_document_to_hit — VectorHit 1건을 ChunkHit로 바꾼다.
@@ -44,8 +44,9 @@ from functools import lru_cache
 
 from . import citations as cit
 from .ask import recheck_before_return
-from .constants import (MAX_SUMMARY_CHARS, SUMMARY_CARRY_TOKENS, SUMMARY_INPUT_TOKEN_BUDGET, SUMMARY_MAX_CALLS,
-                        SUMMARY_MAX_CONCURRENT, SUMMARY_PROMPT_TOKENS, SUMMARY_REPLAN_RATIO, SUMMARY_TOKEN_MARGIN)
+from .constants import (MAX_SUMMARY_CHARS, SUMMARY_BUSY_MESSAGE, SUMMARY_CARRY_TOKENS, SUMMARY_INPUT_TOKEN_BUDGET,
+                        SUMMARY_MAX_CALLS, SUMMARY_MAX_CONCURRENT, SUMMARY_PROMPT_TOKENS, SUMMARY_REPLAN_RATIO,
+                        SUMMARY_SLOT_WAIT_SECONDS, SUMMARY_TOKEN_MARGIN)
 from .models import ChatbotError, SummaryPlan, SummaryResponse, map_dependency_error
 from .prompts import build_summary_chain
 
@@ -103,10 +104,14 @@ def summarize_document_stream(document_id, user):
 
 def acquire_summary_slot():
     """받는 것: 없음 / 돌려주는 것: (기다릴 때만) status 이벤트
-    한 요약이 계정 분당 토큰 한도를 크게 쓰므로, 동시에 돌면 질문 답변까지 한도 초과로 실패한다."""
-    if not _SLOT.acquire(blocking=False):
-        yield summary_event('status', stage='wait', message='다른 요약이 끝나기를 기다리는 중입니다.')
-        _SLOT.acquire()
+    한 요약이 계정 분당 토큰 한도를 크게 쓰므로, 동시에 돌면 질문 답변까지 한도 초과로 실패한다.
+    기다림은 SUMMARY_SLOT_WAIT_SECONDS까지만 한다. ui는 이 함수를 작업 스레드(asyncio.to_thread)에서 부르므로
+    끝없이 기다리면 대기 요청마다 공용 스레드 풀을 하나씩 붙잡아 검색·질문·세션 확인까지 멈춘다."""
+    if _SLOT.acquire(blocking=False):
+        return
+    yield summary_event('status', stage='wait', message='다른 요약이 끝나기를 기다리는 중입니다.')
+    if not _SLOT.acquire(timeout=SUMMARY_SLOT_WAIT_SECONDS):
+        raise ChatbotError('LLM_FAILED', SUMMARY_BUSY_MESSAGE, retryable=True)
 
 
 def summary_event(kind, **fields):

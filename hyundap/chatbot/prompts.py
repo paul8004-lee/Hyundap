@@ -20,6 +20,9 @@ from .constants import (LLM_TIMEOUT_SECONDS, NO_EVIDENCE_MESSAGE, SUMMARY_FINAL_
                         SUMMARY_STEP_OUTPUT_TOKENS, SUMMARY_TIMEOUT_SECONDS)
 from .models import ChatbotError
 
+# reasoning_effort를 받는 추론 모델 이름 앞부분. 'o'만 보면 o로 시작하는 다른 모델까지 걸린다
+REASONING_MODEL_PREFIXES = ('gpt-5', 'o1', 'o3', 'o4')
+
 ANSWER_SYSTEM_PROMPT = (
     '너는 회사 문서 질의응답 도우미다. 아래 규칙을 반드시 지켜라.\n'
     '1. 사용자가 준 근거에 있는 내용만 사용한다. 근거 밖 지식으로 추측하지 않는다.\n'
@@ -72,13 +75,13 @@ def build_answer_chain(llm=None):
 def get_summary_model(streaming):
     """받는 것: 스트리밍 여부(최종 단계 True) / 돌려주는 것: 요약 전용 ChatOpenAI (스트리밍 여부별로 한 번 만들고 재사용)
     질문 답변용 get_chat_model은 30초로 만들어 두므로 큰 입력의 요약은 따로 만든다 (타임아웃 300초).
-    reasoning_effort는 gpt-5·o 계열만 받으므로 그 모델일 때만 넘긴다 (.env로 다른 모델을 쓰면 API가 거부함).
+    reasoning_effort는 추론 모델(REASONING_MODEL_PREFIXES: gpt-5·o1·o3·o4)만 받으므로 그 모델일 때만 넘긴다 (.env로 다른 모델을 쓰면 API가 거부함).
     max_tokens는 추론 토큰을 포함한 출력 상한이다."""
     settings = get_settings()
     if not settings.openai_api_key:
         raise ChatbotError('CONFIG_MISSING')
     from langchain_openai import ChatOpenAI
-    options = {'reasoning_effort': SUMMARY_REASONING_EFFORT} if settings.openai_chat_model.startswith(('gpt-5', 'o')) else {}
+    options = {'reasoning_effort': SUMMARY_REASONING_EFFORT} if settings.openai_chat_model.startswith(REASONING_MODEL_PREFIXES) else {}
     return ChatOpenAI(model=settings.openai_chat_model, timeout=SUMMARY_TIMEOUT_SECONDS, api_key=settings.openai_api_key,
                       streaming=streaming, max_tokens=SUMMARY_FINAL_OUTPUT_TOKENS if streaming else SUMMARY_STEP_OUTPUT_TOKENS,
                       **options)

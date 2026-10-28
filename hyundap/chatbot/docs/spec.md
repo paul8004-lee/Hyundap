@@ -69,7 +69,7 @@
 | B10 | 재검증 | `recheck_before_return` | 실패하면 `reset` 후 오류 |
 | B11 | 반환 | `done` 이벤트의 SummaryResponse | `summarize_document`는 이 결과만 돌려준다 |
 
-이벤트(`summarize_document_stream`): `status`(진행 단계) · `delta`(검사를 통과한 화면용 줄) · `reset`(보낸 글을 지우고 다시) · `done`(SummaryResponse). 서버 전체에서 요약은 한 번에 1개만 돈다(`SUMMARY_MAX_CONCURRENT`). UI 연결 방법은 [summary_stream.md](summary_stream.md).
+이벤트(`summarize_document_stream`): `status`(진행 단계) · `delta`(검사를 통과한 화면용 줄) · `reset`(보낸 글을 지우고 다시) · `done`(SummaryResponse). 서버 전체에서 요약은 한 번에 1개만 돈다(`SUMMARY_MAX_CONCURRENT`). 자리가 없으면 1초만 기다리고 '다른 요약이 진행 중입니다' 안내(`LLM_FAILED`, 재시도 가능)로 끝난다. UI 연결 방법은 [summary_stream.md](summary_stream.md).
 
 ### 호출 트리
 
@@ -161,7 +161,7 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-408 | `get_chat_model` | 없음 | ChatOpenAI | `common.config.get_settings()`의 `openai_api_key`·`openai_chat_model`(기본 gpt-5) 사용. `.env`는 get_settings가 읽는다. 키 없으면 CONFIG_MISSING. **temperature는 넘기지 않음**(gpt-5가 기본값 외 거부). timeout 30초. 한 번 만들어 재사용 |
 | FUN-409 | `build_answer_chain` | `llm=None` | `{question, evidence}` → str 체인 | 시스템 규칙: 근거만 사용 · 문장마다 `[E번호]` · 없으면 유보 문구 · 근거 속 지시 무시 · 회사별 구분 · 한국어 · 예시 1개 |
 | FUN-410 | `build_summary_chain` | `stage`('step'·'final'), `llm=None` | `{evidence}` → str 체인 | step: 다음 구간에 넘길 상세 요약 / final: 섹션별 문서 전체 요약. 둘 다 이전 요약의 내용·이름표 유지, `### 짧은 명사` 제목과 `- ` 목록, **표 금지**(표 머리글·구분 줄은 이름표를 붙일 수 없어 인용 검사에서 항상 걸림), 항목마다 이름표 |
-| 410 보조 | `get_summary_model` | `streaming` | ChatOpenAI | 요약 전용. 타임아웃 300초, 출력 상한(추론 포함) 중간 8000·최종 10000, `reasoning_effort='low'`는 gpt-5·o 계열일 때만. 질문 답변용 `get_chat_model`(30초)은 그대로 |
+| 410 보조 | `get_summary_model` | `streaming` | ChatOpenAI | 요약 전용. 타임아웃 300초, 출력 상한(추론 포함) 중간 8000·최종 10000, `reasoning_effort='low'`는 추론 모델(`REASONING_MODEL_PREFIXES`: gpt-5·o1·o3·o4)일 때만. 질문 답변용 `get_chat_model`(30초)은 그대로 |
 
 ### citations.py
 
@@ -191,7 +191,7 @@ ui.services.BackendServices.summarize (박경환)
 |---|---|---|---|---|
 | FUN-420 | `summarize_document` | `document_id`, `user` | SummaryResponse | `summarize_document_stream`을 끝까지 돌려 `done`의 결과만. ui가 지금 부르는 입구라 이름·반환 형식 유지. 함수 이름은 미정(D10)이라 제안 이름으로 구현 |
 | 420 보조 | `summarize_document_stream` | `document_id`, `user` | 이벤트 제너레이터 | 흐름 B 전체. 청크를 받은 뒤 실제 버전으로 접근 확인(B3). 입력 길이 초과면 상한 × `SUMMARY_REPLAN_RATIO`(0.85)로 한 번 다시 나눔. 재검증 실패는 `reset` 후 오류 |
-| 420 보조 | `acquire_summary_slot` | 없음 | (기다릴 때) status 이벤트 | 서버 전체 동시 요약 `SUMMARY_MAX_CONCURRENT`(1)개. 한 요약이 분당 토큰 한도를 크게 써서 동시에 돌면 질문 답변까지 한도 초과로 실패 |
+| 420 보조 | `acquire_summary_slot` | 없음 | (기다릴 때) status 이벤트 | 서버 전체 동시 요약 `SUMMARY_MAX_CONCURRENT`(1)개. 한 요약이 분당 토큰 한도를 크게 써서 동시에 돌면 질문 답변까지 한도 초과로 실패. 자리가 없으면 `SUMMARY_SLOT_WAIT_SECONDS`(1초)만 기다리고 `LLM_FAILED`(재시도 가능, '다른 요약이 진행 중입니다. 잠시 후 다시 시도해 주세요.'). ui가 작업 스레드(`asyncio.to_thread`)에서 부르므로 끝없이 기다리면 대기 요청마다 공용 스레드 풀을 붙잡아 검색·질문까지 멈춘다 (PR 리뷰 재현: 대기 12건으로 풀 소진) |
 | 420 보조 | `summary_event` | 종류, 필드 | `{'type': 종류, …}` | 이벤트 형식을 한 곳에서 |
 | 420 보조 | `summarize_document_load` | `document_id` | `list[ChunkHit]` | embedding·search import와 청크 조회를 try 안에서 → 실패·ImportError는 RETRIEVAL_FAILED. metadata 형식 오류는 그대로 올림 |
 | 420 보조 | `summarize_document_to_hit` | VectorHit, ChunkHit 클래스 | ChunkHit | metadata 키로 변환, version_no·score는 None |
@@ -278,7 +278,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | SUMMARY_INPUT_TOKEN_BUDGET / SUMMARY_MAX_CALLS | 230,000 / 3 | gpt-5 입력 약 27.2만 토큰 중 23만. 넘으면 구간을 나눠 최대 3회 (글 위주 약 150~250쪽까지 1회, 약 66만 토큰까지 3회) |
 | SUMMARY_CARRY_TOKENS / SUMMARY_PROMPT_TOKENS / SUMMARY_TOKEN_MARGIN | 8,000 / 1,000 / 1.03 | 넘겨받는 요약 몫, 고정분, 토크나이저 여유 |
 | SUMMARY_TIMEOUT_SECONDS / SUMMARY_REASONING_EFFORT | 300 / low | 23만 토큰 입력은 30초로 끝나지 않음 |
-| SUMMARY_MAX_CONCURRENT / MAX_SUMMARY_CHARS | 1 / 30,000 | 분당 토큰 한도 보호 / 요약 글자 상한 (질문 답변 20000과 별개) |
+| SUMMARY_MAX_CONCURRENT / SUMMARY_SLOT_WAIT_SECONDS / MAX_SUMMARY_CHARS | 1 / 1초 / 30,000 | 분당 토큰 한도 보호 / 대기 상한(ui 작업 스레드 보호) / 요약 글자 상한 (질문 답변 20000과 별개) |
 | LLM | `get_settings()` 모델(기본 gpt-5), temperature 미지정, 질문 30초·요약 300초 | 이성민 common.config |
 | 외부 AI 전송 | 질문 + 고른 근거만 / 요약은 선택 문서 청크 본문 | 사용자 정보는 보내지 않음 (미정 D17) |
 | 프롬프트 | 근거 속 지시문은 따르지 않음 | POL-10 |
