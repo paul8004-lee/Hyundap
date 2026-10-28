@@ -94,7 +94,8 @@ def load_docx(file_path, upload_info):
     """DOCX 본문을 순서대로 읽어 제목 스타일마다 새 섹션으로 나눈다."""
     try:
         docx_file = DocxDocument(file_path)
-    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError, zlib.error):
+    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError, zlib.error, AttributeError):
+        # AttributeError: [Content_Types].xml만 있고 본문이 없는 zip을 python-docx가 읽다가 내는 예외 (#198)
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))

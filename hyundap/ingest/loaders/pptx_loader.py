@@ -85,7 +85,8 @@ def load_pptx(file_path, upload_info):
     """PPTX 슬라이드를 차례로 읽어 슬라이드마다 섹션 1개로 만든다."""
     try:
         presentation = Presentation(file_path)
-    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError, zlib.error):   # 괄호 () 중 하나면 같은 처리를 한다.
+    except (PackageNotFoundError, BadZipFile, KeyError, XMLSyntaxError, zlib.error, AttributeError):   # 괄호 () 중 하나면 같은 처리를 한다.
+        # AttributeError: [Content_Types].xml만 있고 본문이 없는 zip을 python-pptx가 읽다가 내는 예외 (#198)
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))

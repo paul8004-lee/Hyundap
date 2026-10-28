@@ -20,8 +20,11 @@ from pptx import Presentation
 from pptx.util import Inches
 
 from hyundap.ingest.loaders.base import table_to_text
+from hyundap.ingest.loaders.docx_loader import load_docx
 from hyundap.ingest.loaders.pdf_loader import load_pdf
-from hyundap.ingest.models import (CORRUPTED_FILE, UNSUPPORTED_FORMAT, IngestError)
+from hyundap.ingest.loaders.pptx_loader import load_pptx
+from hyundap.ingest import validator
+from hyundap.ingest.models import (CORRUPTED_FILE, ENCRYPTED_FILE, LEGACY_FORMAT, UNSUPPORTED_FORMAT, IngestError)
 from hyundap.ingest.normalizer import normalize_text
 from hyundap.ingest.pipeline import ingest_document
 
@@ -85,6 +88,16 @@ class CorruptedFileTests(IngestTestCase):
         with patch.object(zipfile.ZipFile, 'testzip', side_effect=zlib.error('invalid distance')):
             result = self.ingest('a.pptx')
         self.assertEqual((result.status, result.error_code), ('failed', CORRUPTED_FILE))
+
+    def test_loaders_turn_bodyless_package_into_corrupted(self):
+        """[Content_Types].xml만 있는 zip을 로더에 직접 넣어도 AttributeError 대신 CORRUPTED_FILE이 되는지 확인한다 (#198)."""
+        for name, loader in (('no_body.docx', load_docx), ('no_body.pptx', load_pptx)):
+            with zipfile.ZipFile(self.path(name), 'w') as archive:
+                archive.writestr('[Content_Types].xml', '<Types/>')
+            with self.subTest(name=name):
+                with self.assertRaises(IngestError) as caught:
+                    loader(self.path(name), dict(INFO))
+                self.assertEqual(caught.exception.code, CORRUPTED_FILE)
 
     def test_pdf_parse_errors_are_corrupted(self):
         """pypdf가 깨진 PDF에서 내는 예외들이 CORRUPTED_FILE이 되는지 확인한다."""
