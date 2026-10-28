@@ -1,0 +1,96 @@
+{
+  "run_at": "20261028-1121",
+  "categories": [
+    "exception"
+  ],
+  "results": [
+    {
+      "id": "E1",
+      "category": "exception",
+      "title": "중간이 잘린 PDF",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요. (기대 ['CORRUPTED_FILE'])",
+      "seconds": 35.6
+    },
+    {
+      "id": "E2",
+      "category": "exception",
+      "title": "암호 PDF",
+      "verdict": "PASS",
+      "note": "ENCRYPTED_FILE: 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. (기대 ['ENCRYPTED_FILE'])",
+      "seconds": 19.8
+    },
+    {
+      "id": "E3",
+      "category": "exception",
+      "title": "암호 PPTX",
+      "verdict": "PASS",
+      "note": "ENCRYPTED_FILE: 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. (기대 ['ENCRYPTED_FILE'])",
+      "seconds": 19.8
+    },
+    {
+      "id": "E4",
+      "category": "exception",
+      "title": "손상된 PPTX",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요. (기대 ['CORRUPTED_FILE'])",
+      "seconds": 19.9
+    },
+    {
+      "id": "E5",
+      "category": "exception",
+      "title": "글자 없는 스캔 PDF",
+      "verdict": "PASS",
+      "note": "EMPTY_DOCUMENT: 문서에서 글자를 읽을 수 없습니다. 스캔한 이미지 문서는 지원하지 않습니다. (기대 ['EMPTY_DOCUMENT'])",
+      "seconds": 22.1
+    },
+    {
+      "id": "E6",
+      "category": "exception",
+      "title": "0바이트 DOCX",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 비어 있는 파일(0바이트)은 업로드할 수 없습니다. (기대 ['CORRUPTED_FILE', 'EMPTY_FILE'])",
+      "seconds": 2.4
+    },
+    {
+      "id": "E7",
+      "category": "exception",
+      "title": "지원하지 않는 형식(.txt)",
+      "verdict": "PASS",
+      "note": "UNSUPPORTED_FORMAT: PDF, DOCX, PPTX 파일만 업로드할 수 있습니다. (기대 ['UNSUPPORTED_FORMAT'])",
+      "seconds": 2.5
+    },
+    {
+      "id": "E8",
+      "category": "exception",
+      "title": "구형 .doc를 .docx로 바꾼 파일",
+      "verdict": "FAIL",
+      "note": "ENCRYPTED_FILE: 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. (기대 ['LEGACY_FORMAT', 'UNSUPPORTED_FORMAT'])",
+      "seconds": 19.6
+    },
+    {
+      "id": "E9",
+      "category": "exception",
+      "title": "PDF를 .docx로 바꾼 파일",
+      "verdict": "PASS",
+      "note": "UNSUPPORTED_FORMAT: PDF, DOCX, PPTX 파일만 업로드할 수 있습니다. (기대 ['CORRUPTED_FILE', 'UNSUPPORTED_FORMAT'])",
+      "seconds": 20.7
+    },
+    {
+      "id": "E10",
+      "category": "exception",
+      "title": "본문 XML이 없는 DOCX",
+      "verdict": "PASS",
+      "note": "CORRUPTED_FILE: 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인해 주세요. (기대 ['CORRUPTED_FILE'])",
+      "seconds": 20.0
+    },
+    {
+      "id": "E11",
+      "category": "exception",
+      "title": "이미 올린 파일 다시 업로드",
+      "verdict": "PASS",
+      "note": "DUPLICATE_FILE: 같은 회사에 동일한 내용의 파일이 이미 등록되어 있습니다. (기대 ['DUPLICATE_FILE'])",
+      "seconds": 7.7
+    }
+  ]
+}
