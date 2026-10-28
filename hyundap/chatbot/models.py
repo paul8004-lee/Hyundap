@@ -19,6 +19,7 @@
     CLS-123 Citation
     CLS-124 ChatResponse
     CLS-125 SummaryResponse
+    SummaryPlan — 요약 구간 계획 (summary.plan_summary_segments 결과, 명세 밖 내부 자료형)
 
 결과·필터 클래스 4개는 chatbot만 만들고 쓰므로 common이 아니라 이 파일에 둔다 (D04, 이성민 결정 10/26).
 다른 폴더에서는 `from hyundap.chatbot.models import ChatFilters`처럼 가져온다.
@@ -90,6 +91,16 @@ class SummaryResponse:
     is_full: bool = True
     total_chunks: int = 0
     used_chunks: int = 0
+    cited_ratio: float = 0.0  # 사용 청크 중 인용된 비율 (명세 밖 추가 필드, ui는 읽지 않아도 된다)
+
+
+
+@dataclass
+class SummaryPlan:
+    """요약 구간 계획. segments는 차례로 요약할 청크 묶음(최대 SUMMARY_MAX_CALLS개), excluded는 예산을 넘어 뺀 청크."""
+    segments: list = field(default_factory=list)
+    excluded: list = field(default_factory=list)
+    total_tokens: int = 0
 
 
 def to_feedback(error):

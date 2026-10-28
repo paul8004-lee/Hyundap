@@ -12,6 +12,7 @@
         validate_citations_aliases — 이름표 유무와 준 적 없는 이름표를 검사한다.
         validate_citations_line — 줄 1개의 문장마다 이름표가 있는지 검사한다.
         validate_citations_heading — 줄 전체가 마크다운 제목('### A사'·'**A사**')인지 판정한다.
+        check_line_aliases — 줄 1개에 준 적 없는 이름표가 있는지 검사한다 (요약 스트리밍용).
         validate_citations_split — 줄을 문장으로 나눈다.
         validate_citations_exempt — 이름표 검사를 통과하는 문장인지 판정한다.
     FUN-415 build_citation — 원본 문서·버전·위치에 연결되는 출처를 만든다.
@@ -19,6 +20,9 @@
     FUN-417 format_source_label — 회사·파일·위치를 읽기 쉬운 출처 문구로 만든다.
     FUN-418 render_answer — 내부 인용 표기를 화면용 답변으로 바꾼다.
     FUN-419 group_citations_by_company — 출처를 회사별로 묶는다.
+
+자료형:
+    AliasLineRenderer — 검사를 통과한 줄의 [E3]을 등장 순 번호로 바꾼다 (요약 스트리밍용, render_answer와 같은 번호 규칙).
 
 근거(hit)는 search.models.ChunkHit 형식이다 (chunk_id, document_id, version_id, version_no,
 company_id, company_name, doc_type, file_name, section_no, location_label, chunk_index, text, score).
@@ -36,6 +40,8 @@ LEADING_ALIASES = re.compile(r'(?:\[E\d+\]\s*)+[.!?]?\s*')
 # 줄 전체가 마크다운 제목인 경우: '### 제목' / '**제목**' / '__제목__' (뒤에 ':' 하나는 허용)
 HEADING_LINE = re.compile(r'#{1,6}\s+(.+?)\s*:?|\*\*([^*]+)\*\*\s*:?|__([^_]+)__\s*:?')
 HEADING_MAX_CHARS = 40
+# 제목이 이 끝말로 끝나면 문장으로 본다. '개요'·'중요'처럼 '요'로 끝나는 명사는 통과시킨다
+HEADING_SENTENCE_ENDINGS = ('.', '!', '?', '다', '니다', '세요', '해요', '어요', '아요', '에요', '예요', '네요', '죠')
 # version_id는 필수로 두지 않는다: 공유 DB는 아직 스키마 v3라 문서 버전이 없어 빈 값이 올 수 있다 (v4 적용 후 재검토)
 REQUIRED_FIELDS = ('company_name', 'file_name', 'document_id', 'location_label')
 
@@ -114,13 +120,14 @@ def validate_citations_line(line):
 def validate_citations_heading(line):
     """받는 것: 답변 1줄 / 돌려주는 것: 마크다운 제목 줄이면 True
     '### 현대경제연구원', '**현대경제연구원**', '__A사__:'처럼 줄 전체가 제목인 경우만 본다.
-    문장처럼 끝나거나(. ! ? 또는 '다'·'요') HEADING_MAX_CHARS(40자)를 넘으면 제목으로 보지 않아,
+    문장처럼 끝나거나(HEADING_SENTENCE_ENDINGS: . ! ? 다 니다 세요 해요 …) HEADING_MAX_CHARS(40자)를 넘으면 제목으로 보지 않아,
+    ('개요'·'중요'·'필요'처럼 '요'로 끝나는 명사 제목은 통과한다)
     굵게 쓴 무인용 문장('**기한은 6 업무시간입니다**')이 검사를 빠져나가지 못한다."""
     match = HEADING_LINE.fullmatch(line.strip())
     if not match:
         return False
     title = (match.group(1) or match.group(2) or match.group(3)).strip()
-    return (0 < len(title) <= HEADING_MAX_CHARS and not title.endswith(('.', '!', '?', '다', '요'))
+    return (0 < len(title) <= HEADING_MAX_CHARS and not title.endswith(HEADING_SENTENCE_ENDINGS)
             and not ALIAS_PATTERN.search(title))
 
 
@@ -179,3 +186,19 @@ def group_citations_by_company(citations):
     for citation in citations:
         groups.setdefault(citation.company_name, []).append(citation)
     return groups
+
+
+def check_line_aliases(line, aliases):
+    """받는 것: 답변 1줄, 허용 이름표 / 돌려주는 것: 없음 (준 적 없는 이름표가 있으면 INVALID_CITATION)"""
+    if any(alias not in aliases for alias in ALIAS_PATTERN.findall(line)):
+        raise ChatbotError('INVALID_CITATION')
+
+
+class AliasLineRenderer:
+    """검사를 통과한 줄의 [E12]를 처음 나온 순서대로 [1]로 바꾼다 (render_answer와 같은 번호 규칙)."""
+
+    def __init__(self):
+        self.numbers = {}
+
+    def render(self, line):
+        return ALIAS_PATTERN.sub(lambda m: f'[{self.numbers.setdefault(m.group(1), len(self.numbers) + 1)}]', line)

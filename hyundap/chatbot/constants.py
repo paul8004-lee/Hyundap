@@ -14,9 +14,22 @@ MAX_QUESTION_CHARS = 2000    # embedding.embed_query·search 검색어와 같은
 MAX_ANSWER_CHARS = 20000
 EXCERPT_MAX_CHARS = 300      # 출처 발췌 길이 (search 화면 발췌 200자와는 별개)
 
-# 요약 (미정 D10)
-SUMMARY_BATCH_SIZE = 8
-MAX_SUMMARY_CHUNKS = 64
+# 요약: 구간별 직렬 요약 (gpt-5 입력 약 27.2만 토큰 중 23만까지 쓴다)
+SUMMARY_INPUT_TOKEN_BUDGET = 230_000   # 한 호출 입력 상한 (프롬프트 전체 기준)
+SUMMARY_CARRY_TOKENS = 8_000           # 다음 구간에 넘기는 이전 요약 몫
+SUMMARY_PROMPT_TOKENS = 1_000          # 시스템 프롬프트·형식 고정분
+SUMMARY_MAX_CALLS = 3                  # 문서 1개 요약의 LLM 호출 상한 (= 최대 구간 수)
+SUMMARY_TOKEN_MARGIN = 1.03            # 토크나이저 차이·메시지 형식 토큰 여유
+SUMMARY_REPLAN_RATIO = 0.85            # 입력 길이 초과로 거절되면 단계 상한을 이만큼 줄여 다시 나눈다
+SUMMARY_MAX_CONCURRENT = 1             # 서버 전체 동시 요약 수 (분당 토큰 한도 보호)
+SUMMARY_SLOT_WAIT_SECONDS = 1          # 자리가 없을 때 기다리는 최대 시간. 지나면 '진행 중' 안내 (ui 작업 스레드를 붙잡는 시간 상한)
+SUMMARY_BUSY_MESSAGE = '다른 요약이 진행 중입니다. 잠시 후 다시 시도해 주세요.'
+MAX_SUMMARY_CHARS = 30_000             # 요약 글자 상한 (질문 답변 MAX_ANSWER_CHARS와 별개)
+# 요약 LLM: 큰 입력이라 질문 답변(30초)과 따로 둔다
+SUMMARY_TIMEOUT_SECONDS = 300
+SUMMARY_REASONING_EFFORT = 'low'       # gpt-5·o 계열에만 넘긴다
+SUMMARY_STEP_OUTPUT_TOKENS = 8_000     # 중간 요약 출력 상한 (추론 토큰 포함)
+SUMMARY_FINAL_OUTPUT_TOKENS = 10_000   # 최종 요약 출력 상한 (추론 토큰 포함)
 
 # LLM: 모델명·API 키는 common.config.get_settings()가 정한다 (기본 gpt-5)
 LLM_TIMEOUT_SECONDS = 30
