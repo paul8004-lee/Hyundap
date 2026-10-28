@@ -19,8 +19,8 @@
       <img src="images/avatar_0.png" width="130" alt="이성민" /><br>
       <h2>이성민</h2>
       <h3>팀장</h3>
-      <b>맡은 일</b> 일정·통합 관리, 공통 설정·스키마, 테스트·QA<br>
-      <b>담당 폴더</b> <code>common/</code> · <code>tests/</code><br>
+      <b>맡은 일</b> 일정·통합 관리, 공통 설정·스키마, 로그인·계정, 테스트·QA<br>
+      <b>담당 폴더</b> <code>common/</code> · <code>auth/</code> · <code>tests/</code><br>
       <a href="https://github.com/paul8004-lee">@paul8004-lee</a>
     </td>
   </tr>
@@ -28,8 +28,8 @@
     <td align="center" width="33%">
       <img src="images/avatar_1.png" width="110" alt="전재경" /><br>
       <h2>전재경</h2>
-      <b>맡은 일</b> DB 설계·저장, 로그인·권한<br>
-      <b>담당 폴더</b> <code>db/</code> · <code>auth/</code><br>
+      <b>맡은 일</b> DB 설계·저장, 회사 권한 확인<br>
+      <b>담당 폴더</b> <code>db/</code><br>
       <a href="https://github.com/wjsworud1025">@wjsworud1025</a>
     </td>
     <td align="center" width="33%">
@@ -132,7 +132,7 @@
 | 폴더 | 역할 | 담당 |
 |---|---|---|
 | `hyundap/app.py`, `hyundap/ui/` | Gradio 화면, 화면과 백엔드 함수 연결 | 박경환 |
-| `hyundap/auth/` | 로그인, 세션, 계정 생성, 회사 권한 확인 | 전재경 |
+| `hyundap/auth/` | 로그인, 세션, 계정 생성, 회사 권한 확인 | 이성민 |
 | `hyundap/db/` | MySQL 저장 구조, 업로드 처리 흐름, 문서 버전 | 전재경 |
 | `hyundap/ingest/` | 파일 검증, 본문 추출, 청크 분할 | 김혜리 |
 | `hyundap/embedding/` | OpenAI 임베딩, Chroma 벡터 저장소 | 박영준 |
