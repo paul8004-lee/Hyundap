@@ -19,6 +19,8 @@ from hyundap.common.config import get_settings
 from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
 from .errors import DbError
 from .processing import processing_lock
+from .classification import (validate_auto_request, decision_fields, reusable_classification,
+                             CLASSIFICATION_FIELDS)
 from .runtime import require_id, transaction
 
 
@@ -118,6 +120,24 @@ def failure_code(error):
     return 'PROCESSING_FAILED'
 
 
+def upload_result(ids, *, connection=None, **status):
+    """이번 시도의 수집 성공 정보만 반환한다. 실패 시 유형은 공개값이 아닌 후보값이다."""
+    with transaction(connection) as database:
+        _, reports = version_service.read_job(database, ids['version_id'])
+        document, _ = version_service.read_candidate(database, ids['document_id'], ids['version_id'])
+    result = dict(ids, **status)
+    ingest = reports.get('ingest', {})
+    if ingest.get('status') == 'success':
+        decision = decision_fields(ingest)
+        if not decision and not reports.get('_auto_classify'):
+            decision = dict(doc_type=document['doc_type'], doc_type_fallback=False, doc_type_fallback_reason=None)
+        result.update(decision)
+        for key in CLASSIFICATION_FIELDS:
+            if key in ingest:
+                result[key] = ingest[key]
+    return result
+
+
 def record_upload_failure(ids, stage, error, backend):
     """게시 미완료는 복구에 맡기고, 비활성 처리 후보만 실패 기록·벡터 정리한다."""
     code = failure_code(error)
@@ -128,9 +148,9 @@ def record_upload_failure(ids, stage, error, backend):
             job, reports = version_service.read_job(database, ids['version_id'], lock=True)
             phase = reports.get('_publication', {}).get('phase')
             if phase in version_service.PENDING_PHASES or document['active_version_id'] == ids['version_id']:
-                return dict(ids, status='failed', error_code='RECOVERY_REQUIRED', recovery_required=True)
+                return upload_result(ids, connection=database, status='failed', error_code='RECOVERY_REQUIRED', recovery_required=True)
             if phase == 'restored':
-                return dict(ids, status='failed', error_code=code, recovery_required=False)
+                return upload_result(ids, connection=database, status='failed', error_code=code, recovery_required=False)
         stage_status = reports.get(stage, {}).get('status')
         if stage_status not in ('partial', 'failed'):
             jobs_repo.record_stage_result(ids['job_id'], {'stage': stage, 'status': 'failed', 'error_code': code})
@@ -148,7 +168,7 @@ def record_upload_failure(ids, stage, error, backend):
             reports['_cleanup_pending'] = cleanup_pending
             database.execute(text('UPDATE index_jobs SET report=:report,error_code=:code WHERE id=:id'),
                              {'report': json.dumps(reports, ensure_ascii=False), 'code': code, 'id': job['id']})
-        return dict(ids, status='failed', error_code=code, recovery_required=cleanup_pending)
+        return upload_result(ids, status='failed', error_code=code, recovery_required=cleanup_pending)
 
 
 def resolve_stored_source(source, root):
@@ -203,14 +223,18 @@ def read_attempt_source(ids):
         'doc_type': document['doc_type'],
         'file_name': version['file_name'],
     }
+    if reports.get('_auto_classify'):
+        info['_auto_classify'] = True
+        info['_classification'] = reusable_classification(reports)
     return source, info, version['sha256']
 
 
-def save_ingest_chunks(ids, company_id, result):
+def save_ingest_chunks(ids, company_id, result, *, automatic=False):
     """성공한 수집 결과의 청크를 검사·기록하고 원래 청크 목록을 반환한다.
 
     DB에는 식별자·순번·본문 해시만 저장한다. 임베딩에 넘길 원래 청크 객체는 유지한다.
     """
+    decision = decision_fields(version_service.as_mapping(result.get('report') or {}), required=automatic)
     chunks = result.get('chunks')
     if not isinstance(chunks, list) or not chunks:
         raise DbError('INVALID_INPUT')
@@ -225,6 +249,8 @@ def save_ingest_chunks(ids, company_id, result):
         if chunk_data.get('version_id') != ids['version_id']:
             raise DbError('INVALID_INPUT')
         if chunk_data.get('company_id') != company_id:
+            raise DbError('INVALID_INPUT')
+        if automatic and chunk_data.get('doc_type') != decision['doc_type']:
             raise DbError('INVALID_INPUT')
         if not isinstance(chunk_data.get('text'), str):
             raise DbError('INVALID_INPUT')
@@ -288,11 +314,25 @@ def ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None):
     # 자동 분류는 설정에서 켜고 수집기가 해당 인자를 지원할 때만 요청한다.
     if 'classify' in parameters and get_settings().doc_classify:
         kwargs['classify'] = True
-    raw_result = version_service.call_external(ingest_function, str(source), info, **kwargs)
+    automatic = info.get('_auto_classify', False)
+    if automatic:
+        if not {'apply_classification', 'classification'} <= parameters.keys():
+            raise DbError('INTEGRATION_UNAVAILABLE')
+        previous = info.get('_classification')
+        if previous is None and not get_settings().doc_classify:
+            raise DbError('INVALID_STATE')
+        kwargs.update(apply_classification=True, classification=previous)
+    public_info = {key: value for key, value in info.items() if not key.startswith('_')}
+    raw_result = version_service.call_external(ingest_function, str(source), public_info, **kwargs)
     result = version_service.as_mapping(raw_result)
     if result.get('status') != 'success':
         return None, failure_code(result.get('error_code'))
-    chunks = save_ingest_chunks(ids, info['company_id'], result)
+    if automatic and info.get('_classification') is not None:
+        # 이미 저장한 후보 결정값을 재사용했는지 확인한다.
+        old = decision_fields(info['_classification'], required=True)
+        if decision_fields(version_service.as_mapping(result.get('report') or {}), required=True) != old:
+            raise DbError('CONFLICT')
+    chunks = save_ingest_chunks(ids, info['company_id'], result, automatic=automatic)
     return chunks, None
 
 
@@ -342,13 +382,20 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
         stage = 'publish'
         version_service.publish_version(
             actor, ids['document_id'], ids['version_id'], expected_active_id, embedding=backend)
-        return dict(ids, status='success', error_code=None, recovery_required=False)
     except (DbError, OSError) as error:
         return record_upload_failure(ids, stage, error, backend)
     except Exception as error:
         # 예상하지 못한 코드 오류도 실패 원장을 남긴 뒤 호출자에게 다시 전달한다.
         record_upload_failure(ids, stage, error, backend)
         raise
+
+    # 게시 성공은 이미 확정됐다. 화면용 부가 정보를 읽지 못해도 실패 기록이나
+    # 벡터 정리를 다시 실행하지 않는다. ID와 성공 상태는 그대로 반환한다.
+    success = dict(ids, status='success', error_code=None, recovery_required=False)
+    try:
+        return upload_result(ids, status='success', error_code=None, recovery_required=False)
+    except DbError:
+        return success
 
 
 def prepare_upload_source(source_path, metadata, upload_dir):
@@ -406,7 +453,7 @@ def create_upload_candidate(actor, company_id, values, source, root):
         )
         database.execute(
             text('UPDATE index_jobs SET attempts=1,report=:report WHERE id=:id'),
-            {'id': ids['job_id'], 'report': json.dumps({'_upload_root': str(root)})},
+            {'id': ids['job_id'], 'report': json.dumps(dict({'_upload_root': str(root)}, **({'_auto_classify': True} if values.get('auto_classify') else {})))},
         )
     return ids, expected_active_id, destination
 
@@ -420,6 +467,9 @@ def upload_document(actor, source_path, metadata, *, ingest_document=None, embed
     """
     # 회사와 관리자 권한을 확인한 후 원본 준비와 후보 생성을 진행한다.
     if not isinstance(metadata, dict):
+        raise DbError('INVALID_INPUT')
+    automatic = validate_auto_request(metadata)
+    if automatic and not get_settings().doc_classify:
         raise DbError('INVALID_INPUT')
     company_id = require_id(metadata.get('company_id'))
     with processing_lock(), WORKFLOW_LOCK:
@@ -467,6 +517,8 @@ def prepare_retry(actor, version_id):
     with transaction() as database:
         document, version, job, reports = read_retry_records(database, actor, version_id)
         check_retry_allowed(document, version, reports)
+        if reports.get('_auto_classify') and reusable_classification(reports) is None and not get_settings().doc_classify:
+            raise DbError('INVALID_STATE')
         version_service.ensure_no_pending_publication(database, document['id'])
         upload_root = Path(reports.get('_upload_root', ''))
         stored_source = Path(version['storage_path'])
@@ -521,7 +573,10 @@ def build_retry_report(root, reports):
     for key, value in reports.items():
         if key != '_attempts':
             latest_attempt[key] = value
-    return {'_upload_root': str(root), '_attempts': previous_attempts + [latest_attempt]}
+    result = {'_upload_root': str(root), '_attempts': previous_attempts + [latest_attempt]}
+    if reports.get('_auto_classify'):
+        result['_auto_classify'] = True
+    return result
 
 
 def reset_retry_records(database, version_id, job_id, report):
