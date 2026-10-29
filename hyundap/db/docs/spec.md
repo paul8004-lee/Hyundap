@@ -232,6 +232,18 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 
 수동 API/UI 스크립트는 tests/smoke에 두며 Gradio는 수동 main에서만 import한다. 최종 검증 결과와 인증 PR #167 대조 범위는 [리팩토링 검증 보고서](../../../docs/db-design/V4_REFACTOR_VALIDATION.md)에 기록한다. Railway DB는 변경하지 않았다.
 
+## #247 원본 다운로드
+
+`download_service.prepare_original_download`는 활성 운영 버전만 현재 세션 권한으로
+확인하고 원본 해시·크기를 검사한 임시 사본을 만든다. 호출자는 반환된 temporary를 cleanup한다.
+보조 함수 `read_download_source`는 복사 전후 권한·활성 버전·원본 정보를 다시 확인한다.
+`source_files`는 기존 원본 저장의 범용 함수 소속이며 upload_service의 기존 import 경로도 유지한다.
+
+UI 전송은 HttpOnly 브라우저 쿠키에 묶인 60초·1회 티켓을 사용하고, 전송 시 서비스를
+다시 호출해 현재 세션과 문서 접근을 확인한다. 원본 경로를 gr.File 공개 캐시에 올리지 않는다.
+프로세스 메모리 티켓이므로 단일 앱 프로세스 기준이다. 여러 서버로 확장하려면 공유 티켓 저장소가 필요하다.
+전송 시작 전 권한을 재검증하며 이미 전송한 바이트를 회수하는 기능은 제공하지 않는다.
+
 ## #248 동일 호스트 다중 프로세스 보호
 
 `processing.processing_lock()`은 설정의 UPLOAD_DIR 아래 고정 잠금 파일을 사용한다.

@@ -160,7 +160,10 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
         )
 
         def handler(action):
-            async def callback(session_key, *values):
+            async def callback(session_key, request: gr.Request, *values):
+                if action == 'login':
+                    from hyundap.ui.downloads import COOKIE
+                    controller.state(session_key).download_browser = request.cookies.get(COOKIE, '')
                 async for patch in controller.run(action, session_key, *values):
                     yield patch
             callback.__name__ = f"on_{action}"
@@ -237,9 +240,12 @@ def main():
         from hyundap.ui.backend_check import print_backend_status
         raise SystemExit(print_backend_status())
     demo = build_app(mode=args.mode)
+    from starlette.middleware import Middleware
+    from hyundap.ui.downloads import DownloadMiddleware
     from hyundap.ingest import ocr
     ocr.start_warm_up()   # OCR 엔진을 백그라운드에서 미리 불러온다(.env의 OCR_WARMUP=0이면 건너뜀). 첫 스캔 문서 업로드 지연을 줄인다.
-    demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024)
+    demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024,
+                app_kwargs={'middleware': [Middleware(DownloadMiddleware)]})
 
 
 if __name__ == "__main__":
