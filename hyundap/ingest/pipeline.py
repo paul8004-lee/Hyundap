@@ -8,6 +8,7 @@
     FUN-219 build_ingest_report — 사용한 파서·청킹 설정·경고·구간/조각 수를 보고서로 구성한다.
     classify_normalized — (업로드에서 classify=True일 때) 정규화된 문서를 챗봇 분류기로 분류해 보고서 값을 만든다."""
 
+import logging
 import os
 from importlib.metadata import version
 
@@ -30,6 +31,8 @@ from .validator import validate_upload
 PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
 # 품질 판단이 아닌 진단용 임시 기준: 공백 제외 20자 미만.
 SHORT_CHUNK_CHARS = 20
+
+logger = logging.getLogger(__name__)
 
 
 def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None, classify=False):
@@ -75,8 +78,13 @@ def classify_normalized(doc):
     try:
         from hyundap.chatbot.doc_classifier import classify_common_document
         result = classify_common_document(doc)
-    except Exception:
+    except Exception as error:
+        # 작업 기록에는 원인을 저장하지 않으므로 로그로 남긴다. 오류 문구에는 키 일부가 섞일 수 있어 예외 이름만 쓴다.
+        logger.warning("문서 자동 분류 실패: %s", type(error).__name__)
         return {"classify_status": "failed"}
+    if result.status != "success":
+        # 키 누락·모델 권한 문제 등으로 모든 업로드가 조용히 failed가 되지 않도록 원인(예외 이름)을 남긴다.
+        logger.warning("문서 자동 분류 실패: %s", result.detail or "원인 미상")
     return {
         "auto_doc_type": result.auto_doc_type,
         "doc_type_confidence": result.confidence,

@@ -89,7 +89,9 @@ def run_classification(result, file_name, company_name, texts):
         )
         auto_doc_type, confidence, company_match = read_classify_answers(decision)
     except Exception as error:
-        result.status, result.detail = 'failed', type(error).__name__
+        # 원인은 예외 이름만(챗봇 오류는 코드, 예: 키 없음 → CONFIG_MISSING). 오류 문구에는 키 일부가 섞일 수 있다
+        result.status = 'failed'
+        result.detail = error.code if isinstance(error, ChatbotError) else type(error).__name__
         return result
     result.auto_doc_type, result.confidence, result.company_match = auto_doc_type, confidence, company_match
     result.matches_admin_type = (auto_doc_type == result.admin_doc_type) if auto_doc_type else None

@@ -177,7 +177,7 @@ class Flow(Base):
         # classify_hits는 키 없음도 예외 대신 failed로 돌려준다
         with patch.object(doc_classifier, 'get_classify_client', side_effect=ChatbotError('CONFIG_MISSING')):
             result = doc_classifier.classify_hits([chunk_hit(0, '본문')])
-        self.assertEqual((result.status, result.detail), ('failed', 'ChatbotError'))
+        self.assertEqual((result.status, result.detail), ('failed', 'CONFIG_MISSING'))
 
     def test_same_version_uses_kept_result_but_rechecks_access(self):
         first, client, _ = self.run_classify(GOOD)
@@ -267,10 +267,28 @@ class UploadPath(Base):
         self.assertEqual({c.doc_type for c in classified.chunks}, {'manual'})
 
     def test_ingest_continues_when_classifier_breaks(self):
-        with patch.object(doc_classifier, 'classify_common_document', side_effect=RuntimeError('boom')):
+        with patch.object(doc_classifier, 'classify_common_document', side_effect=RuntimeError('boom sk-test-key')), \
+                self.assertLogs('hyundap.ingest.pipeline', 'WARNING') as logs:
             result = self.ingest(classify=True)
         self.assertEqual((result.status, result.report['classify_status']), ('success', 'failed'))
         self.assertNotIn('auto_doc_type', result.report)
+        # 실패 원인은 예외 이름만 로그에 남고, 오류 문구(키가 섞일 수 있음)는 남지 않는다
+        self.assertIn('RuntimeError', logs.output[0])
+        self.assertNotIn('sk-test-key', ''.join(logs.output))
+
+    def test_ingest_logs_cause_when_classification_fails(self):
+        # 키 누락·모델 권한 문제 등으로 분류기가 failed를 돌려주면 원인 이름을 로그로 남긴다
+        failed = DocClassification('d1', 'v1', 'manual', status='failed', detail='PermissionDeniedError')
+        with patch.object(doc_classifier, 'classify_common_document', return_value=failed), \
+                self.assertLogs('hyundap.ingest.pipeline', 'WARNING') as logs:
+            result = self.ingest(classify=True)
+        self.assertEqual((result.status, result.report['classify_status']), ('success', 'failed'))
+        self.assertIn('PermissionDeniedError', logs.output[0])
+        # 성공하면 경고를 남기지 않는다
+        good = DocClassification('d1', 'v1', 'manual', 'policy', 0.93, False, 'yes', 'success')
+        with patch.object(doc_classifier, 'classify_common_document', return_value=good), \
+                self.assertNoLogs('hyundap.ingest.pipeline', 'WARNING'):
+            self.ingest(classify=True)
 
     def test_upload_turns_on_classify_only_for_supporting_ingest(self):
         from hyundap.db import upload_service, version_service
