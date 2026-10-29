@@ -231,7 +231,7 @@ OpenAI Decisions API(`gpt-6-luna`)는 글 대신 보기 중 하나·확률로 �
 | FUN-430 | `build_classify_input` | 파일명, 본문 목록 | str | `파일명: …` + 앞쪽 본문 `CLASSIFY_SAMPLE_CHARS`(6000자)까지 (청크 경로는 chunk_index 순으로 넘김) |
 | FUN-431 | `build_classify_questions` | 업로드 회사명 | 질문 목록 | `doc_type`(choice, DOC_TYPES 4종)·회사명이 있으면 `company_named`·`company_match`(predicate) |
 | FUN-432 | `read_classify_answers` | Decisions 응답 | (유형, 확신도, 회사 일치) | 유형 답 없음·거부 → ValueError. 목록 밖 유형 → ('', 0.0). 회사명 기재 확률 0.5 이상일 때만 일치 확률 0.7 이상 yes, 0.3 이하 no |
-| FUN-433 | `get_classify_client` | 없음 | OpenAI 클라이언트 | 키는 `common.config.get_settings()`. 없으면 CONFIG_MISSING. 20초 제한·재시도 1번, 키마다 한 번만 생성 |
+| FUN-433 | `get_classify_client` | 없음 | OpenAI 클라이언트 | 키는 `common.config.get_settings()`. 없으면 CONFIG_MISSING. 10초 제한·재시도 없음, 키마다 한 번만 생성 |
 
 **DocClassification (CLS-126, models.py):** `document_id`, `version_id`, `admin_doc_type`(관리자 유형), `auto_doc_type`(manual·policy·guide·other·''), `confidence`(0~1), `matches_admin_type`(bool, 자동 유형이 비면 None), `company_match`('yes'·'no'·''), `status`('success'·'failed'), `detail`.
 

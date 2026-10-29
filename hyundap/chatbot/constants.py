@@ -70,8 +70,8 @@ SEARCH_ACCESS_CODES = ('ACCESS_DENIED', 'COMPANY_FORBIDDEN', 'NO_COMPANY_SCOPE')
 
 # 문서 자동 분류 (doc_classifier.py, 명세 밖 추가 기능). OpenAI Decisions API는 현재 gpt-6-luna만 지원한다
 CLASSIFY_MODEL = 'gpt-6-luna'
-CLASSIFY_TIMEOUT_SECONDS = 20          # 부를 때만 1번 호출하므로 질문 답변(30초)보다 짧게
-CLASSIFY_MAX_RETRIES = 1
+CLASSIFY_TIMEOUT_SECONDS = 10          # 업로드 중(WORKFLOW_LOCK 안)에도 불리므로 최악 대기를 약 10초로 묶는다
+CLASSIFY_MAX_RETRIES = 0               # 재시도하지 않는다. 실패해도 업로드는 계속되고 classify_status='failed'만 남는다
 CLASSIFY_SAMPLE_CHARS = 6000           # 분류에 보내는 앞쪽 본문 글자 수 상한 (긴 문서도 입력 크기 일정)
 CLASSIFY_COMPANY_NAMED_MIN = 0.5       # 본문에 회사명이 적혀 있을 확률이 이 값 이상일 때만 회사 일치를 판단한다
 CLASSIFY_MATCH_YES_MIN = 0.7           # 회사 일치 확률이 이상이면 'yes'

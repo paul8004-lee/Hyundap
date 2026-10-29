@@ -225,7 +225,7 @@ class Flow(Base):
             settings.return_value.openai_api_key = 'sk-test-key'
             client = doc_classifier.get_classify_client()
             self.assertIs(client, doc_classifier.get_classify_client())
-        self.assertEqual((client.timeout, client.max_retries), (20, 1))
+        self.assertEqual((client.timeout, client.max_retries), (10, 0))
         self.assertTrue(hasattr(client.decisions, 'create'))
 
 
