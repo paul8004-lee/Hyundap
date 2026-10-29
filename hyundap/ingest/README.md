@@ -19,6 +19,8 @@
 | ③ 글자 정리 | 한글 결합, 보이지 않는 글자 제거, 공백 정리 | `normalizer.py` |
 | ④ 청킹 | 약 1,000자씩 자름. 쪽·슬라이드 경계는 넘지 않음 | `chunker.py` |
 
+PDF는 글자를 꺼낸 직후(②) 3쪽 이상 맨 위에 반복되는 머리말·쪽 번호를 모든 쪽에서 빼고, 줄 끝에서 끊긴 한글 단어(줄 끝 공백 없음)는 이어 붙입니다(`loaders/pdf_loader.py`). 수식 폰트 등으로 깨진 글자는 지우지 않고 그대로 둡니다.
+
 각 청크에는 **회사 · 파일명 · 위치(p.3, 슬라이드 5 등)** 가 붙어서, 검색 결과의 출처 표시에 그대로 쓰입니다.
 
 이 폴더가 하지 **않는** 일: 파일 저장·DB 기록(`db/`), 임베딩·벡터 저장(`embedding/`), 화면(`ui/`), 로그인·권한(`auth/`).
@@ -75,6 +77,8 @@ else:
 | 입력 | 파일 경로, 업로드 정보 (`document_id, version_id, company_id, company_name, doc_type, file_name`) |
 | 출력 | `IngestResult` — `status`, `chunks`, `report`, `error_code`, `error_message` |
 | 청크 1개 | `chunk_id, document_id, version_id, company_id, company_name, doc_type, file_name, section_no, location_label, chunk_index, text` |
+
+자동 분류 업로드(`apply_classification=True`)에서는 분류로 정한 최종 유형이 모든 청크의 `doc_type`이 되고, 보고서(`report`)에 `doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`이 함께 담깁니다. 이 인자를 쓰지 않으면 지금까지와 같습니다.
 
 ## 오류 코드
 
