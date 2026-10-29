@@ -120,7 +120,7 @@ def failure_code(error):
 
 
 def upload_result(ids, *, connection=None, **status):
-    """?? ??? ?? ?? ??? ????. ?? ? ??? ???? ?? ?????."""
+    """이번 시도의 수집 성공 정보만 반환한다. 실패 시 유형은 공개값이 아닌 후보값이다."""
     with transaction(connection) as database:
         _, reports = version_service.read_job(database, ids['version_id'])
         document, _ = version_service.read_candidate(database, ids['document_id'], ids['version_id'])
@@ -327,7 +327,7 @@ def ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None):
     if result.get('status') != 'success':
         return None, failure_code(result.get('error_code'))
     if automatic and info.get('_classification') is not None:
-        # ????? ?? ?? ???? ?? ??? ??? ????.
+        # 이미 저장한 후보 결정값을 재사용했는지 확인한다.
         old = decision_fields(info['_classification'], required=True)
         if decision_fields(version_service.as_mapping(result.get('report') or {}), required=True) != old:
             raise DbError('CONFLICT')
