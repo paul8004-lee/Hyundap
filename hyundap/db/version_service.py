@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
 from .errors import DbError
-from .runtime import require_id, transaction, shared_table, split_layout
+from .runtime import require_id, transaction, shared_table, split_layout, isolated_company_connection
 from .tenancy import company_scope, company_for_reference, processing_lock, authorize_company
 from .sessions_repo import current_actor
 from . import jobs_repo
@@ -336,15 +336,41 @@ def ensure_no_pending_publication(database, document_id, *, except_job=None):
         raise DbError('CONFLICT')
 
 
+def company_is_active(database, company_id, *, lock=False):
+    """대상 회사의 활성 값을 반환한다. 조회 대상이 없으면 None이다.
+
+    lock=True는 현재 TX가 끝날 때까지 회사 행을 잠그라는 요청이다.
+    회사 계정은 공통 표를 직접 잠글 권한이 없어 전용 프로시저를 사용한다.
+    """
+    table = shared_table('companies', connection=database)
+    if lock and isolated_company_connection(database):
+        # 자기 회사만 보이는 VIEW에서 대상 소속을 확인한 뒤 그 회사의 잠금을 요청한다.
+        owner = database.execute(text(f'SELECT id FROM {table} WHERE id=:id'),
+                                 {'id': company_id}).scalar_one_or_none()
+        if owner is None:
+            return None
+        from .company_routines import lock_company_status
+        return lock_company_status(database)
+    # 공통 계정 또는 잠금 없는 조회에서는 SELECT를 사용한다.
+    suffix = ''
+    if lock:
+        suffix = ' FOR UPDATE'
+    return database.execute(text(f'SELECT is_active FROM {table} WHERE id=:id' + suffix),
+                            {'id': company_id}).scalar_one_or_none()
+
+
 def require_manager(actor, database, company_id):
     """현재 세션·관리자 역할·회사 권한을 확인한다. 입력 문맥의 역할은 신뢰하지 않는다."""
     # 세션을 다시 읽고 관리자 역할과 대상 회사의 활성 상태를 확인한다.
     current = current_actor(actor, connection=database, lock=True)
-    if (current['role'] not in ('platform_admin', 'company_admin')
-            or (current['role'] != 'platform_admin' and current['company_id'] != company_id)):
+    # 1. 직원은 회사가 같아도 관리 작업을 할 수 없다.
+    if current['role'] not in ('platform_admin', 'company_admin'):
         raise AccessError('ACCESS_DENIED')
-    active = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
-                              {'id': company_id}).scalar_one_or_none()
+    # 2. 회사 관리자는 자기 회사만, 플랫폼 관리자는 활성 회사 전체를 처리한다.
+    if current['role'] != 'platform_admin' and current['company_id'] != company_id:
+        raise AccessError('ACCESS_DENIED')
+    # 3. 역할이 허용돼도 비활성 회사에는 쓸 수 없다. 쓰기가 끝날 때까지 회사 행을 잠근다.
+    active = company_is_active(database, company_id, lock=True)
     if not active:
         raise AccessError('ACCESS_DENIED')
     return current
@@ -401,8 +427,7 @@ def check_publication_access(actor, document_id, candidate_id):
             raise AccessError('ACCESS_DENIED')
         if current['role'] != 'platform_admin' and current['company_id'] != document['company_id']:
             raise AccessError('ACCESS_DENIED')
-        active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id"),
-                                         {'id': document['company_id']}).scalar_one_or_none()
+        active_company = company_is_active(database, document['company_id'])
         if not active_company:
             raise AccessError('ACCESS_DENIED')
         return document['company_id']
@@ -416,8 +441,7 @@ def read_publishable_candidate(database, actor, document_id, candidate_id, compa
     """
     # 외부 검사 이후에도 권한, 문서 상태, 원장이 바뀌지 않았는지 다시 확인한다.
     current = current_actor(actor, connection=database, lock=True)
-    active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
-                                     {'id': company_id}).scalar_one_or_none()
+    active_company = company_is_active(database, company_id, lock=True)
     if not active_company:
         raise AccessError('ACCESS_DENIED')
     document, version = read_candidate(database, document_id, candidate_id, lock=True)
@@ -531,8 +555,7 @@ def finish_publication(document_id, candidate_id):
         document, version = read_candidate(database, document_id, candidate_id, lock=True)
         job, reports = read_job(database, candidate_id, lock=True)
         publication = reports.get('_publication', {})
-        active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id"),
-                                         {'id': document['company_id']}).scalar_one_or_none()
+        active_company = company_is_active(database, document['company_id'])
         if document['active_version_id'] != candidate_id or publication.get('phase') != 'pending_activation':
             raise DbError('RECOVERY_REQUIRED')
         if document['deleted_at'] is not None or document['publication_status'] != 'published':
@@ -583,8 +606,7 @@ def check_previous_version(database, document, document_id, previous_id):
     """
     # 이전 버전과 회사가 현재도 공개 가능한지 확인해 복구 대상을 결정한다.
     eligible = document['deleted_at'] is None and document['publication_status'] != 'blocked'
-    active_company = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id"),
-                                     {'id': document['company_id']}).scalar_one_or_none()
+    active_company = company_is_active(database, document['company_id'])
     eligible = eligible and bool(active_company)
     previous_count = None
     if previous_id is not None:

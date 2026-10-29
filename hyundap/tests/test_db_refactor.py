@@ -16,6 +16,19 @@ from hyundap.db.errors import DbError
 
 
 class RefactorBoundaryTests(unittest.TestCase):
+    def test_failure_code_precedence_preserves_explicit_invalid_values(self):
+        from hyundap.db.jobs_repo import normalize_report
+        failure = {'code': 'FILE_UNAVAILABLE', 'error_code': 'LEGACY_FORMAT', 'message': 'secret'}
+        report = {'stage': 'ingest', 'status': 'failed', 'failures': [failure]}
+        clean = normalize_report(report)
+        self.assertEqual(clean['failures'], [{'code': 'FILE_UNAVAILABLE'}])
+        self.assertEqual(failure['message'], 'secret')
+        fallback = normalize_report({'status': 'failed', 'failures': [{'error_code': 'LEGACY_FORMAT'}]})
+        self.assertEqual(fallback['failures'], [{'code': 'LEGACY_FORMAT'}])
+        for invalid in (None, '', False):
+            with self.subTest(invalid=invalid), self.assertRaises(DbError):
+                normalize_report({'status': 'failed', 'failures': [{'code': invalid, 'error_code': 'LEGACY_FORMAT'}]})
+
     def test_metadata_required_fields_precede_value_checks_and_preserve_input(self):
         metadata = {
             'company_id': 'company', 'file_name': 'sample.pdf',

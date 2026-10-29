@@ -35,6 +35,10 @@ def current_actor(actor, *, connection, lock=False):
     믿지 않고 DB 값을 사용한다. lock=True이면 호출자의 트랜잭션 안에서
     세션 → 사용자 → 회사 순서로 행을 잠가 검사 중 권한 변경을 막는다.
     """
+    from .runtime import isolated_company_connection
+    if isolated_company_connection(connection):
+        from .company_routines import authenticate_company_actor
+        return authenticate_company_actor(connection, actor, lock=lock)
     # 세션, 사용자, 회사 순서로 확인한 DB 값으로 현재 사용자 정보를 만든다.
     session_id, digest = _session_credentials(actor)
     # 1단계: 제출한 세션 ID와 토큰 해시가 유효한 세션 행과 일치하는지 확인한다.

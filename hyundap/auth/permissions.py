@@ -10,7 +10,7 @@ from hyundap.db.sessions_repo import current_actor
 
 def allowed_companies(current, *, connection):
     """재인증한 사용자 문맥으로 현재 유효한 회사 ID 집합을 반환하는 내부 함수."""
-    query = f"SELECT id FROM {shared_table('companies')} WHERE is_active=1"
+    query = f"SELECT id FROM {shared_table('companies', connection=connection)} WHERE is_active=1"
     values = {}
     if current['role'] != 'platform_admin':
         query += ' AND id=:company_id'

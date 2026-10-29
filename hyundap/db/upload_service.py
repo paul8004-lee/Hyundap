@@ -181,7 +181,7 @@ def read_attempt_source(ids):
             database, ids['document_id'], ids['version_id'])
         _, reports = version_service.read_job(database, ids['version_id'])
         company_name = database.execute(
-            text(f"SELECT name FROM {shared_table('companies')} WHERE id=:id"),
+            text(f"SELECT name FROM {shared_table('companies', connection=database)} WHERE id=:id"),
             {'id': document['company_id']},
         ).scalar_one()
 

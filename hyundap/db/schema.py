@@ -14,16 +14,20 @@ from .connection import create_db_engine
 DESIGN_DIR = Path(__file__).resolve().parents[2] / 'docs' / 'db-design'
 
 
-def _read_layout(connection):
+def _read_layout(connection, *, exclude_company_view=False):
     """버전 기록 전에도 컬럼·인덱스·FK·CHECK를 읽는다. 업무 행은 읽지 않는다."""
     # 업무 데이터 대신 DB 메타데이터를 읽어 테이블 구조를 모은다.
     tables = {}
-    column_rows = connection.execute(text('''
+    query = '''
         SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,CHARACTER_SET_NAME,
                COLLATION_NAME,GENERATION_EXPRESSION,COLUMN_DEFAULT,EXTRA
         FROM information_schema.columns WHERE table_schema=DATABASE()
-        ORDER BY TABLE_NAME,ORDINAL_POSITION
-    ''')).mappings()
+    '''
+    if exclude_company_view:
+        query += ''' AND NOT (TABLE_NAME='company_information' AND TABLE_NAME IN
+            (SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema=DATABASE() AND TABLE_TYPE='VIEW'))'''
+    query += ' ORDER BY TABLE_NAME,ORDINAL_POSITION'
+    column_rows = connection.execute(text(query)).mappings()
     # 첫 번째 반복은 컬럼 행마다 테이블 이름과 컬럼 이름으로 묶는다.
     # 예: tables['documents']['id']에 id 컬럼의 속성을 저장한다.
     for row in column_rows:

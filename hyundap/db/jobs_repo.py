@@ -163,7 +163,12 @@ def _failure_detail(failure):
     """실패 항목 하나에서 코드·청크 ID·재시도 여부만 새 dict로 반환한다."""
     # 실패 항목에서는 허용한 코드, 청크 ID, 재시도 여부만 가져온다.
     failure = _report_dict(failure)
-    failure_code = failure.get('code', failure.get('error_code'))
+    # code 키가 있으면 그 값을 우선한다. None/빈 값도 오류이므로 다른 코드로 대체하지 않는다.
+    # code 키 자체가 없을 때만 수집 모듈이 사용하는 error_code를 읽는다.
+    if 'code' in failure:
+        failure_code = failure['code']
+    else:
+        failure_code = failure.get('error_code')
     if not isinstance(failure_code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', failure_code):
         raise DbError('INVALID_INPUT')
     item = {'code': failure_code}

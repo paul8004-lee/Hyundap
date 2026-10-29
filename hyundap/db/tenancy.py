@@ -43,6 +43,9 @@ def company_for_reference(*, document_id=None, version_id=None, job_id=None, con
             clauses.append(name + '=:' + name)
     if not clauses:
         raise DbError('INVALID_INPUT')
+    if runtime.isolated_company_connection(connection):
+        from .company_routines import lookup_company_route
+        return lookup_company_route(connection, document_id, version_id, job_id)
     route_table = runtime.shared_table('document_routes')
     condition = ' AND '.join(clauses)
     query = text('SELECT DISTINCT company_id FROM ' + route_table + ' WHERE ' + condition)
@@ -60,6 +63,7 @@ def get_company_engine(company_id):
     등록 상태는 캐시하지 않으므로 중지한 회사는 기존 풀을 통해서도 새 요청을 열 수 없다.
     """
     company_id = runtime.require_id(company_id)
+    isolated_accounts = runtime.company_accounts_enabled()
     control = runtime.get_engine()
     with runtime.transaction(control=True) as database:
         row = database.execute(text('''
@@ -74,25 +78,37 @@ def get_company_engine(company_id):
         raise DbError('INVALID_STATE')
     # 공통 DB 연결·회사·등록 DB가 모두 같을 때만 같은 풀을 재사용한다.
     # 회사 ID만 키로 쓰면 다른 공통 DB의 동일 ID와 연결이 섞일 수 있다.
-    key = (control, company_id, name)
+    credential_settings = None
+    if isolated_accounts:
+        from .company_credentials import credential_path, credential_source
+        credential_settings = (credential_source(), str(credential_path()))
+    key = (control, company_id, name, isolated_accounts, credential_settings)
     with _engine_lock:
-        if key not in _engines:
-            if len(_engines) >= 32:
-                raise DbError('DB_UNAVAILABLE')
-            company_url = control.url.set(database=name)
-            # 비밀번호를 포함한 URL은 연결 생성에만 사용하고 로그에는 출력하지 않는다.
-            connection_url = company_url.render_as_string(hide_password=False)
-            engine = create_db_engine(connection_url)
-            try:
-                from .split_schema import validate_company
-                with engine.connect() as connection:
-                    if validate_company(connection, control.url.database, company_id):
-                        raise DbError('INVALID_STATE')
-            except Exception:
-                engine.dispose()
-                raise DbError('DB_UNAVAILABLE') from None
-            _engines[key] = engine
-        return _engines[key]
+        # 회사 활성 상태는 위에서 매번 검사했다. 사용 가능한 기존 풀은 바로 반환한다.
+        if key in _engines:
+            return _engines[key]
+        # 여기부터는 아직 풀을 만들지 않은 회사다. 생성까지 잠가 중복 생성을 막는다.
+        if len(_engines) >= 32:
+            raise DbError('DB_UNAVAILABLE')
+        company_url = control.url.set(database=name)
+        if isolated_accounts:
+            from .company_credentials import credential_path, read_credential
+            username, password = read_credential(company_id, path=credential_path())
+            company_url = company_url.set(username=username, password=password)
+        # 비밀번호를 포함한 URL은 연결 생성에만 사용하고 로그에는 출력하지 않는다.
+        connection_url = company_url.render_as_string(hide_password=False)
+        engine = create_db_engine(connection_url)
+        try:
+            from .split_schema import validate_company
+            with engine.connect() as connection:
+                if validate_company(connection, control.url.database, company_id):
+                    raise DbError('INVALID_STATE')
+        except Exception:
+            engine.dispose()
+            raise DbError('DB_UNAVAILABLE') from None
+        # 구조 검사를 통과한 풀만 보관한다. 실패한 풀은 다음 호출에 재사용하지 않는다.
+        _engines[key] = engine
+        return engine
 
 
 def routed_engine(*, company_id=None, document_id=None, version_id=None, job_id=None, connection=None):
@@ -123,7 +139,11 @@ def routed_engine(*, company_id=None, document_id=None, version_id=None, job_id=
 
 @contextmanager
 def company_scope(company_id):
-    """단일 처리의 회사 문맥을 고정한다. 중첩 처리에서 다른 회사로 전환하지 않는다."""
+    """with 본문이 처리할 회사를 고정하고 종료 시 이전 회사 문맥으로 돌아간다.
+
+    ContextVar는 일반 전역 변수와 달리 실행 문맥별 값을 가진다. 동시 요청이 서로의
+    회사 값을 바꾸지 않게 하며, 중첩 호출에서도 다른 회사로 전환하는 것은 거부한다.
+    """
     if not runtime.split_layout():
         yield
         return
@@ -134,6 +154,7 @@ def company_scope(company_id):
     # token은 회사 ID가 아니라 변경 전 문맥을 복원하는 표식이다.
     token = _company.set(company_id)
     try:
+        # 호출자의 with 본문(업로드/게시 등)이 실행된다. 성공·실패 모두 아래 finally로 돌아온다.
         yield
     finally:
         # 처리 실패나 중첩 호출에서도 이전 회사 문맥으로 반드시 돌아간다.
@@ -144,6 +165,9 @@ def processing_lock(fallback, *, publication=False):
     """분리 모드는 회사별 Python 잠금, 기존 모드는 기존 전역 잠금을 사용한다.
 
     단일 앱 프로세스용이다. 여러 프로세스의 동일 후보 실행 임대는 제공하지 않는다.
+    반환값은 잠금 객체다. 이 함수가 전체 작업을 잠그는 것은 아니며,
+    호출자가 with processing_lock(...):으로 사용할 때 작업 잠금이 적용된다.
+    RLock은 같은 스레드의 중첩 잠금 획득을 허용하여 게시 실패 후 복구 호출도 처리한다.
     """
     if not runtime.split_layout():
         return fallback
@@ -156,6 +180,7 @@ def processing_lock(fallback, *, publication=False):
     else:
         locks = _workflow_locks
     with _engine_lock:
+        # 잠금 사전에 새 객체를 넣는 짧은 구간만 보호한다. 회사 작업 전체의 공통 잠금이 아니다.
         if selected not in locks:
             locks[selected] = RLock()
         return locks[selected]

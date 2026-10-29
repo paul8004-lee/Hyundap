@@ -122,7 +122,11 @@ def _base_errors(connection, role, company_id=None, control_name=None, *, layout
     원본 layout은 변경하지 않는다.
     """
     if layout is None:
-        layout = _read_layout(connection)
+        from .runtime import isolated_company_connection
+        if role == 'company' and isolated_company_connection(connection):
+            layout = _read_layout(connection, exclude_company_view=True)
+        else:
+            layout = _read_layout(connection)
     actual = _structure(layout)
     base = json.loads((DESIGN_DIR / 'schema_v4_contract.json').read_text(encoding='utf-8'))
     if role == 'control':

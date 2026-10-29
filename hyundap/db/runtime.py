@@ -20,12 +20,31 @@ def split_layout():
     return mode == 'split'
 
 
-def shared_table(name):
+def company_accounts_enabled():
+    """회사별 계정 모드 설정을 검증한다. 잘못된 설정은 공유 계정으로 대체하지 않는다."""
+    value = os.environ.get('HYUNDAP_DB_COMPANY_ACCOUNTS', '0')
+    if value not in ('0', '1'):
+        raise DbError('INVALID_INPUT')
+    if value == '1' and not split_layout():
+        raise DbError('INVALID_STATE')
+    return value == '1'
+
+
+def isolated_company_connection(connection):
+    """명시적으로 활성화한 회사 계정 연결인지 확인한다."""
+    if connection is None or not company_accounts_enabled():
+        return False
+    return split_layout() and connection.engine.url.database != get_engine().url.database
+
+
+def shared_table(name, *, connection=None):
     """서버가 정한 공통 테이블만 식별자로 만든다. 사용자 입력 SQL은 받지 않는다."""
     if name not in ('companies', 'users', 'sessions', 'document_routes'):
         raise DbError('INVALID_INPUT')
     if not split_layout():
         return name
+    if name == 'companies' and isolated_company_connection(connection):
+        return '`company_information`'
     from .tenancy import quoted_database
     return quoted_database(get_engine().url.database) + '.`' + name + '`'
 
@@ -36,6 +55,9 @@ def get_engine():
 
     생성된 Engine은 앱 종료 시 dispose()한다. 설정 오류는 안전한 DB 오류로 바꾼다.
     테스트에서는 이 함수를 격리 DB Engine으로 대체한다.
+    @lru_cache(maxsize=1)은 인자가 없는 이 함수의 성공 반환값 하나를 기억한다.
+    매 요청마다 연결 풀을 새로 만들지 않는다. get_engine.cache_clear()는 기억만 지우므로
+    기존 풀의 dispose()와 처리 중 요청 종료는 설정을 바꾸는 쪽에서 별도로 관리해야 한다.
     """
     # 최초 호출에서 엔진과 v4 구조를 확인하고 이후에는 캐시된 엔진을 쓴다.
     engine = None
@@ -65,6 +87,12 @@ def transaction(connection=None, *, company_id=None, document_id=None, version_i
     외부 연결은 여기서 커밋·종료하지 않는다. 정상 종료는 커밋, 예외는 롤백한다.
     중복 키는 CONFLICT, 나머지 DB 오류는 DB_UNAVAILABLE로 숨겨 전달한다.
     호출자는 이 블록 안에서 파일·LLM·Chroma 작업을 수행하지 않는다.
+
+    @contextmanager는 함수를 with 문에서 쓸 수 있게 한다. yield database에서
+    잠시 멈추고 호출자의 with 본문이 실행된 뒤 다시 돌아온다. 본문에서 예외가 나면
+    그 예외도 yield 자리로 돌아오므로 아래 except에서 안전한 오류로 바꿀 수 있다.
+    begin()으로 직접 연 경우만 종료 시 확정/취소한다. 전달받은 연결은 예외를 변환해
+    다시 던질 뿐 직접 rollback하지 않으며, 연결을 연 호출자가 취소를 결정해야 한다.
     """
     # 전달받은 연결은 그대로 사용하고 연결이 없을 때만 새 트랜잭션을 연다.
     try:

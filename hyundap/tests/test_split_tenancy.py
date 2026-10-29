@@ -36,6 +36,14 @@ class SplitOfflineTests(unittest.TestCase):
         with patch.dict(os.environ, {'HYUNDAP_DB_LAYOUT': 'unknown'}), self.assertRaises(DbError):
             runtime.split_layout()
 
+    def test_company_account_mode_does_not_silently_fall_back(self):
+        with patch.dict(os.environ, {'HYUNDAP_DB_LAYOUT': 'split', 'HYUNDAP_DB_COMPANY_ACCOUNTS': 'typo'}):
+            with self.assertRaises(DbError):
+                runtime.company_accounts_enabled()
+        with patch.dict(os.environ, {'HYUNDAP_DB_LAYOUT': 'single', 'HYUNDAP_DB_COMPANY_ACCOUNTS': '1'}):
+            with self.assertRaises(DbError):
+                runtime.company_accounts_enabled()
+
 
 @unittest.skipUnless(os.getenv('DB_SPLIT_TEST_URL'), '격리 분리 MySQL URL 필요')
 class SplitDatabaseTests(unittest.TestCase):
@@ -229,6 +237,157 @@ class SplitDatabaseTests(unittest.TestCase):
         finally:
             tenancy.close_company_engines()
             app_engine.dispose()
+
+    def test_company_accounts_isolate_documents_and_allow_platform_manager(self):
+        """회사별 계정은 타사 DB와 공통 인증 테이블을 직접 열지 못한다."""
+        from sqlalchemy.exc import SQLAlchemyError
+        credential_path = self.root / '.env.company-databases.json'
+        for company in (self.a, self.b):
+            company_admin.create_company_db_user(company['company_id'], admin_engine=self.engine,
+                                                 credential_path=credential_path)
+        settings = {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                    'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(credential_path)}
+        with patch.dict(os.environ, settings):
+            a, b = self.upload(self.a), self.upload(self.b)
+            self.assertEqual((a['status'], b['status']), ('success', 'success'))
+            for result, company in ((a, self.a), (b, self.b)):
+                detail = documents_repo.get_document_detail(self.actor, result['document_id'])
+                self.assertEqual(detail['company_id'], company['company_id'])
+                self.assertTrue(versions_repo.list_document_versions(self.actor, result['document_id'])[0]['is_active'])
+                permissions.verify_documents_access(self.actor, [(result['document_id'], result['version_id'])])
+            email = uuid4().hex + '@test.invalid'
+            accounts.create_account(email, 'company_admin', self.b['company_id'], self.password)
+            other_session = session_service.login(email, self.password)
+            other_actor = {'session_id': other_session['session_id'], '_session_token': other_session['token']}
+            try:
+                with self.assertRaises(AccessError) as caught:
+                    documents_repo.get_document_detail(other_actor, a['document_id'])
+                self.assertEqual(caught.exception.code, 'ACCESS_DENIED')
+                engine = tenancy.get_company_engine(self.a['company_id'])
+                other_name = tenancy.get_company_engine(self.b['company_id']).url.database
+                with engine.connect() as database:
+                    with self.assertRaises(SQLAlchemyError):
+                        database.execute(text('SELECT id FROM ' + tenancy.quoted_database(other_name) + '.documents'))
+                    with self.assertRaises(SQLAlchemyError):
+                        database.execute(text('SELECT id FROM ' + tenancy.quoted_database(self.engine.url.database) + '.users'))
+                    with self.assertRaises(SQLAlchemyError):
+                        database.execute(text('UPDATE company_information SET is_active=is_active'))
+                    with self.assertRaises(SQLAlchemyError):
+                        database.execute(text('UPDATE tenant_identity SET company_id=company_id'))
+            finally:
+                session_service.logout(other_session)
+
+    def test_switching_account_mode_does_not_reuse_shared_engine(self):
+        """공통 계정으로 연 연결이 회사 계정 모드에서 재사용되지 않는다."""
+        from sqlalchemy.exc import SQLAlchemyError
+        credential_path = self.root / '.env.company-databases.json'
+        with patch.dict(os.environ, {'HYUNDAP_DB_COMPANY_ACCOUNTS': '0'}):
+            shared = tenancy.get_company_engine(self.a['company_id'])
+        company_admin.create_company_db_user(self.a['company_id'], admin_engine=self.engine,
+                                             credential_path=credential_path)
+        with patch.dict(os.environ, {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                                     'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(credential_path)}):
+            isolated = tenancy.get_company_engine(self.a['company_id'])
+            self.assertIsNot(shared, isolated)
+            self.assertTrue(isolated.url.username.startswith('tenant_'))
+            with isolated.connect() as database:
+                with self.assertRaises(SQLAlchemyError):
+                    database.execute(text('SELECT id FROM ' + tenancy.quoted_database(self.engine.url.database) + '.users'))
+        with patch.dict(os.environ, {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                                     'HYUNDAP_COMPANY_CREDENTIALS_SOURCE': 'environment',
+                                     'HYUNDAP_COMPANY_DATABASE_CREDENTIALS': credential_path.read_text(encoding='utf-8')}):
+            hosted = tenancy.get_company_engine(self.a['company_id'])
+            self.assertIsNot(isolated, hosted)
+            with hosted.connect() as database:
+                self.assertEqual(database.scalar(text('SELECT company_id FROM tenant_identity')),
+                                 self.a['company_id'])
+            with self.assertRaises(DbError) as caught:
+                company_admin.provision_company('호스팅 신규 회사', admin_engine=self.engine)
+            self.assertEqual(caught.exception.code, 'CONFIG_MISSING')
+
+    def test_new_company_creates_isolated_account_before_ready(self):
+        """회사 등록이 전용 계정을 준비한 뒤 문서 업로드를 허용한다."""
+        credential_path = self.root / '.env.company-databases.json'
+        with patch.dict(os.environ, {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                                     'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(credential_path)}):
+            company = company_admin.provision_company('전용 계정 회사', admin_engine=self.engine)
+            self.assertEqual(company['status'], 'ready')
+            result = self.upload(company)
+            self.assertEqual(result['status'], 'success')
+            engine = tenancy.get_company_engine(company['company_id'])
+            self.assertTrue(engine.url.username.startswith('tenant_'))
+            self.assertEqual(documents_repo.get_document_detail(self.actor, result['document_id'])['company_id'],
+                             company['company_id'])
+
+    def test_isolated_account_setup_failure_leaves_company_inactive_and_account_locked(self):
+        """설정 저장 실패 시 회사는 비활성이고 미완료 MySQL 계정은 잠긴다."""
+        company_id, generated = str(uuid4()), uuid4()
+        settings = {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                    'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(self.root / '.env.company-databases.json')}
+        with patch.dict(os.environ, settings), patch.object(company_admin, 'uuid4', return_value=generated), \
+                patch.object(company_admin, 'save_credential', side_effect=OSError('synthetic failure')):
+            with self.assertRaises(DbError) as caught:
+                company_admin.provision_company('실패 회사', admin_engine=self.engine, company_id=company_id)
+        self.assertEqual(caught.exception.code, 'PROVISION_FAILED')
+        with self.engine.connect() as database:
+            company = database.execute(text('''SELECT c.is_active,r.status FROM companies c
+                JOIN company_databases r ON r.company_id=c.id WHERE c.id=:id'''), {'id': company_id}).mappings().one()
+            self.assertEqual((company['is_active'], company['status']), (0, 'failed'))
+            locked = database.execute(text('SELECT account_locked FROM mysql.user WHERE user=:name'),
+                                      {'name': 'tenant_' + generated.hex[:20]}).scalar_one()
+            self.assertEqual(locked, 'Y')
+
+    def test_company_account_authentication_respects_lock_flag(self):
+        """조회는 행을 잠그지 않고 쓰기 권한 확인은 세션 행을 잠근다."""
+        from sqlalchemy.exc import SQLAlchemyError
+        from hyundap.db.sessions_repo import current_actor
+        credential_path = self.root / '.env.company-databases.json'
+        company_admin.create_company_db_user(self.a['company_id'], admin_engine=self.engine,
+                                             credential_path=credential_path)
+        settings = {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                    'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(credential_path)}
+        with patch.dict(os.environ, settings):
+            company = tenancy.get_company_engine(self.a['company_id'])
+            for locked in (False, True):
+                with self.subTest(lock=locked), company.connect() as database:
+                    tx = database.begin()
+                    try:
+                        current_actor(self.actor, connection=database, lock=locked)
+                        with self.engine.connect() as other:
+                            other.execute(text('SET SESSION innodb_lock_wait_timeout=1'))
+                            try:
+                                if locked:
+                                    with self.assertRaises(SQLAlchemyError) as caught:
+                                        other.execute(text('UPDATE sessions SET auth_version=auth_version WHERE id=:id'),
+                                                      {'id': self.actor['session_id']})
+                                    self.assertEqual(caught.exception.orig.args[0], 1205)
+                                else:
+                                    other.execute(text('UPDATE sessions SET auth_version=auth_version WHERE id=:id'),
+                                                  {'id': self.actor['session_id']})
+                            finally:
+                                other.rollback()
+                    finally:
+                        tx.rollback()
+
+    def test_session_expiry_cannot_be_bypassed_by_caller_time(self):
+        """호출자가 과거 시각을 전달해도 DB 현재 시각으로 세션 만료를 확인한다."""
+        from hyundap.db.sessions_repo import _session_credentials
+        credential_path = self.root / '.env.company-databases.json'
+        company_admin.create_company_db_user(self.a['company_id'], admin_engine=self.engine,
+                                             credential_path=credential_path)
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE sessions SET created_at=UNIX_TIMESTAMP()-10, '
+                                  'last_seen_at=UNIX_TIMESTAMP()-10, idle_expires_at=UNIX_TIMESTAMP()-1 WHERE id=:id'),
+                             {'id': self.actor['session_id']})
+        session_id, digest = _session_credentials(self.actor)
+        with patch.dict(os.environ, {'HYUNDAP_DB_COMPANY_ACCOUNTS': '1',
+                                     'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(credential_path)}):
+            company = tenancy.get_company_engine(self.a['company_id'])
+            with company.connect() as database, self.assertRaises(OperationalError) as caught:
+                database.execute(text('CALL company_authenticate(:session,:digest,0,0)'),
+                                 {'session': session_id, 'digest': digest})
+            self.assertEqual(caught.exception.orig.args[0], 1644)
+            self.assertEqual(caught.exception.orig.args[1], 'SESSION_EXPIRED')
 
     def test_layout_is_reused_within_one_check_without_mutating_snapshot(self):
         output = io.StringIO()

@@ -8,7 +8,7 @@ from hyundap.auth.errors import AccessError
 from hyundap.auth.permissions import allowed_companies
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
-from .runtime import require_hash, require_id, transaction, shared_table, split_layout
+from .runtime import require_hash, require_id, transaction, shared_table, split_layout, isolated_company_connection
 from .sessions_repo import current_actor
 
 
@@ -112,8 +112,12 @@ def get_documents_with_active_version(document_ids, *, connection=None):
                 result.extend(get_documents_with_active_version(company_ids, connection=database))
         return result
     # expanding=True는 ID 개수에 맞게 SQL의 IN 조건을 안전하게 준비한다.
-    query = text(DOCUMENT_INFO_SQL.replace('JOIN companies', 'JOIN ' + shared_table('companies'))).bindparams(bindparam('ids', expanding=True))
     with transaction(connection) as database:
+        # 회사별 계정은 자기 회사만 보이는 VIEW, 그 외에는 공통 회사 테이블을 선택한다.
+        company_table = shared_table('companies', connection=database)
+        document_sql = DOCUMENT_INFO_SQL.replace('JOIN companies', 'JOIN ' + company_table)
+        # 테이블 이름은 서버가 선택한다. 문서 ID 값은 문자열에 붙이지 않고 따로 전달한다.
+        query = text(document_sql).bindparams(bindparam('ids', expanding=True))
         # 조회된 행을 검색 모듈에서 읽을 수 있는 dict로 바꾼다.
         rows = database.execute(query, {'ids': ids}).mappings()
         documents = []
@@ -161,7 +165,7 @@ def get_document_detail(actor, document_id, *, version_id=None, connection=None)
             SELECT d.id AS document_id,d.company_id,c.name AS company_name,d.doc_type,
                    d.publication_status,d.deleted_at,d.active_version_id,
                    v.version_no,v.version_status,v.data_category,v.file_name,v.file_size
-            FROM documents d JOIN {shared_table('companies')} c ON c.id=d.company_id
+            FROM documents d JOIN {shared_table('companies', connection=database)} c ON c.id=d.company_id
             LEFT JOIN document_versions v ON v.id=d.active_version_id
               AND v.document_id=d.id AND v.company_id=d.company_id
             WHERE d.id=:id
@@ -268,8 +272,12 @@ def _check_candidate_creation(database, actor, data):
         raise AccessError('ACCESS_DENIED')
     if current['role'] != 'platform_admin' and current['company_id'] != data['company_id']:
         raise AccessError('ACCESS_DENIED')
-    active = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
-                              {'id': data['company_id']}).scalar_one_or_none()
+    if isolated_company_connection(database):
+        from .company_routines import lock_company_status
+        active = lock_company_status(database)
+    else:
+        active = database.execute(text(f"SELECT is_active FROM {shared_table('companies')} WHERE id=:id FOR UPDATE"),
+                                  {'id': data['company_id']}).scalar_one_or_none()
     if not active:
         raise AccessError('ACCESS_DENIED')
     # 버전이 없는 문서가 남아 있으면 업로드를 중단한다.
@@ -340,8 +348,14 @@ def _insert_version_and_job(database, document_id, data):
     '''), {'id': job_id, 'version_id': version_id, 'document_id': document_id,
           'company_id': data['company_id'], 'requested_by': data['uploaded_by']})
     if split_layout():
-        # 같은 MySQL 트랜잭션에서 회사 원장과 식별자 라우팅을 함께 확정한다.
-        database.execute(text(f'''INSERT INTO {shared_table('document_routes')}
-            (document_id,version_id,job_id,company_id) VALUES (:document,:version,:job,:company)'''),
-            {'document': document_id, 'version': version_id, 'job': job_id, 'company': data['company_id']})
+        if isolated_company_connection(database):
+            from .company_routines import register_company_route
+            # 회사 계정은 공통 테이블에 직접 INSERT할 수 없으므로 허용된 프로시저로 등록한다.
+            register_company_route(database, document_id, version_id, job_id)
+        else:
+            # 공통 업무 계정은 직접 등록한다. 위 분기와 모두 같은 연결/TX를 사용한다.
+            database.execute(text(f'''INSERT INTO {shared_table('document_routes')}
+                (document_id,version_id,job_id,company_id) VALUES (:document,:version,:job,:company)'''),
+                {'document': document_id, 'version': version_id, 'job': job_id, 'company': data['company_id']})
+    # 단일 DB·공통 계정·회사 계정 어느 경로든 같은 형식으로 반환한다.
     return {'document_id': document_id, 'version_id': version_id, 'job_id': job_id}
