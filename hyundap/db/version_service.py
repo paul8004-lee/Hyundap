@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
 from .errors import DbError
+from .processing import processing_lock
 from .classification import decision_fields
 from .runtime import require_id, transaction
 from .sessions_repo import current_actor
@@ -328,7 +329,7 @@ def publish_version(actor, document_id, candidate_id, expected_active_id, *, emb
     RECOVERY_REQUIRED다. 정상 완료한 동일 후보의 재호출은 멱등 성공이다.
     """
     backend = get_embedding_backend(embedding)
-    with PUBLICATION_LOCK:
+    with processing_lock(), PUBLICATION_LOCK:
         # 1. 권한 확인 → 2. 실제 벡터 검사 → 3. DB 전환 → 4. 벡터 활성화 순서다.
         company_id = check_publication_access(actor, document_id, candidate_id)
         result = validate_completeness(document_id, candidate_id, embedding=backend)
@@ -516,7 +517,7 @@ def recover_publication(document_id, version_id, *, embedding=None):
     유지해 새 게시를 막고 명시적 재시도를 기다린다. 더 최신 포인터는 덮지 않는다.
     """
     backend = get_embedding_backend(embedding)
-    with PUBLICATION_LOCK:
+    with processing_lock(), PUBLICATION_LOCK:
         # DB 되돌리기 → 외부 벡터 복구 → DB 완료 기록으로 나눈다.
         recovery = prepare_recovery(document_id, version_id)
         if recovery['phase'] != 'restore_pending':

@@ -232,6 +232,18 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 
 수동 API/UI 스크립트는 tests/smoke에 두며 Gradio는 수동 main에서만 import한다. 최종 검증 결과와 인증 PR #167 대조 범위는 [리팩토링 검증 보고서](../../../docs/db-design/V4_REFACTOR_VALIDATION.md)에 기록한다. Railway DB는 변경하지 않았다.
 
+## #248 동일 호스트 다중 프로세스 보호
+
+`processing.processing_lock()`은 설정의 UPLOAD_DIR 아래 고정 잠금 파일을 사용한다.
+업로드·재시도·게시·복구·실패 기록의 메인 경로는 이 잠금 다음 기존 스레드 잠금을 획득한다.
+`workflow_file_lock()`은 중첩 호출의 재진입을 위해 같은 객체를 공유하는 보조 함수다.
+잠금 대기 상한은 30초이며 초과 시 CONFLICT로 거부한다. SQL 잠금과 조건부 갱신은 유지한다.
+프로세스 종료 시 OS가 잠금을 회수하므로 잠금 파일을 직접 삭제하지 않는다.
+
+모든 앱 프로세스는 동일 호스트와 동일 UPLOAD_DIR를 사용해야 한다. 서로 다른 저장 루트나
+호스트의 분산 실행은 이 패치의 보장 범위가 아니다. 회사별 병렬화는 추가하지 않으며
+기존 직렬 처리 범위를 프로세스 간으로 확대한다. 저수준 저장 함수를 직접 호출하는 관리 도구는
+메인 업로드·게시 경로의 잠금을 우회하지 않아야 한다.
 ## #261 자동 유형 적용 계약
 
 자동 업로드는 `auto_classify=True`를 전달하며 `doc_type` 동시 입력은 거부한다.
