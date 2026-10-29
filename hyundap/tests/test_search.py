@@ -22,10 +22,13 @@ USER = {'session_id': 's1'}
 SETTINGS = SimpleNamespace(search_min_score=0.3, search_top_k_max=80)
 
 
-def make_hit(chunk_id, document_id, version_id='v1', company_id='A', score=0.9, section_no=1, text='본문'):
-    """벡터 조회 결과(VectorHit) 1개를 만든다."""
+def make_hit(chunk_id, document_id, version_id='v1', company_id='A', score=0.9, section_no=1, text='본문',
+             file_name=None):
+    """벡터 조회 결과(VectorHit) 1개를 만든다. file_name을 주면 메타데이터에 넣는다."""
     metadata = {'document_id': document_id, 'version_id': version_id, 'company_id': company_id,
                 'section_no': section_no, 'location_label': 'p.1', 'chunk_index': 0}
+    if file_name is not None:
+        metadata['file_name'] = file_name
     return VectorHit(chunk_id=chunk_id, text=text, metadata=metadata, score=score)
 
 
@@ -208,6 +211,87 @@ class ResultTests(SearchTestCase):
         """결과가 없으면 오류가 아니라 빈 목록인지 확인한다."""
         self.hits = []
         self.assertEqual(search(USER, 'q').results, [])
+
+
+class DocCodeTests(SearchTestCase):
+    """질문 속 문서 코드로 범위 좁히기 (P1: S10·S11)."""
+
+    MAN = 'HRI-SYN-MAN-001_가상_경제지표 원천 등록.docx'
+    EDU = 'HRI-SYN-EDU-004_가상_실습.pptx'
+    QUESTION = '가상 문서 HRI-SYN-MAN-001의 첫 검토 기한은?'
+
+    def setUp(self):
+        super().setUp()
+        # 비슷한 문장이 있는 EDU-004가 앞서고 정답 문서 MAN-001은 뒤로 밀린 상황
+        self.hits = [make_hit('e1', 'edu4', score=0.66, file_name=self.EDU),
+                     make_hit('e2', 'edu4', score=0.60, file_name=self.EDU),
+                     make_hit('m1', 'man1', score=0.45, file_name=self.MAN),
+                     make_hit('m2', 'man1', score=0.41, file_name=self.MAN)]
+        self.rows = [make_row('edu4'), make_row('man1')]
+        self.queries = []
+
+    def _where(self, company_ids, doc_types, document_ids):
+        return {'company_id': company_ids, 'document_ids': document_ids}
+
+    def _query_vectors(self, vector, where, top_k):
+        """document_ids 조건을 지키는 가짜 조회. 받은 조건과 개수를 기록한다."""
+        ids = where['document_ids']
+        self.queries.append((ids, top_k))
+        return [h for h in self.hits if ids is None or h.metadata['document_id'] in ids][:top_k]
+
+    def test_extract_doc_codes(self):
+        """문서 코드만 대문자로 중복 없이 찾고, 숫자 없는 낱말·코드 없는 질문은 빈 목록인지 확인한다."""
+        cases = {
+            self.QUESTION: ['HRI-SYN-MAN-001'],
+            'man-001과 MAN-001, EDU-004 비교': ['MAN-001', 'EDU-004'],
+            '경제지표 원천 등록 검토 기한': [],
+            'e-mail 주소 변경': [],
+        }
+        for query, codes in cases.items():
+            with self.subTest(query):
+                self.assertEqual(search_module.extract_doc_codes(query), codes)
+
+    def test_match_documents_by_code(self):
+        """파일명에 코드가 든 문서만 고르고, 'MAN-001'이 'MAN-0011'에 걸리지 않는지 확인한다."""
+        hits = [make_hit('a', 'd1', file_name='hri-syn-man-001_소문자.docx'),
+                make_hit('b', 'd2', file_name='HRI-SYN-MAN-0011_다른 문서.docx'),
+                make_hit('c', 'd3'),
+                make_hit('d', 'd1', file_name='hri-syn-man-001_소문자.docx')]
+        self.assertEqual(search_module.match_documents_by_code(hits, ['MAN-001']), ['d1'])
+
+    def test_named_document_narrows_chatbot_evidence(self):
+        """코드가 맞는 문서가 있으면 그 문서만으로 다시 조회해 근거가 모두 그 문서인지 확인한다."""
+        hits = search_chunks(USER, self.QUESTION, top_k=16)
+        self.assertEqual([h.chunk_id for h in hits], ['m1', 'm2'])
+        self.assertEqual(self.queries, [(None, 80), (['man1'], 16)])
+
+    def test_named_document_in_screen_search(self):
+        """화면 검색도 같은 기준이라 코드가 맞는 문서만 결과에 나오는지 확인한다."""
+        results = search(USER, self.QUESTION).results
+        self.assertEqual([r.document_id for r in results], ['man1'])
+
+    def test_question_without_code_is_unchanged(self):
+        """코드가 없는 질문은 조회 1번, 결과 순서도 그대로인지 확인한다."""
+        hits = search_chunks(USER, '첫 검토 기한', top_k=16)
+        self.assertEqual([h.chunk_id for h in hits], ['e1', 'e2', 'm1', 'm2'])
+        self.assertEqual(self.queries, [(None, 16)])
+
+    def test_unknown_code_falls_back(self):
+        """맞는 파일이 없는 코드면 원래 범위의 결과를 그대로 쓰는지 확인한다."""
+        hits = search_chunks(USER, 'HRI-SYN-POL-009 검토 기한', top_k=16)
+        self.assertEqual([h.chunk_id for h in hits], ['e1', 'e2', 'm1', 'm2'])
+
+    def test_hidden_named_document_falls_back(self):
+        """코드가 맞는 문서가 비공개라 좁힌 결과가 비면 원래 범위의 결과를 쓰는지 확인한다."""
+        self.rows = [make_row('edu4'), make_row('man1', publication_status='draft')]
+        hits = search_chunks(USER, self.QUESTION, top_k=16)
+        self.assertEqual([h.chunk_id for h in hits], ['e1', 'e2'])
+
+    def test_narrowing_never_widens_document_ids(self):
+        """고른 문서(document_ids) 밖의 문서는 코드가 맞아도 범위에 들어오지 않는지 확인한다."""
+        hits = search_chunks(USER, self.QUESTION, document_ids=['edu4'], top_k=16)
+        self.assertEqual({h.document_id for h in hits}, {'edu4'})
+        self.assertEqual(self.queries[0], (['edu4'], 80))
 
 
 class ErrorTests(SearchTestCase):

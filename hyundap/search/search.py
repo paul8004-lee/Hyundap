@@ -17,6 +17,9 @@
     FUN-250 group_hits_by_document — 청크를 문서별로 묶고 점수순으로 정렬한다.
     FUN-251 to_citation — ChunkHit을 화면용 출처(SearchCitation)로 바꾼다.
     FUN-252 make_excerpt — 본문을 200자 발췌로 줄인다.
+    (명세 외) extract_doc_codes — 질문에서 문서 코드(HRI-SYN-MAN-001 등)를 찾는다.
+    (명세 외) match_documents_by_code — 후보 중 파일명에 문서 코드가 든 문서를 고른다.
+    (명세 외) search_named_documents — 질문에 적힌 문서로 범위를 좁혀 검색한다.
 
 화면 검색과 챗봇 검색은 run_chunk_search를 함께 써서 권한·점수·공개 기준이 항상 같다.
 """
@@ -45,6 +48,9 @@ DEFAULT_LIMIT = 10
 CHUNKS_PER_DOCUMENT = 4
 DEFAULT_TOP_K = 10
 EXCERPT_MAX_CHARS = 200
+
+# 문서 코드: 영문으로 시작해 하이픈으로 이은 영문·숫자 (HRI-SYN-MAN-001, MAN-001). 앞뒤에 영문·숫자가 붙으면 아니다
+DOC_CODE_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+(?![A-Za-z0-9])")
 
 
 # ── 다른 폴더 호출 지점 ───────────────────────────────────────────────────
@@ -245,10 +251,65 @@ def run_chunk_search(
     top_k: int,
     min_score: float,
 ) -> list[ChunkHit]:
-    """FUN-245: 회사 범위가 정해진 뒤의 공통 검색 단계. search와 search_chunks가 함께 쓴다."""
+    """FUN-245: 회사 범위가 정해진 뒤의 공통 검색 단계. search와 search_chunks가 함께 쓴다.
+
+    질문에 문서 코드가 있고 파일명이 그 코드와 맞는 문서가 있으면 그 문서로 좁혀 검색한다 (P1).
+    좁힌 결과가 비면(공개 조건·최소 점수에 걸리면) 원래 범위의 결과를 쓴다."""
     where = build_search_filter(company_ids, doc_types, document_ids)
     try:
         vector = _embed_query(query)
+    except Exception as exc:
+        raise to_search_error(exc) from exc
+
+    codes = extract_doc_codes(query)
+    if codes:
+        named = search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score)
+        if named:
+            return named
+    return _query_visible_hits(vector, where, company_ids, top_k, min_score)
+
+
+# ── 질문 속 문서 코드 (P1: 문서명을 넣은 질문에서 정답 문서가 밀리는 문제) ──────────
+# 의미 검색은 'HRI-SYN-MAN-001' 같은 코드를 글자 그대로 맞춰 보지 못해, 비슷한 문장이 있는 다른 문서가
+# 앞서고 챗봇 근거 8개에서 정답 문서가 빠진다. 순서만 바꾸면 챗봇이 점수로 다시 정렬하므로 범위를 좁힌다.
+def extract_doc_codes(query: str) -> list[str]:
+    """질문에서 문서 코드를 찾아 대문자로, 나온 순서대로 중복 없이 돌려준다. 숫자가 없는 낱말(e-mail)은 뺀다."""
+    codes = (match.group(0).upper() for match in DOC_CODE_PATTERN.finditer(query))
+    return list(dict.fromkeys(code for code in codes if any(ch.isdigit() for ch in code)))
+
+
+def match_documents_by_code(hits: list, codes: list[str]) -> list[str]:
+    """후보 중 파일명(메타데이터 file_name)에 코드가 든 문서 ID를 처음 나온 순서대로 돌려준다.
+
+    대소문자는 구분하지 않고, 'MAN-001'이 'MAN-0011'에 걸리지 않게 코드 앞뒤에 영문·숫자가 이어지면 뺀다."""
+    patterns = [re.compile(rf"(?<![A-Za-z0-9]){re.escape(code)}(?![A-Za-z0-9])", re.IGNORECASE) for code in codes]
+    matched = []
+    for hit in hits:
+        meta = hit.metadata or {}
+        if any(pattern.search(str(meta.get("file_name") or "")) for pattern in patterns):
+            matched.append(meta.get("document_id"))
+    return list(dict.fromkeys(document_id for document_id in matched if document_id))
+
+
+def search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score) -> list[ChunkHit]:
+    """질문에 적힌 문서로 좁힌 검색. 맞는 문서가 없으면 빈 목록.
+
+    원래 범위(where, document_ids 포함)에서 조회 상한만큼 후보를 받아 파일명이 맞는 문서를 고른 뒤,
+    그 문서만으로 다시 조회한다. 후보가 원래 범위 안에서만 나오므로 검색 범위를 넓히지 않는다."""
+    try:
+        candidates = _query_vectors(vector, where, get_search_settings()["top_k_max"])
+    except Exception as exc:
+        raise to_search_error(exc) from exc
+    matched = match_documents_by_code(candidates, codes)
+    if not matched:
+        return []
+    narrowed = build_search_filter(company_ids, doc_types, matched)
+    return _query_visible_hits(vector, narrowed, company_ids, top_k, min_score)
+
+
+def _query_visible_hits(vector, where, company_ids, top_k, min_score) -> list[ChunkHit]:
+    """벡터 조회 → 최소 점수 → DB 공개 조건. 통과한 후보를 점수순 ChunkHit으로 돌려준다."""
+    try:
         raw = _query_vectors(vector, where, top_k)
     except Exception as exc:
         raise to_search_error(exc) from exc
