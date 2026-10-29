@@ -1,0 +1,96 @@
+/* B01/B02/B08: Figma 로그인·문서 활용 공통 스타일. 실제 입력은 Gradio 컨트롤입니다. */
+html, body {margin: 0; background: var(--hd-bg);}
+.gradio-container {max-width: none !important; padding: 0 !important; margin: 0 !important; background: var(--hd-bg) !important; color: var(--hd-ink) !important; font-family: var(--hd-font) !important;}
+.gradio-container > .main, .gradio-container > .main > .wrap {padding: 0 !important; gap: 0 !important;}
+.gradio-container .prose {font-family: var(--hd-font);}
+.gradio-container footer {display: none !important;}
+.hd-app, .hd-login {gap: 0 !important; min-height: 100vh; background: var(--hd-bg);}
+.hd-app .form, .hd-login .form {border: none !important; background: transparent !important; box-shadow: none !important; border-radius: 0 !important;}
+.hd-plain-html {padding: 0 !important; min-height: 0 !important; border: 0 !important; background: transparent !important; overflow: visible !important;}
+.hd-plain-html > .html-container {padding: 0 !important;}
+.prose.hd-plain-html {margin: 0 !important; padding: 0 !important;}
+.hd-brand {display: flex; align-items: center; gap: 12px; min-height: 28px; color: var(--hd-ink); white-space: nowrap;}
+.hd-brand-symbol {display: block; width: 28px; height: 28px; border-radius: 4px; flex-shrink: 0;}
+.hd-brand-name {font-size: 18px; font-weight: 700; line-height: 27px;}
+.hd-brand--inverse {color: #fff;}
+.hd-brand--inverse .hd-brand-symbol rect {fill: transparent;}
+.hd-role {border-radius: 999px; padding: 3px 9px; color: inherit; background: rgb(255 255 255 / 18%); font-size: 11px; font-weight: 600;}
+.hd-nav {min-height: 60px; border: 0 !important; border-radius: 0 !important; background: var(--hd-navy) !important; padding: 0 !important;}
+.hd-nav-inner {width: calc(100% - 48px); max-width: var(--hd-content); margin: 0 auto !important; min-height: 60px; align-items: center !important; gap: 16px !important;}
+.hd-nav-inner .form {background: transparent !important;}
+.hd-nav .hd-brand, .hd-nav .hd-account {color: #fff;}
+.hd-header-summary, .hd-user-summary {display: flex; align-items: center; gap: 12px;}
+.hd-header-summary {justify-content: space-between;}
+.hd-user-summary {font-size: 13px; color: #fff;}
+.hd-avatar {display: inline-flex; width: 30px; height: 30px; background: #fff; color: var(--hd-navy); align-items: center; justify-content: center; border-radius: 50%; font-weight: 700; flex-shrink: 0;}
+.hd-nav-button {height: 60px !important; min-height: 60px !important; padding: 0 10px !important; border: 0 !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; color: #dbe7f4 !important; font-size: 14px !important; font-weight: 400 !important;}
+.hd-nav-button:hover, .hd-nav-button--active {color: #fff !important; border-bottom-color: #fff !important; background: transparent !important;}
+.hd-nav-button--active {font-weight: 700 !important;}
+.hd-account {background: transparent !important; border: 0 !important; box-shadow: none !important; color: #fff !important; font-size: 13px !important; min-width: 72px !important;}
+.hd-content {width: calc(100% - 48px) !important; max-width: var(--hd-content) !important; margin: 0 auto !important; padding: 32px 0 24px !important; gap: 20px !important;}
+.hd-card {border: 1px solid var(--hd-line) !important; border-radius: var(--hd-radius) !important; background: #fff !important; padding: 24px !important; gap: 16px !important; box-shadow: none !important;}
+.hd-button {border: 1px solid var(--hd-input-line) !important; border-radius: 999px !important; background: #fff !important; color: var(--hd-ink) !important; font-family: var(--hd-font) !important; font-size: 13px !important; font-weight: 700 !important; line-height: 20px !important; min-height: 40px !important; padding: 9px 18px !important; box-shadow: none !important; transition: background-color .12s ease, border-color .12s ease;}
+.hd-button:hover {background: #f7f9fb !important; border-color: #9eacc1 !important;}
+.hd-button--primary, .hd-button.primary {background: var(--hd-ink) !important; color: #fff !important; border-color: var(--hd-ink) !important;}
+.hd-button--primary:hover, .hd-button.primary:hover {background: #243240 !important; border-color: #243240 !important;}
+.hd-button--secondary {background: #fff !important; color: var(--hd-ink) !important;}
+.hd-button:disabled {background: #e8ecf2 !important; color: #8993a3 !important; border-color: #e0e5ec !important; cursor: not-allowed;}
+.hd-button:focus-visible, .hd-nav-button:focus-visible, .hd-account:focus-visible {outline: 2px solid var(--hd-blue) !important; outline-offset: 3px;}
+.hd-input, .hd-select {border: 0 !important; border-radius: 0 !important; padding: 0 !important; background: transparent !important; box-shadow: none !important;}
+.hd-input > label, .hd-select > label {gap: 8px !important;}
+.hd-input label > span, .hd-select label > span {background: transparent !important; color: var(--hd-ink) !important; font-family: var(--hd-font); font-size: 13px !important; line-height: 21px !important; font-weight: 600 !important; padding: 0 !important; margin-bottom: 8px !important;}
+.hd-input input, .hd-input textarea {width: 100%; border: 1px solid var(--hd-input-line) !important; border-radius: 12px !important; background: #fff !important; color: var(--hd-ink) !important; box-shadow: none !important; padding: 12px 14px !important; font-family: var(--hd-font) !important; font-size: 14px !important; line-height: 22px !important;}
+.hd-input input::placeholder, .hd-input textarea::placeholder {color: var(--hd-placeholder) !important; opacity: 1;}
+.hd-input input:focus, .hd-input textarea:focus {border-color: var(--hd-blue) !important; outline: 1px solid var(--hd-blue) !important; outline-offset: -1px;}
+.hd-input .input-container {border: none !important; background: transparent !important; box-shadow: none !important;}
+.hd-select .wrap-inner {min-height: 42px; border: 1px solid var(--hd-input-line) !important; border-radius: 10px !important; background: #fff !important; box-shadow: none !important;}
+.hd-select .wrap-inner:focus-within {border-color: var(--hd-blue) !important;}
+.hd-select input {font-family: var(--hd-font) !important; font-size: 13px !important;}
+.hd-search-bar {max-width: 760px; margin: 0 auto !important; align-items: end !important; gap: 12px !important;}
+.hd-search-bar .hd-input input, .hd-search-bar .hd-input textarea {min-height: 48px !important; border-radius: 999px !important; padding-left: 20px !important;}
+.hd-search-bar .hd-button {min-height: 48px !important;}
+.hd-notice {display: flex; gap: 9px; align-items: flex-start; padding: 12px 14px; border: 1px solid transparent; border-radius: 10px; background: var(--hd-soft); color: #56657a; font-size: 13px; line-height: 20px; overflow-wrap: anywhere;}
+.hd-notice-dot {margin-top: 7px; height: 6px; width: 6px; flex-shrink: 0; background: currentColor; border-radius: 50%;}
+.hd-notice--error {background: var(--hd-error-bg); color: var(--hd-error);}
+.hd-notice--success {background: var(--hd-success-bg); color: #23613e;}
+.hd-notice--warning {background: #fff6e5; color: #805716;}
+.hd-notice--empty {background: #f6f8fb; color: var(--hd-muted);}
+.hd-spinner {flex-shrink: 0; margin-top: 3px; width: 14px; height: 14px; border: 2px solid #c9d2df; border-top-color: var(--hd-page-accent, var(--hd-navy)); border-radius: 50%; animation: hd-spin .85s linear infinite;}
+@keyframes hd-spin {to {transform: rotate(360deg);}}
+.hd-result-table {border: 1px solid var(--hd-line) !important; border-radius: 12px !important; background: #fff !important; overflow: hidden;}
+.hd-result-table table {font-family: var(--hd-font); font-size: 13px !important;}
+.hd-result-table th {background: #f6f8fb !important; color: var(--hd-muted) !important; font-size: 12px !important; font-weight: 500 !important;}
+.hd-result-table td {padding-top: 13px !important; padding-bottom: 13px !important; border-color: #edf0f5 !important; color: var(--hd-ink) !important;}
+.hd-result-table tbody tr:hover td {background: #f0f5fb !important;}
+.hd-result-table .table-wrap {border: 0 !important;}
+.hd-detail h2, .hd-detail h3, .hd-summary h3, .hd-evidence h3 {color: var(--hd-ink); margin-top: 0; font-weight: 700;}
+.hd-detail p, .hd-summary p, .hd-evidence p {line-height: 1.8;}
+.hd-detail {min-width: 0;}
+.hd-summary {padding: 16px; border: 1px solid var(--hd-line); border-radius: 12px; background: #f7f9fc; font-size: 13px; color: #354456;}
+.hd-evidence {padding: 16px; border: 1px solid var(--hd-line); border-radius: 12px; background: #fff; font-size: 13px; color: #354456;}
+.hd-evidence a {color: var(--hd-navy); text-underline-offset: 3px;}
+.hd-footer {max-width: var(--hd-content); width: calc(100% - 48px); margin: auto auto 0 !important; padding: 36px 0 28px !important;}
+#hd-shell-footer {align-items:center;justify-content:space-between;gap:16px;flex-wrap:nowrap!important;}
+#hd-footer-company {flex:0 1 auto!important;width:auto!important;min-width:0!important;color:#25282d;font-size:12px;line-height:18px;}
+#hd-footer-note {flex:1 1 auto!important;width:auto!important;min-width:0!important;text-align:right;color:#42474f;font-size:12px;line-height:18px;}
+.hd-footer-inner {display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #42474f; font-size: 12px; line-height: 18px;}
+.hd-footer-inner > :first-child {color: #25282d; white-space: nowrap;}
+.hd-mode-note {border-radius: 8px; padding: 8px 12px; color: var(--hd-muted); background: #e8edf4; font-size: 12px; line-height: 18px;}
+.hd-upload {max-width: 880px; width: 100%; margin: 0 auto !important;}
+.hd-upload .file-wrap {border-color: var(--hd-input-line) !important; border-radius: 12px !important; background: #f8fafc !important;}
+
+/* 로그인 전용 반응형 스타일은 login.css에서 관리합니다. */
+@media (max-width: 760px) {
+  .hd-content {width: calc(100% - 32px) !important; padding-top: 24px !important;}
+  .hd-card {padding: 18px !important;}
+  .hd-nav-inner {width: calc(100% - 32px); gap: 8px !important; flex-wrap: wrap !important;}
+  .hd-nav-button {font-size: 12px !important; padding: 0 6px !important;}
+  .hd-brand-name {font-size: 16px;}
+  .hd-role {font-size: 10px;}
+  .hd-footer-inner {align-items: flex-start; flex-direction: column; gap: 8px;}
+  .hd-search-bar {max-width: 100%; width: 100%;}
+}
+@media (prefers-reduced-motion: reduce) {
+  .hd-button {transition: none !important;}
+  .hd-spinner {animation: none !important;}
+}

@@ -1,5 +1,7 @@
 # AI 문서검색 통합 기능명세서
 
+> 실행은 저장소 맨 위 `Hyundap/` 기준입니다. 앱은 `python -m hyundap.app`, 테스트는 `python -m unittest discover -s hyundap/tests -t .`로 실행합니다. 다른 폴더는 `from hyundap.common.config import get_settings`처럼 전체 패키지 경로로, 같은 폴더는 상대 import로 가져옵니다. `.env`도 저장소 맨 위에 둡니다.
+
 > 공유 드라이브의 `문서검색_통합_기능명세서.xlsm.xlsx` 전체 시트를 옮긴 문서입니다. 내용이 다르면 엑셀 파일이 기준입니다.
 > 소스 위치에 적힌 경로는 `hyundap/` 폴더 기준입니다.
 
@@ -30,6 +32,7 @@
 | 정의 범위 | 팀원 설계 행만 포함. 기존 시제품(docsearch/) 행은 제외 |
 | ID 구간 | UI F37~F42·FUN-156~177 / ingest F60~F72·FUN-200~219 / 임베딩 F100~·FUN-300~·CLS-100~ / search F80~·FUN-240~ / chatbot F120~·FUN-400~·CLS-120~ |
 | 미정 처리 | 미정·협의·제안·이름 가정으로 표기된 문장은 해당 칸에서 빼고 미정_목록에 원문을 남김 |
+| 모듈 경로 표기 | 이 문서의 `common.config`·`auth.permissions` 같은 모듈 이름은 실제 import 시 `hyundap.` 을 붙인다 (예: `from hyundap.common.config import get_settings`). 같은 폴더 안은 상대 경로. 실행은 저장소 맨 위에서 (#127~#133) |
 
 | 시트 | 용도 | 항목 수 |
 |---|---|---|
@@ -43,7 +46,7 @@
 | 참고_처리순서 | search·chatbot 함수별 처리 순서 | 45 |
 | 참고_오류코드 | search 오류 코드 | 11 |
 | 이름_불일치 | 파일마다 달랐던 함수 이름·호출 형식 (통일 결과는 결정 열) | 15 |
-| 미정_목록 | 작성하지 않은 미정·협의 내용 원문 | 121 |
+| 미정_목록 | 작성하지 않은 미정·협의 내용 원문 | 122 |
 | ID_대응표 | 번호를 새로 매긴 항목의 원래 ID | 179 |
 
 ## 2. 도식도
@@ -193,7 +196,7 @@
 | ENT-034 | 계정 권한 영역 진입·목록 새로고침 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 전재경 제공 계정/역할 목록으로 선택창 채우기 | services, ui_state | ui.admin_page.load_account_options | FUN-169 | ui/admin_page.py (구현 예정·박경환) |
 | ENT-035 | 계정 권한 저장·확인 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 확인 후 전재경 제공 권한 변경 함수에 전달·결과 표시 | account_id, new_role, services, ui_state | ui.admin_page.on_role_change_submit | FUN-170 | ui/admin_page.py (구현 예정·박경환) |
 | ENT-036 | 로그 영역 진입·새로고침 | 이벤트(예정) | P2 | auth 담당이 허용한 관리 사용자 | 전재경 제공 로그/처리 결과를 조회·표시 | services, ui_state | ui.admin_page.load_log_view | FUN-171 | ui/admin_page.py (구현 예정·박경환) |
-| ENT-037 | python app.py | 실행(예정) | Hyundap | 로컬 실행자 | 공통 설정과 제공 기능으로 Gradio 앱 조립·실행 | common.config 제공 설정·담당 모듈 | app.main | FUN-177, FUN-176 | app.py (구현 예정·박경환) |
+| ENT-037 | python -m hyundap.app | 실행(예정) | Hyundap | 로컬 실행자 | 공통 설정과 제공 기능으로 Gradio 앱 조립·실행 | common.config 제공 설정·담당 모듈 | app.main | FUN-177, FUN-176 | app.py (구현 예정·박경환) |
 
 #### 모듈
 
@@ -487,7 +490,7 @@
 - **역할**: 공통 설정과 담당자 제공 기능을 받아 Gradio 앱을 조립하고 실행한다.
 - **입력 인자·기본값**: 없음(실행 설정은 common.config 제공)
 - **반환 형식·구조**: 실행 중인 Gradio 앱
-- **진입점·연결 방식**: 구현 예정: python app.py · ENT-037
+- **진입점·연결 방식**: 구현 예정: python -m hyundap.app · ENT-037
 - **직접 호출 대상**: 예정 연계: common/config.py 제공 설정 · 이성민, FUN-176, Gradio launch
 - **직접 발생 오류**: 오류 처리안: 앱 시작 실패 안내. .env 파싱·패키지 관리·DB 초기화·모델 로딩 구현은 담당자 기능 사용
 - **데코레이터**: 없음(설계안)
@@ -539,7 +542,7 @@
 - **주요 입력**: 파일 경로
 - **처리 흐름**: 확장자(.pdf/.docx/.pptx)를 확인한 뒤 파일 맨 앞 바이트(시그니처)로 실제 형식을 한 번 더 확인한다. PDF는 '%PDF-'로 시작, DOCX·PPTX는 압축 파일(PK) 또는 암호화된 Office 파일(OLE2)로 시작해야 한다. 크기는 1바이트 이상 100MiB 이하.
 - **출력·상태**: 확장자 문자열 / IngestError(UNSUPPORTED_FORMAT, FILE_TOO_LARGE)
-- **조건·범위**: 100MiB = 104,857,600바이트(기획안). .doc·.ppt(구형), .docm·.pptm(매크로), HWP, XLSX, 이미지는 이번 범위 밖이라 거부한다. 0바이트 파일은 손상으로 본다.
+- **조건·범위**: 100MiB = 104,857,600바이트(기획안). .doc·.ppt(구형), .docm·.pptm(매크로), HWP, XLSX, 이미지 파일(JPG·PNG 등)은 이번 범위 밖이라 거부한다. 0바이트 파일은 손상으로 본다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-201
@@ -603,9 +606,9 @@
 - **사용 주체**: 시스템(ingest)
 - **화면·진입점**: 업로드 처리 흐름 (관리자 업로드 화면 → ingest)
 - **주요 입력**: PDF 파일 경로, 업로드 정보
-- **처리 흐름**: PyPDFLoader로 페이지마다 글자를 꺼낸다. 페이지 번호는 0부터라 1을 더해 섹션 번호로 쓰고, 위치 문구는 'p.N'으로 만든다. 글자가 없는 페이지는 섹션을 만들지 않고 경고에 남긴다.
+- **처리 흐름**: PyPDFLoader로 페이지마다 글자를 꺼낸다. 페이지 번호는 0부터라 1을 더해 섹션 번호로 쓰고, 위치 문구는 'p.N'으로 만든다. 글자가 없는 페이지는 PaddleOCR가 설치되어 있으면 페이지 전체를 OCR해 섹션을 만들고(경고에 'OCR로 읽음'), 설치되어 있지 않거나 OCR로도 못 읽으면 섹션을 만들지 않고 경고에 남긴다. 글자가 있는 페이지 안의 그림(그래프·표 이미지)은 그림 영역만 잘라 OCR해 본문 뒤에 붙인다.
 - **출력·상태**: 공통 문서 형식(페이지마다 섹션 1개)
-- **조건·범위**: 스캔(이미지) PDF는 글자가 0이라 OCR 없이는 읽지 못한다 → 전체가 비면 EMPTY_DOCUMENT. 표는 일반 글자로만 나온다. 2단 편집 PDF는 줄 단위로 섞여 읽힐 수 있다(샘플 테스트에서 확인)
+- **조건·범위**: 스캔(이미지) PDF는 쪽 전체를 OCR로 읽는다(200dpi, 문서당 기본 50쪽까지, .env의 OCR_MAX_PAGES로 조정). 쪽 안의 그림은 300dpi로 잘라 OCR한다(로고 크기의 작은 그림과 쪽 면적 85% 이상인 그림은 제외, 신뢰도 0.5 미만 줄은 버림, 본문과 거의 같은 줄은 뺌, 문서당 기본 100개까지, .env의 OCR_MAX_FIGURES로 조정). OCR 도구는 데이터 보안(내부 데이터면 로컬)과 무료 조건을 고려해 로컬 PaddleOCR로 정했다(선택 기록: ingest/docs/spec.md 13절). OCR 엔진이 없거나 OCR로도 글자를 읽지 못해 전체가 비면 EMPTY_DOCUMENT. 스캐너가 이미 넣은 글자 레이어는 품질과 관계없이 그대로 쓴다. OCR한 한글은 띄어쓰기가 많이 빠진다. 표는 일반 글자로만 나온다(OCR한 표도 행·열 구조는 인식하지 않음). 2단 편집 PDF는 줄 단위로 섞여 읽힐 수 있다(샘플 테스트에서 확인)
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-208
@@ -620,9 +623,9 @@
 - **사용 주체**: 시스템(ingest)
 - **화면·진입점**: 업로드 처리 흐름 (관리자 업로드 화면 → ingest)
 - **주요 입력**: DOCX 파일 경로, 업로드 정보
-- **처리 흐름**: python-docx로 본문을 위에서 아래로 읽어 문단과 표를 순서대로 모은다. 제목 스타일(Heading)을 만나면 새 섹션을 시작한다. 제목이 하나도 없으면 문서 전체가 섹션 1개.
+- **처리 흐름**: python-docx로 본문을 위에서 아래로 읽어 문단과 표를 순서대로 모은다. 제목 스타일(Heading)을 만나면 새 섹션을 시작한다. 제목이 하나도 없으면 문서 전체가 섹션 1개. 문서 안의 그림은 PaddleOCR가 설치되어 있으면 OCR해 그림이 있는 문단 바로 뒤(표 칸 안의 그림은 표 뒤)에 넣고, Office 차트 개체는 차트 XML에서 값을 읽어 같은 자리에 표로 넣는다.
 - **출력·상태**: 공통 문서 형식(제목 구간마다 섹션 1개)
-- **조건·범위**: DOCX 파일에는 페이지 번호가 저장되지 않아 정확한 페이지를 알 수 없다 → 출처 위치는 '섹션 N (제목)'. 머리글·바닥글·각주·텍스트상자·이미지는 제외.
+- **조건·범위**: DOCX 파일에는 페이지 번호가 저장되지 않아 정확한 페이지를 알 수 없다 → 출처 위치는 '섹션 N (제목)'. 머리글·바닥글·각주·텍스트상자는 제외. 그림은 OCR로 읽는다(F65와 같은 크기·신뢰도·중복·100개 기준, 해상도가 낮으면 최대 3배 확대). Office 차트 개체는 OCR이 아니라 차트 XML에서 제목·항목·계열·값을 읽어 표로 넣는다(항목 60·계열 12·문서당 200개 상한, 차트 자리). EMF 같은 벡터 그림과 새 차트 종류는 읽지 못해 경고에 개수만 남긴다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-209
@@ -638,9 +641,9 @@
 - **사용 주체**: 시스템(ingest)
 - **화면·진입점**: 업로드 처리 흐름 (관리자 업로드 화면 → ingest)
 - **주요 입력**: PPTX 파일 경로, 업로드 정보
-- **처리 흐름**: python-pptx로 슬라이드를 1번부터 차례로 읽는다. 슬라이드 안의 도형을 위→아래, 왼→오른쪽 순서로 훑고 그룹 도형 안까지 들어가 글자와 표를 꺼낸다. 슬라이드 1장이 섹션 1개, 위치 문구는 '슬라이드 N'.
+- **처리 흐름**: python-pptx로 슬라이드를 1번부터 차례로 읽는다. 슬라이드 안의 도형을 위→아래, 왼→오른쪽 순서로 훑고 그룹 도형 안까지 들어가 글자와 표를 꺼낸다. 슬라이드 1장이 섹션 1개, 위치 문구는 '슬라이드 N'. 그림 도형은 PaddleOCR가 설치되어 있으면 읽기 순서대로 그 자리에서 OCR하고, 차트 도형은 차트 XML에서 값을 읽어 그 자리에 표로 넣는다.
 - **출력·상태**: 공통 문서 형식(슬라이드마다 섹션 1개)
-- **조건·범위**: 발표자 노트·이미지·차트 안의 글자는 제외. 글자가 없는 슬라이드는 섹션을 만들지 않고 경고에 남긴다.
+- **조건·범위**: 발표자 노트는 제외. 그림은 OCR로 읽고(F65와 같은 기준, 슬라이드 전체를 덮는 배경 그림은 제외) 차트는 차트 XML에서 값을 읽는다. 그림만 있는 슬라이드도 OCR 결과가 있으면 섹션이 된다. 글자가 없는 슬라이드는 섹션을 만들지 않고 경고에 남긴다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-210
@@ -687,7 +690,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(ingest)
 - **화면·진입점**: 업로드 처리 흐름 (관리자 업로드 화면 → ingest)
-- **주요 입력**: 정규화된 공통 문서 형식, chunk_size(기본 1000), chunk_overlap(기본 150)
+- **주요 입력**: 정규화된 공통 문서 형식, chunk_size(기본 1000), chunk_overlap(기본 150). 값은 common.config.get_settings()의 CHUNK_SIZE·CHUNK_OVERLAP 설정
 - **처리 흐름**: 섹션 1개를 LangChain Document 1개로 바꾼 뒤 RecursiveCharacterTextSplitter.split_documents로 자른다. Document마다 따로 자르므로 청크가 페이지·슬라이드 경계를 넘지 않는다. 자르는 순서는 문단(빈 줄) → 줄 → 공백 → 글자.
 - **출력·상태**: Chunk 목록
 - **조건·범위**: 기본 1000자/150자 겹침은 박영준 명세의 '청크 1000자 기준'과 맞춘 값. 설정으로 바꿀 수 있게 하고, 질문셋으로 성능을 재서 확정. 섹션 사이에는 겹침이 없다.
@@ -746,7 +749,7 @@
 - **분류**: 오류
 - **역할**:
   - 파일 검증·로드·청킹 중 생기는 입력 오류. 원인 코드와 사용자에게 보여 줄 문구를 담는다.
-  - 코드: UNSUPPORTED_FORMAT(지원하지 않는 형식), FILE_TOO_LARGE(100MiB 초과), ENCRYPTED_FILE(암호화), CORRUPTED_FILE(손상·0바이트), DUPLICATE_FILE(같은 회사 중복), EMPTY_DOCUMENT(글자 없음: 스캔본 등).
+  - 코드: UNSUPPORTED_FORMAT(지원하지 않는 형식), FILE_TOO_LARGE(100MiB 초과), ENCRYPTED_FILE(암호화), CORRUPTED_FILE(손상·0바이트), DUPLICATE_FILE(같은 회사 중복), EMPTY_DOCUMENT(글자 없음: OCR로도 읽지 못한 이미지 문서 등).
 - **상속**: Exception (영준이 EmbeddingError와 같은 방식)
 - **직접 정의 속성**: code(str), message(str)
 - **직접 정의 메서드**: 직접 정의 없음
@@ -902,11 +905,12 @@
 - **구분**: 모듈 함수
 - **역할**:
   - PDF를 페이지별로 읽어 페이지마다 섹션 1개를 가진 공통 문서 형식으로 바꾼다.
-  - 글자가 없는 페이지는 경고에 남긴다.
+  - 글자가 없는 페이지는 PaddleOCR로 페이지 전체를 읽고(설치된 경우), 못 읽으면 경고에 남긴다.
+  - 글자가 있는 페이지 안의 그림은 그림 영역만 OCR해 본문 뒤에 붙인다.
 - **입력 인자·기본값**: file_path: str, upload_info: dict
 - **반환 형식·구조**: CommonDocument
 - **진입점·연결 방식**: 내부 처리 (load_document)
-- **직접 호출 대상**: PyPDFLoader(file_path).load, build_location_label
+- **직접 호출 대상**: PyPDFLoader(file_path).load, build_location_label, ocr.is_available, ocr.ocr_image, render_page, figure_crops, FigureReader (ocr·figures의 새 함수는 ID 미부여, 미정 목록 122)
 - **직접 발생 오류**: IngestError(CORRUPTED_FILE)
 - **데코레이터**: 없음
 - **연결 기능**: F65
@@ -917,11 +921,11 @@
 
 - **모듈**: ingest.loaders.docx_loader
 - **구분**: 모듈 함수
-- **역할**: DOCX 본문을 순서대로 읽어 문단과 표를 모으고 제목 스타일마다 새 섹션으로 나눠 공통 문서 형식으로 바꾼다.
+- **역할**: DOCX 본문을 순서대로 읽어 문단과 표를 모으고 제목 스타일마다 새 섹션으로 나눠 공통 문서 형식으로 바꾼다. 문서 안의 그림은 OCR로 읽어 그림이 있는 문단(표 칸 안이면 표) 뒤에 넣는다.
 - **입력 인자·기본값**: file_path: str, upload_info: dict
 - **반환 형식·구조**: CommonDocument
 - **진입점·연결 방식**: 내부 처리 (load_document)
-- **직접 호출 대상**: docx.Document, table_to_text, build_location_label
+- **직접 호출 대상**: docx.Document, table_to_text, build_location_label, picture_refs, read_pictures, read_charts, FigureReader, ChartReader (새 함수는 ID 미부여, 미정 목록 122)
 - **직접 발생 오류**: IngestError(CORRUPTED_FILE)
 - **데코레이터**: 없음
 - **연결 기능**: F66
@@ -935,10 +939,11 @@
 - **역할**:
   - PPTX 슬라이드를 차례로 읽어 도형 속 글자와 표를 꺼내 슬라이드마다 섹션 1개로 만든다.
   - 그룹 도형 안까지 들어간다.
+  - 그림 도형은 읽기 순서대로 OCR해 그 자리에 넣는다(PaddleOCR가 설치된 경우). 그림만 있는 슬라이드도 섹션이 된다.
 - **입력 인자·기본값**: file_path: str, upload_info: dict
 - **반환 형식·구조**: CommonDocument
 - **진입점·연결 방식**: 내부 처리 (load_document)
-- **직접 호출 대상**: pptx.Presentation, table_to_text, build_location_label
+- **직접 호출 대상**: pptx.Presentation, table_to_text, build_location_label, is_picture, FigureReader, ChartReader (새 함수는 ID 미부여, 미정 목록 122)
 - **직접 발생 오류**: IngestError(CORRUPTED_FILE)
 - **데코레이터**: 없음
 - **연결 기능**: F67
@@ -1039,7 +1044,7 @@
 - **모듈**: ingest.chunker
 - **구분**: 모듈 함수
 - **역할**: 정규화된 문서를 섹션마다 따로 잘라 Chunk 목록으로 돌려준다. 섹션 경계를 넘는 청크가 없다.
-- **입력 인자·기본값**: doc: CommonDocument, chunk_size: int = 1000, chunk_overlap: int = 150
+- **입력 인자·기본값**: doc: CommonDocument, chunk_size: int | None = None, chunk_overlap: int | None = None (None이면 get_settings()의 chunk_size 1000·chunk_overlap 150)
 - **반환 형식·구조**: list[Chunk]
 - **진입점·연결 방식**: 내부 처리 (ingest_document)
 - **직접 호출 대상**: to_langchain_documents, RecursiveCharacterTextSplitter, split_documents, build_chunk
@@ -1096,7 +1101,7 @@
 - **담당자**: 박영준
 - **적용 모드**: 팀 P1(필수)
 - **사용 주체**: 시스템(embedding)
-- **화면·진입점**: embedding.get_embedding_model / get_collection
+- **화면·진입점**: embedding.get_embedding_model / get_vector_store
 - **주요 입력**: .env의 OPENAI_API_KEY·OPENAI_EMBEDDING_MODEL·CHROMA_DB_PATH
 - **처리 흐름**: 설정 읽기 → OpenAI 임베딩 모델 객체 생성(한 번 만들어 재사용) → data/chroma_db 폴더의 Chroma를 열고 모델별 컬렉션을 가져오거나 새로 만든다.
 - **출력·상태**: 임베딩 모델 객체, Chroma 컬렉션(cosine)
@@ -1130,9 +1135,9 @@
 - **담당자**: 박영준
 - **적용 모드**: 팀 P1(필수)
 - **사용 주체**: 시스템(embedding)
-- **화면·진입점**: embedding.build_embedding_text / fit_to_token_limit
+- **화면·진입점**: embedding.build_embedding_text / fit_to_char_limit
 - **주요 입력**: 청크 1개
-- **처리 흐름**: 청크 text만 앞뒤 공백을 제거해 모델에 넣는다(회사·문서 유형은 글에 섞지 않음). 토큰 수를 세어 모델 상한(8191)을 넘으면 잘라내고 잘렸음을 기록한다.
+- **처리 흐름**: 청크 text만 앞뒤 공백을 제거해 모델에 넣는다(회사·문서 유형은 글에 섞지 않음). 글자 수가 상한(4000자)을 넘으면 잘라내고 잘렸음을 기록한다. 토큰이 아닌 글자 수 기준이다(tiktoken 사용 안 함).
 - **출력·상태**: 임베딩할 글, 잘림 여부(truncated)
 - **조건·범위**: 빈 글은 EMPTY_TEXT 실패. 청크는 1000자 기준이라 잘림은 드물며 안전장치 역할이다.
 - **연결 상태**: 설계(미구현)
@@ -1156,17 +1161,17 @@
 - **정의 ID**: FUN-305
 - **소스 위치**: embedding/embedder.py (구현 예정)
 
-##### F104 일시 오류 재시도·영구 실패 표시 (EMB-05)
+##### F104 응답 시간 제한·일시 오류 재시도·영구 실패 표시 (EMB-05)
 
 - **분류**: 임베딩
 - **담당자**: 박영준
 - **적용 모드**: 팀 P2(상용화)
 - **사용 주체**: 시스템(embedding)
-- **화면·진입점**: embedding.embed_batch_with_retry
-- **주요 입력**: 글 목록, max_retries=3
-- **처리 흐름**: 속도 제한·연결 끊김·시간 초과는 1초·2초·4초 간격으로 최대 3번 다시 시도한다. 인증 오류·잘못된 요청 등 고칠 수 없는 오류는 재시도 없이 실패로 표시한다.
+- **화면·진입점**: embedding.embed_texts / embed_query
+- **주요 입력**: 글 목록 (응답 대기 시간·자동 재시도 횟수는 OpenAIEmbeddings의 request_timeout·max_retries 인자: 문서 30초·3번, 질문 10초·2번, 상태 점검 5초·0번)
+- **처리 흐름**: 응답 대기와 일시 오류(속도 제한·연결 끊김·시간 초과·서버 오류) 재시도는 OpenAIEmbeddings 라이브러리가 맡는다(직접 만든 재시도 코드 없음). 라이브러리가 끝내 실패하면 openai 예외 클래스로 종류를 구분한다: 인증·권한 AUTH_ERROR, 잘못된 요청 BAD_REQUEST, 한도 소진 QUOTA_EXCEEDED는 retryable=False, 속도 제한 RATE_LIMIT·시간 초과 TIMEOUT·연결 끊김 CONNECTION·서버 오류 SERVER_ERROR는 retryable=True, 그 밖의 알 수 없는 오류 UNKNOWN_ERROR는 retryable=False.
 - **출력·상태**: 벡터 목록 또는 EmbeddingError(retryable 구분)
-- **조건·범위**: 재시도 3번을 모두 쓰면 실패(retryable=True로 기록, 나중에 다시 처리 가능).
+- **조건·범위**: retryable 값은 db 작업 기록과 UI 재시도 안내에 쓰인다. retryable=True는 나중에 다시 처리할 수 있는 실패, False는 설정·입력·한도를 고치기 전에는 해결되지 않는 실패다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-304
@@ -1234,7 +1239,7 @@
 - **사용 주체**: 로그인 사용자(search·chatbot이 호출)
 - **화면·진입점**: embedding.embed_query
 - **주요 입력**: 검색어 또는 질문 문자열
-- **처리 흐름**: 앞뒤 공백을 제거하고 1~2000자인지 확인한 뒤 청크와 같은 모델로 임베딩한다(재시도 포함).
+- **처리 흐름**: 앞뒤 공백을 제거하고 1~2000자인지 확인한 뒤 청크와 같은 모델로 임베딩한다(응답 대기 10초, 자동 재시도 2번).
 - **출력·상태**: 벡터(list[float])
 - **조건·범위**: 빈 문자열 EMPTY_QUERY, 2000자 초과 QUERY_TOO_LONG.
 - **연결 상태**: 설계(미구현)
@@ -1326,10 +1331,10 @@
 - **적용 모드**: 팀 P2(상용화)
 - **사용 주체**: 로컬 실행자·개발자
 - **화면·진입점**: embedding.check_embedding_health / check_vector_store_health
-- **주요 입력**: (없음) timeout=5초, 캐시 60초
+- **주요 입력**: (없음) 응답 대기 5초, 재시도 없음
 - **처리 흐름**: 시험 문장을 임베딩해 모델·API 키가 동작하는지 보고, 컬렉션을 열어 저장된 벡터 수·공개 벡터 수를 센다.
 - **출력·상태**: {ok, model, dim, total_vectors, active_vectors, detail}
-- **조건·범위**: 시험 임베딩은 실제 API를 호출하므로 성공 결과를 60초 캐시한다.
+- **조건·범위**: 시험 임베딩은 실제 API를 호출하므로 비용이 발생할 수 있다. 호출할 때마다 새로 점검하며 결과를 저장해 두지 않는다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-309
@@ -1370,9 +1375,9 @@
 
 | 모듈 ID | 파일 | 주 책임 | 적용 모드 | 설명 | 내부 의존 모듈 | 주요 외부 가져오기 |
 |---|---|---|---|---|---|---|
-| MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
-| MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai, tiktoken, concurrent.futures, math, time |
-| MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | ChromaDB 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | chromadb, re, time |
+| MOD-100 | embedding/__init__.py | 공개 함수 모음 | 팀 P1(필수) | 다른 폴더가 from hyundap.embedding import ... 로 쓸 공개 함수만 다시 내보낸다. | .embedder, .vector_store, .models | 없음 |
+| MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai(예외 클래스), numpy, collections, time |
+| MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | Chroma 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | langchain_chroma, time |
 | MOD-103 | embedding/models.py | 결과 형식·오류 | 팀 P1(필수) | embedding이 주고받는 결과 데이터(dataclass)와 오류 클래스를 정의한다. | common.schemas | dataclasses |
 
 #### 클래스
@@ -1557,13 +1562,13 @@
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: common/config의 모델 이름·API 키로 OpenAI 임베딩 모델 객체를 만들고 같은 객체를 재사용한다. 청크용·질문용이 같은 모델을 쓰도록 보장한다.
-- **입력 인자·기본값**: model_name: str | None = None
+- **역할**: common/config의 모델 이름·API 키로 OpenAI 임베딩 모델 객체를 만들고 같은 설정이면 같은 객체를 재사용한다. 청크용·질문용이 같은 모델을 쓰도록 보장하며, 용도(문서·질문·점검)마다 응답 대기 시간·재시도 횟수를 다르게 넘긴다.
+- **입력 인자·기본값**: model_name: str | None = None, *, timeout: float = 30, max_retries: int = 3
 - **반환 형식·구조**: OpenAIEmbeddings
 - **진입점·연결 방식**: 내부 처리 (embed_chunks·embed_query·check_embedding_health)
-- **직접 호출 대상**: common.config.get_settings, OpenAIEmbeddings
+- **직접 호출 대상**: common.config.get_settings, OpenAIEmbeddings(request_timeout, max_retries)
 - **직접 발생 오류**: EmbeddingError(NO_API_KEY)
-- **데코레이터**: @lru_cache
+- **데코레이터**: 없음 (같은 설정의 객체는 모듈 변수에 보관해 재사용)
 - **연결 기능**: F100
 - **소스 위치**: embedding/embedder.py (구현 예정)
 - **담당자**: 박영준
@@ -1583,15 +1588,15 @@
 - **소스 위치**: embedding/embedder.py (구현 예정)
 - **담당자**: 박영준
 
-##### FUN-302 `fit_to_token_limit`
+##### FUN-302 `fit_to_char_limit`
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: tiktoken으로 토큰 수를 세어 모델 입력 상한을 넘으면 상한까지 잘라내고 잘렸는지 함께 알려준다.
-- **입력 인자·기본값**: text: str, max_tokens: int = 8191, model_name: str | None = None
+- **역할**: 글자 수가 입력 상한을 넘으면 상한까지 잘라내고 잘렸는지 함께 알려준다. 토큰이 아닌 글자 수 기준이다(tiktoken 사용 안 함).
+- **입력 인자·기본값**: text: str, max_chars: int = 4000
 - **반환 형식·구조**: tuple[str, bool] (처리된 글, 잘림 여부)
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: tiktoken.encoding_for_model, tiktoken.get_encoding, encoding.encode, encoding.decode
+- **직접 호출 대상**: len
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F102
@@ -1613,16 +1618,16 @@
 - **소스 위치**: embedding/embedder.py (구현 예정)
 - **담당자**: 박영준
 
-##### FUN-304 `embed_batch_with_retry`
+##### FUN-304 `embed_texts`
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: 글 한 묶음을 임베딩 API로 보낸다. 일시 오류는 1·2·4초 간격으로 최대 3번 재시도하고 고칠 수 없는 오류는 바로 실패 처리한다.
-- **입력 인자·기본값**: texts: list[str], *, max_retries: int = 3, base_delay: float = 1.0
+- **역할**: 글 한 묶음을 임베딩 API로 보낸다. 응답 대기·일시 오류 재시도는 OpenAIEmbeddings가 맡고, 끝내 실패하면 openai 예외 클래스로 오류 종류(AUTH_ERROR·BAD_REQUEST·QUOTA_EXCEEDED·RATE_LIMIT·TIMEOUT·CONNECTION·SERVER_ERROR·UNKNOWN_ERROR)와 재시도 가능 여부를 구분해 올린다.
+- **입력 인자·기본값**: texts: list[str]
 - **반환 형식·구조**: list[list[float]] (입력 순서와 같은 벡터 목록)
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: get_embedding_model, model.embed_documents, time.sleep
-- **직접 발생 오류**: EmbeddingError(retryable 여부 포함)
+- **직접 호출 대상**: get_embedding_model, model.embed_documents
+- **직접 발생 오류**: EmbeddingError(오류 종류별 코드, retryable 여부 포함)
 - **데코레이터**: 없음
 - **연결 기능**: F104
 - **소스 위치**: embedding/embedder.py (구현 예정)
@@ -1632,11 +1637,11 @@
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: 청크를 64개씩 묶어 입력 구성·길이 점검·재시도 호출을 거쳐 임베딩한다. 실패한 묶음의 청크만 실패 목록에 담고 계속 진행한다.
+- **역할**: 청크를 64개씩 묶어 입력 구성·길이 점검·임베딩 호출을 거쳐 임베딩한다. 실패한 묶음의 청크만 실패 목록에 담고 계속 진행한다.
 - **입력 인자·기본값**: chunks: list[Chunk], *, batch_size: int = 64
 - **반환 형식·구조**: EmbeddingBatch (items, failures)
 - **진입점·연결 방식**: 내부 처리 (embed_and_store)
-- **직접 호출 대상**: build_embedding_text, fit_to_token_limit, build_chunk_metadata, embed_batch_with_retry, EmbeddedChunk, EmbeddingFailure
+- **직접 호출 대상**: build_embedding_text, fit_to_char_limit, build_chunk_metadata, embed_texts, EmbeddedChunk, EmbeddingFailure
 - **직접 발생 오류**: 직접 발생 없음 (실패는 failures에 기록)
 - **데코레이터**: 없음
 - **연결 기능**: F103
@@ -1651,7 +1656,7 @@
 - **입력 인자·기본값**: vectors: list[list[float]], expected_dim: int | None = None
 - **반환 형식·구조**: list[int] (이상 벡터 위치, 빈 목록이면 정상)
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: math.isfinite, len
+- **직접 호출 대상**: numpy.isfinite, collections.Counter, len
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F105
@@ -1681,8 +1686,8 @@
 - **입력 인자·기본값**: query: str
 - **반환 형식·구조**: list[float]
 - **진입점·연결 방식**: 다른 폴더에서 호출 (search.search, chatbot.ask)
-- **직접 호출 대상**: embed_batch_with_retry
-- **직접 발생 오류**: EmbeddingError(EMPTY_QUERY / QUERY_TOO_LONG)
+- **직접 호출 대상**: get_embedding_model(timeout=10, max_retries=2), model.embed_query, validate_embeddings
+- **직접 발생 오류**: EmbeddingError(EMPTY_QUERY / QUERY_TOO_LONG, 오류 종류별 코드)
 - **데코레이터**: 없음
 - **연결 기능**: F108
 - **소스 위치**: embedding/embedder.py (구현 예정)
@@ -1692,11 +1697,11 @@
 
 - **모듈**: embedding.embedder
 - **구분**: 모듈 함수
-- **역할**: 시험 문장을 임베딩해 모델·API 키가 동작하는지 점검한다. 최대 5초 기다리고 성공 결과는 60초 캐시한다.
-- **입력 인자·기본값**: *, timeout: float = 5.0, cache_seconds: int = 60
+- **역할**: 시험 문장을 임베딩해 모델·API 키가 동작하는지 점검한다. 최대 5초만 기다리고 재시도하지 않으며 결과를 저장해 두지 않는다.
+- **입력 인자·기본값**: (없음)
 - **반환 형식·구조**: dict {ok, model, dim, detail}
 - **진입점·연결 방식**: 다른 폴더에서 호출 (app.py·tests)
-- **직접 호출 대상**: ThreadPoolExecutor, embed_batch_with_retry, time.monotonic
+- **직접 호출 대상**: get_embedding_model(timeout=5, max_retries=0), model.embed_query, validate_embeddings
 - **직접 발생 오류**: 직접 발생 없음 (오류는 ok=False로 반환)
 - **데코레이터**: 없음
 - **연결 기능**: F114
@@ -1711,22 +1716,22 @@
 - **입력 인자·기본값**: model_name: str
 - **반환 형식·구조**: str
 - **진입점·연결 방식**: 내부 처리
-- **직접 호출 대상**: re.sub
+- **직접 호출 대상**: str.isalnum, str.strip
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F115
 - **소스 위치**: embedding/vector_store.py (구현 예정)
 - **담당자**: 박영준
 
-##### FUN-311 `get_collection`
+##### FUN-311 `get_vector_store`
 
 - **모듈**: embedding.vector_store
 - **구분**: 모듈 함수
-- **역할**: data/chroma_db에 저장되는 Chroma 클라이언트를 한 번만 열고 모델별 컬렉션을 가져오거나 만든다(거리 방식 cosine).
+- **역할**: data/chroma_db에 저장되는 Chroma 저장소(langchain_chroma.Chroma)를 모델별 컬렉션으로 한 번만 열고 재사용한다(거리 방식 cosine).
 - **입력 인자·기본값**: model_name: str | None = None
-- **반환 형식·구조**: chromadb Collection
+- **반환 형식·구조**: langchain_chroma.Chroma
 - **진입점·연결 방식**: 내부 처리 (vector_store 모든 함수)
-- **직접 호출 대상**: common.config.get_settings, chromadb.PersistentClient, client.get_or_create_collection, collection_name_for_model
+- **직접 호출 대상**: common.config.get_settings, Chroma(collection_name, persist_directory, collection_metadata), collection_name_for_model
 - **직접 발생 오류**: VectorStoreError(STORE_UNAVAILABLE)
 - **데코레이터**: 없음
 - **연결 기능**: F100, F115
@@ -1741,7 +1746,7 @@
 - **입력 인자·기본값**: chunks: list[Chunk]
 - **반환 형식·구조**: list[Chunk]
 - **진입점·연결 방식**: 내부 처리 (embed_and_store)
-- **직접 호출 대상**: get_collection, collection.get
+- **직접 호출 대상**: get_vector_store, store.get
 - **직접 발생 오류**: VectorStoreError(COMPANY_MISMATCH)
 - **데코레이터**: 없음
 - **연결 기능**: F101
@@ -1756,7 +1761,7 @@
 - **입력 인자·기본값**: chunks: list[Chunk], vectors: list[list[float]], metadatas: list[dict], *, batch_size: int = 64
 - **반환 형식·구조**: int (저장한 개수)
 - **진입점·연결 방식**: 내부 처리 (embed_and_store)
-- **직접 호출 대상**: get_collection, collection.upsert
+- **직접 호출 대상**: get_vector_store, store._collection.upsert
 - **직접 발생 오류**: VectorStoreError(LENGTH_MISMATCH / UPSERT_FAILED)
 - **데코레이터**: 없음
 - **연결 기능**: F105
@@ -1786,7 +1791,7 @@
 - **입력 인자·기본값**: query_vector: list[float], where: dict, *, top_k: int = 10
 - **반환 형식·구조**: list[VectorHit]
 - **진입점·연결 방식**: 다른 폴더에서 호출 (search/search.py)
-- **직접 호출 대상**: get_collection, collection.query, VectorHit
+- **직접 호출 대상**: get_vector_store, store.similarity_search_by_vector_with_relevance_scores, VectorHit
 - **직접 발생 오류**: VectorStoreError(NO_COMPANY_SCOPE / QUERY_FAILED)
 - **데코레이터**: 없음
 - **연결 기능**: F109
@@ -1801,7 +1806,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str
 - **반환 형식·구조**: int (공개된 청크 수)
 - **진입점·연결 방식**: 다른 폴더에서 호출 (db/ 활성 버전 지정 직후)
-- **직접 호출 대상**: get_collection, collection.get, collection.update
+- **직접 호출 대상**: get_vector_store, store.get, store._collection.update
 - **직접 발생 오류**: VectorStoreError(VERSION_NOT_FOUND)
 - **데코레이터**: 없음
 - **연결 기능**: F110
@@ -1816,7 +1821,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str | None = None
 - **반환 형식·구조**: int (삭제한 벡터 수)
 - **진입점·연결 방식**: 다른 폴더에서 호출 (db/ 실패·삭제 처리)
-- **직접 호출 대상**: get_collection, collection.delete
+- **직접 호출 대상**: get_vector_store, store.get, store.delete
 - **직접 발생 오류**: VectorStoreError(DELETE_FAILED)
 - **데코레이터**: 없음
 - **연결 기능**: F111
@@ -1831,7 +1836,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str
 - **반환 형식·구조**: list[str]
 - **진입점·연결 방식**: 다른 폴더에서 호출 (db/ 완전성 검증)
-- **직접 호출 대상**: get_collection, collection.get
+- **직접 호출 대상**: get_vector_store, store.get
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F112
@@ -1846,7 +1851,7 @@
 - **입력 인자·기본값**: document_id: str, version_id: str | None = None, *, active_only: bool = True
 - **반환 형식·구조**: list[VectorHit] (score=None)
 - **진입점·연결 방식**: 다른 폴더에서 호출 (chatbot/summary.py)
-- **직접 호출 대상**: get_collection, collection.get, VectorHit
+- **직접 호출 대상**: get_vector_store, store.get, VectorHit
 - **직접 발생 오류**: 직접 발생 없음
 - **데코레이터**: 없음
 - **연결 기능**: F113
@@ -1861,7 +1866,7 @@
 - **입력 인자·기본값**: (없음)
 - **반환 형식·구조**: dict {ok, collection, total_vectors, active_vectors, detail}
 - **진입점·연결 방식**: 다른 폴더에서 호출 (app.py·tests)
-- **직접 호출 대상**: get_collection, collection.count, collection.get
+- **직접 호출 대상**: get_vector_store, store._collection.count, store.get
 - **직접 발생 오류**: 직접 발생 없음 (오류는 ok=False로 반환)
 - **데코레이터**: 없음
 - **연결 기능**: F114
@@ -1873,20 +1878,20 @@
 | 규칙 ID | 분류 | 항목 | 현재 값·조건 | 적용 범위 | 설명·범위 |
 |---|---|---|---|---|---|
 | L101 | 임베딩 | 배치 크기 | 한 번에 64개 | 팀 P1(필수) | 청크를 64개씩 묶어 API로 보낸다(EMB-04). |
-| L102 | 임베딩 | 모델 입력 상한 | 8191 토큰 초과 시 잘라내고 truncated=True | 팀 P1(필수) | 청크는 1000자 기준이라 드물게 발생한다. 잘린 청크 수는 보고서에 기록한다. |
-| L103 | 임베딩 | 재시도 | 일시 오류 최대 3회, 대기 1·2·4초 | 팀 P2(상용화) | 속도 제한·연결 끊김·시간 초과만 재시도한다. 인증·잘못된 요청은 즉시 실패. |
+| L102 | 임베딩 | 모델 입력 상한 | 4000자 초과 시 잘라내고 truncated=True | 팀 P1(필수) | 토큰이 아닌 글자 수 기준(한글은 글자당 토큰이 많아 8191토큰 한도보다 낮게 잡음). 청크는 1000자 기준이라 드물게 발생한다. 잘린 청크 수는 보고서에 기록한다. |
+| L103 | 임베딩 | 응답 시간 제한·재시도 | 문서 30초·재시도 3번, 질문 10초·2번, 상태 점검 5초·0번 | 팀 P2(상용화) | OpenAIEmbeddings의 request_timeout·max_retries 인자로 지정한다(직접 만든 재시도 없음). 인증·잘못된 요청·한도 소진은 retryable=False, 나머지 일시 오류는 True. |
 | L104 | 임베딩 | 질문·검색어 길이 | 1~2000자 | 팀 P1(필수) | 검색 기능의 검색어 길이 제한과 같은 값을 쓴다. |
 | L105 | 청크 | 입력 청크 범위 | 한 호출에 같은 document_id·version_id·company_id만 | 팀 P1(필수) | 섞이면 MIXED_SCOPE 오류. 청크 크기(1000자·중첩 150자)는 ingest 담당 기준을 따른다. |
-| L106 | 저장 | 벡터 저장소 | ChromaDB PersistentClient · data/chroma_db/ · cosine | 팀 P1(필수) | data/ 폴더는 git에 올리지 않는다. 같은 폴더를 여러 프로세스가 동시에 쓰지 않는다. |
+| L106 | 저장 | 벡터 저장소 | langchain_chroma.Chroma · data/chroma_db/ · cosine | 팀 P1(필수) | data/ 폴더는 git에 올리지 않는다. 같은 폴더를 여러 프로세스가 동시에 쓰지 않는다. |
 | L107 | 저장 | 컬렉션 규칙 | chunks__<모델 이름> (모델별 분리) | 팀 P3(부가) | 모델 교체에 대비해 이전 모델 벡터를 지우지 않고 병행 보관한다. |
 | L108 | 저장 | chunk_id 규칙 | {version_id}:{chunk_index:05d} (같은 청크=같은 ID) | 팀 P1(필수) | upsert가 중복 없이 동작하는 전제 조건이다. |
 | L109 | 저장 | 메타데이터 값 타입 | str·int·float·bool만 (None 불가 → 빈 문자열) | 팀 P1(필수) | Chroma 메타데이터 제약. 목록·딕셔너리 값은 쓰지 않는다. |
 | L110 | 공개 | 공개 상태 | 저장 시 is_active=False → activate_version 호출 후에만 검색 노출 | 팀 P1(필수) | 모든 청크가 준비되고 db/가 검증한 뒤에만 공개한다(EMB-08). |
 | L111 | 검색 | 조회 범위 필수 | 허용 회사 목록이 비거나 where에 company_id가 없으면 거부 | 팀 P1(필수) | 문서·회사 혼합과 전체 검색을 막는 안전장치. 허용 회사 결정은 auth→search가 한다. |
 | L112 | 검색 | 유사도 점수 | score = 1 − cosine 거리 (0~1로 보정) | 팀 P1(필수) | 최소 점수(기본 0.3)를 적용하는 곳은 search·chatbot이다. |
-| L113 | 운영 | 상태 점검 비용 | 시험 임베딩 5초 제한 · 성공 결과 60초 캐시 | 팀 P2(상용화) | 점검이 실제 API를 호출하므로 비용이 발생할 수 있다. |
+| L113 | 운영 | 상태 점검 비용 | 시험 임베딩 5초 제한 · 재시도 없음 · 결과 저장 안 함 | 팀 P2(상용화) | 점검이 실제 API를 호출하므로 비용이 발생할 수 있다. |
 | L114 | 구조 | 처리 단위 | 한 번에 한 문서의 한 버전 | 팀 P1(필수) | embed_and_store는 문서·버전 단위로 호출한다. 여러 문서는 호출자가 반복한다. |
-| L115 | 범위 | 이번 설계 범위 | 텍스트 청크 벡터만 (이미지·OCR·재순위화 제외) | 팀 P1(필수) | PDF·DOCX·PPTX에서 추출된 텍스트 청크만 대상으로 한다. |
+| L115 | 범위 | 이번 설계 범위 | 텍스트 청크 벡터만 (이미지 자체 임베딩·재순위화 제외) | 팀 P1(필수) | PDF·DOCX·PPTX에서 추출된 텍스트 청크만 대상으로 한다. 스캔·그림 속 글자는 ingest 단계에서 OCR로 텍스트가 된 뒤 일반 텍스트 청크로 처리하므로 임베딩 쪽 변경은 없다. |
 
 ### 3.4 search — 통합 검색
 
@@ -2727,7 +2732,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(chatbot)
 - **화면·진입점**: ask
-- **주요 입력**: question: str / evidence_text: str — format_evidence 결과 / chain: Runnable | None = None — 테스트용 가짜 체인 자리
+- **주요 입력**: question: str / evidence_text: str — format_evidence 결과
 - **처리 흐름**: 질문과 근거 문자열로 LLM을 호출해 인용이 달린 답변 원문을 받는다.
 - **출력·상태**: str — 예: '교육은 11월 3일에 시작합니다 [E1].'
 - **연결 상태**: 설계(미구현)
@@ -2771,7 +2776,7 @@
 - **적용 모드**: P1
 - **사용 주체**: 시스템(chatbot)
 - **화면·진입점**: ask, summarize_document
-- **주요 입력**: user: UserContext / cited: list[VectorHit] — 답변에 실제 쓰인 근거 / checker: 함수 | None = None — 개발 중 가짜 자리
+- **주요 입력**: user: UserContext / cited: list[ChunkHit] — 답변에 실제 쓰인 근거
 - **처리 흐름**: 답변을 돌려주기 직전에, 인용한 문서를 이 사용자가 지금도 볼 수 있는지 auth에 다시 확인한다.
 - **출력·상태**: None (통과)
 - **조건·범위**: ask·요약 모두, 인용 문서·버전 기준
@@ -2801,7 +2806,7 @@
 - **적용 모드**: P2
 - **사용 주체**: 로그인 사용자
 - **화면·진입점**: 박경환 ui.chat_page.on_summary_request
-- **주요 입력**: document_id: str / user: UserContext / checker: 함수 | None = None — 개발 중 가짜 자리
+- **주요 입력**: document_id: str / user: UserContext
 - **처리 흐름**: 선택한 문서를 요약하고 포함 범위와 출처를 함께 돌려주는 요약 입구 함수.
 - **출력·상태**: SummaryResponse(summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks)
 - **연결 상태**: 설계(미구현)
@@ -2821,7 +2826,7 @@
 | MOD-122 | chatbot/prompts.py | 프롬프트·LLM 체인 | 팀 P1(필수) | 근거 밖 생성 금지·인용 필수·문서 속 지시문 무시 규칙을 담은 답변·요약 프롬프트와 LCEL 체인. / 함수: get_chat_model [08], build_answer_chain [09], build_summary_chain [10]<br>ANSWER_SYSTEM_PROMPT: 근거만 사용·문장마다 [E번호] 인용·근거 없으면 유보·문서 속 지시문 무시·한국어·기업별 구분<br>SUMMARY_PARTIAL_PROMPT: 주어진 근거만 요약·문장마다 [E번호] 인용<br>SUMMARY_MERGE_PROMPT: 부분 요약 병합·기존 [E번호] 유지·새 내용 추가 금지<br>의존: chatbot.constants, common.config(이성민) | chatbot.constants, common.config(이성민) |  |
 | MOD-123 | chatbot/citations.py | 근거 별칭·인용 검증·출처 | 팀 P1(필수) | E번호 별칭 부여, 인용 검증, Citation 생성, 화면 순번 변환, 회사별 묶음. / 함수: assign_aliases [11], format_evidence [12], extract_cited_aliases [13], validate_citations [14], build_citation [15], make_excerpt [16], format_source_label [17], render_answer [18], group_citations_by_company [19]<br>의존: chatbot.models, chatbot.constants, common.schemas(이성민) | chatbot.models, chatbot.constants, common.schemas(이성민) |  |
 | MOD-124 | chatbot/summary.py | 선택 문서 계층 요약 | 팀 P2(상용화) | 문서 접근 확인 → 공개 청크 조회 → 8개씩 부분 요약·병합 → 포함 범위 → 재검증. / 함수: summarize_document [20], summarize_batch [21], merge_summaries [22], compute_coverage [23], limit_summary_chunks [24]<br>의존: chatbot.prompts, chatbot.citations, chatbot.ask(recheck_before_return), chatbot.models / embedding·auth 호출 | chatbot.prompts, chatbot.citations, chatbot.ask(recheck_before_return), chatbot.models |  |
-| MOD-125 | chatbot/models.py | 오류·내부 데이터 형식 | 팀 P1(필수) | ChatbotError, ChatFilters, 오류 변환 함수. 공용 스키마(Citation 등)는 common.schemas에 둔다. / 함수: ChatbotError.__init__ [25], to_feedback [26], map_dependency_error [27]<br>클래스: ChatbotError, ChatFilters<br>의존: chatbot.constants | chatbot.constants |  |
+| MOD-125 | chatbot/models.py | 오류·내부 데이터 형식 | 팀 P1(필수) | ChatbotError, ChatFilters, 오류 변환 함수, 챗봇 결과 형식(Citation·ChatResponse·SummaryResponse). 결과 형식은 chatbot만 만들므로 common이 아닌 이 파일에 둔다(10/26 결정). / 함수: ChatbotError.__init__ [25], to_feedback [26], map_dependency_error [27]<br>클래스: ChatbotError, ChatFilters, Citation, ChatResponse, SummaryResponse<br>의존: chatbot.constants | chatbot.constants |  |
 | MOD-126 | chatbot/constants.py | 상수·안내 문구 | 팀 P1(필수) | 최소 유사도·근거 수·길이 제한·요약 단위·오류 코드·안내 문구. / MIN_SCORE = 0.3 (참고 L12·L40, 확정 D07)<br>MAX_PER_DOCUMENT = 4 (참고 L11 문서당 4, 확정 D07)<br>MAX_QUESTION_CHARS = 2000 (L32와 동일)<br>MAX_ANSWER_CHARS = 20000 (참고 L13)<br>SUMMARY_BATCH_SIZE = 8 (참고 L15)<br>NO_EVIDENCE_MESSAGE = '제공된 문서에서 확인할 수 없습니다.'<br>ERROR_CODES = EMPTY_QUESTION, QUESTION_TOO_LONG, RETRIEVAL_FAILED, NO_EVIDENCE, LLM_FAILED, INVALID_ANSWER, INVALID_CITATION, ACCESS_DENIED, STATE_CHANGED, CONFIG_MISSING (공유 D11)<br>의존: 없음 | 없음 |  |
 
 #### 클래스
@@ -2946,7 +2951,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 사용자 권한과 필터가 적용된 범위에서 질문과 가까운 근거 청크를 받아 온다.
-- **입력 인자·기본값**: question: str, filters: ChatFilters, user: UserContext / retriever: 함수 | None = None — 개발 중 가짜 검색을 넣는 자리
+- **입력 인자·기본값**: question: str, filters: ChatFilters, user: UserContext
 - **반환 형식·구조**: list[ChunkHit] — search_chunks 결과 (CLS-051)
 - **진입점·연결 방식**: ask
 - **직접 호출 대상**: search.search_chunks, map_dependency_error
@@ -2956,8 +2961,7 @@
 - **소스 위치**: chatbot/ask.py (구현 예정)
 - **담당자**: 소용우
 - **처리 순서**:
-  - retriever가 없으면 search.search_chunks를 사용 (filters의 company_ids·doc_types·document_ids를 나눠 전달)
-  - 1. 2. retriever(question, filters, user, top_k=top_k×2) 호출 (다음 단계에서 줄이므로 넉넉히)
+  - 1. 2. search.search_chunks(user, query, company_ids, doc_types, document_ids, top_k=TOP_K×2) 호출 — filters 값을 나눠 전달 (다음 단계에서 줄이므로 넉넉히)
   - 3. 검색·임베딩 오류는 map_dependency_error로 RETRIEVAL_FAILED 변환
   - 4. 받은 목록을 그대로 반환 (정렬·제한은 select_evidence)
 
@@ -2987,7 +2991,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 질문과 근거 문자열로 LLM을 호출해 인용이 달린 답변 원문을 받는다.
-- **입력 인자·기본값**: question: str / evidence_text: str — format_evidence 결과 / chain: Runnable | None = None — 테스트용 가짜 체인 자리
+- **입력 인자·기본값**: question: str / evidence_text: str — format_evidence 결과
 - **반환 형식·구조**: str — 예: '교육은 11월 3일에 시작합니다 [E1].'
 - **진입점·연결 방식**: ask
 - **직접 호출 대상**: build_answer_chain → OpenAI, map_dependency_error
@@ -3025,7 +3029,7 @@
 - **모듈**: chatbot.ask
 - **구분**: 모듈 함수
 - **역할**: 답변을 돌려주기 직전에, 인용한 문서를 이 사용자가 지금도 볼 수 있는지 auth에 다시 확인한다.
-- **입력 인자·기본값**: user: UserContext / cited: list[VectorHit] — 답변에 실제 쓰인 근거 / checker: 함수 | None = None — 개발 중 가짜 자리
+- **입력 인자·기본값**: user: UserContext / cited: list[ChunkHit] — 답변에 실제 쓰인 근거
 - **반환 형식·구조**: None (통과)
 - **진입점·연결 방식**: ask, summarize_document
 - **직접 호출 대상**: auth.permissions.verify_documents_access
@@ -3036,11 +3040,10 @@
 - **담당자**: 소용우
 - **처리 순서**:
   - 1. 인용 근거에서 (document_id, version_id)를 중복 없이 추림
-  - 2. 3. checker(user, refs) 호출
+  - 2. 3. auth.permissions.verify_documents_access(user, refs) 호출
   - 4. 권한 없음 → AccessError 그대로
   - 삭제·버전 변경 → ChatbotError(STATE_CHANGED)
   - 5. 통과면 None
-  - checker가 없으면 auth.permissions.verify_documents_access 사용
 
 ##### FUN-408 `get_chat_model`
 
@@ -3271,7 +3274,7 @@
 - **모듈**: chatbot.summary
 - **구분**: 모듈 함수
 - **역할**: 선택한 문서를 요약하고 포함 범위와 출처를 함께 돌려주는 요약 입구 함수.
-- **입력 인자·기본값**: document_id: str / user: UserContext / checker: 함수 | None = None — 개발 중 가짜 자리
+- **입력 인자·기본값**: document_id: str / user: UserContext
 - **반환 형식·구조**: SummaryResponse(summary, citations, included_range, excluded_range, is_full, total_chunks, used_chunks)
 - **진입점·연결 방식**: 박경환 ui.chat_page.on_summary_request
 - **직접 호출 대상**: auth.permissions.verify_documents_access, [박영준] get_document_chunks, recheck_before_return, build_summary_chain, assign_aliases, build_citation, render_answer, summarize_batch, merge_summaries, compute_coverage, limit_summary_chunks
@@ -3582,16 +3585,16 @@
 | 36 | chatbot_기능명세서_소용우_초안 | 기능명세 | F128 | 조건·범위 | 청크 64개 · 요약 1,500자 | 미정 항목(D03,D10) |
 | 37 | chatbot_기능명세서_소용우_초안 | 모듈구조 | MOD-126 | 설명 | TOP_K = 8 (제안, 확정 D07) / EXCERPT_MAX_CHARS = 300 (제안) / MAX_SUMMARY_CHUNKS = 64 (제안, 확정 D10) / LLM_TEMPERATURE = 0 (제안, 확정 D09) / LLM_TIMEOUT_SECONDS = 30 (제안, 확정 D09) | 미정·협의·제안 표기 |
 | 38 | chatbot_기능명세서_소용우_초안 | 모듈구조 | - | 파일 | tests/test_chatbot.py | 미정 항목(D16 테스트 작성 주체) · tests/는 이성민 담당 폴더 |
-| 39 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-121 | 모듈·소스 위치 | chatbot/models.py 또는 common/schemas.py | 미정 항목(D02) · 둘 위치 미정 |
+| 39 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-121 | 모듈·소스 위치 | chatbot/models.py 또는 common/schemas.py | 결정(10/26): chatbot/models.py |
 | 40 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-121 | 역할 | (데이터 스키마(협의)) | 미정·협의·제안 표기 |
 | 41 | chatbot_기능명세서_소용우_초안 | 데이터정의 | FLD-401 | 기본값·검증·매핑 선언 | 유형 목록은 미정(POL-13) | 미정·협의·제안 표기 |
 | 42 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-122 | 모듈·소스 위치 | auth/ (전재경) | 미정 항목(D02) · 둘 위치 미정 |
 | 43 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-122 | 역할 | (데이터 스키마(협의)) | 미정·협의·제안 표기 |
-| 44 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-123 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 미정 항목(D04) · 둘 위치 미정 |
+| 44 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-123 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 결정(10/26): chatbot/models.py |
 | 45 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-123 | 역할 | (데이터 스키마(확장 제안)) | 미정·협의·제안 표기 |
-| 46 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-124 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 미정 항목(D04) · 둘 위치 미정 |
+| 46 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-124 | 모듈·소스 위치 | common/schemas.py (반영 이성민) | 결정(10/26): chatbot/models.py |
 | 47 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-124 | 역할 | (데이터 스키마(확장 제안)) | 미정·협의·제안 표기 |
-| 48 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-125 | 모듈·소스 위치 | common/schemas.py 또는 chatbot/models.py | 미정 항목(D10) · 둘 위치 미정 |
+| 48 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-125 | 모듈·소스 위치 | common/schemas.py 또는 chatbot/models.py | 결정(10/26): chatbot/models.py |
 | 49 | chatbot_기능명세서_소용우_초안 | 클래스정의 | CLS-125 | 역할 | (데이터 스키마(제안)) | 미정·협의·제안 표기 |
 | 50 | chatbot_기능명세서_소용우_초안 | 제약_운영 | chatbot.constants | 상수 | MIN_SCORE = 0.3 (참고 L12·L40, 확정 D07)<br>TOP_K = 8 (제안, 확정 D07)<br>MAX_PER_DOCUMENT = 4 (참고 L11 문서당 4, 확정 D07)<br>MAX_QUESTION_CHARS = 2000 (L32와 동일)<br>MAX_ANSWER_CHARS = 20000 (참고 L13)<br>EXCERPT_MAX_CHARS = 300 (제안)<br>SUMMARY_BATCH_SIZE = 8 (참고 L15)<br>MAX_SUMMARY_CHUNKS = 64 (제안, 확정 D10)<br>LLM_TEMPERATURE = 0 (제안, 확정 D09)<br>LLM_TIMEOUT_SECONDS = 30 (제안, 확정 D09)<br>NO_EVIDENCE_MESSAGE = '제공된 문서에서 확인할 수 없습니다.'<br>ERROR_CODES = EMPTY_QUESTION, QUESTION_TOO_LONG, RETRIEVAL_FAILED, NO_EVIDENCE, LLM_FAILED, INVALID_ANSWER, INVALID_CITATION, ACCESS_DENIED, STATE_CHANGED, CONFIG_MISSING (공유 D11)<br>의존: 없음 | 미정 항목(값 확정 전) |
 | 51 | AI_문서검색_P2_기능명세서 | 기능명세 | F40 | 조건·범위 | 연계 함수명 협의 | 미정·협의·제안 표기 |
@@ -3665,6 +3668,7 @@
 | 119 | search_기능명세서_이준영 | 참고_오류코드 | SEARCH_FAILED | 사용자 문구(안) | 검색 중 오류가 발생했습니다. | 미정 항목(문구 초안 · 박경환과 확정) |
 | 120 | chatbot_기능명세서_소용우_초안 | 함수메서드 | FUN-403 | 입력 인자·기본값 | top_k: int = 8 (TOP_K) | 미정 항목(D07 근거 개수) |
 | 121 | chatbot_기능명세서_소용우_초안 | 참고_처리순서 | FUN-420 | 처리 순서 | limit_summary_chunks로 64개 이내 + 제외 목록 | 미정 항목(D10 요약 길이) |
+| 122 | 코드 반영(ingest OCR 확장) | 함수메서드 | (새 함수) | ID | ocr.is_available, ocr.ocr_image, loaders/figures.py(FigureReader·is_figure_size·drop_duplicate_lines·picture_to_array), loaders/charts.py(ChartReader·chart_to_text), ocr.warm_up·start_warm_up, pdf_loader.render_page·figure_crops, docx_loader.picture_refs·read_pictures·read_charts, pptx_loader.is_picture에 ID를 매기지 않음. ingest ID 구간(F60~F72·FUN-200~219)이 다 차서 새 구간 배정이 필요 | 미정 항목(ID 구간 · 이성민과 확정) |
 
 ## 7. ID 대응표
 

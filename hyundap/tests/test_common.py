@@ -1,0 +1,174 @@
+"""tests/test_common.py — 공통 데이터 형식과 설정의 기본 동작 검증.
+
+테스트 실행 명령은 저장소 맨 위에서 python -m unittest hyundap.tests.test_common -v이다."""
+import dataclasses
+import re
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from hyundap.common import config
+from hyundap.common.schemas import (DEFAULT_DOC_TYPE, DOC_TYPE_CODES, DOC_TYPES, CommonDocument,
+                            Section, make_chunk_id)
+
+HEADER = {'document_id': 'd1', 'version_id': 'v1', 'company_id': 'c1',
+          'company_name': '현대', 'doc_type': 'report', 'file_name': 'a.pdf'}
+
+
+class SchemaTests(unittest.TestCase):
+    """공통 문서·섹션·청크 ID가 다른 모듈과의 약속을 지키는지 확인한다."""
+    def test_common_document_accepts_full_header(self):
+        """필수 헤더와 섹션을 가진 문서가 생성되고 경고 기본값이 빈 목록인지 확인한다."""
+        doc = CommonDocument(header=HEADER, sections=[Section(1, 'p.1', 'hello')])
+        self.assertEqual(doc.sections[0].location_label, 'p.1')
+        self.assertEqual(doc.warnings, [])
+
+    def test_common_document_rejects_missing_header_keys(self):
+        """필수 헤더가 빠지면 누락 키가 포함된 ValueError가 발생하는지 확인한다."""
+        with self.assertRaises(ValueError) as caught:
+            CommonDocument(header={'document_id': 'd1'})
+        self.assertIn('version_id', str(caught.exception))
+
+    def test_default_lists_are_not_shared(self):
+        """문서 하나의 경고를 바꿔도 다른 문서의 기본 목록이 변하지 않는지 확인한다."""
+        first, second = CommonDocument(header=HEADER), CommonDocument(header=HEADER)
+        first.warnings.append('empty page')
+        self.assertEqual(second.warnings, [])
+
+    def test_chunk_id_format(self):
+        """순번 3이 버전 ID 뒤의 5자리 청크 번호 00003으로 표시되는지 확인한다."""
+        self.assertEqual(make_chunk_id('v1', 3), 'v1:00003')
+
+
+class DocTypeTests(unittest.TestCase):
+    """문서 유형 목록이 화면·검색·DB가 함께 쓰는 약속을 지키는지 확인한다."""
+    def test_codes_are_unique_and_include_default(self):
+        """코드가 겹치지 않고 기본값 other가 목록에 있는지 확인한다."""
+        codes = [code for code, _ in DOC_TYPES]
+        self.assertEqual(len(codes), len(set(codes)))
+        self.assertEqual(DOC_TYPE_CODES, set(codes))
+        self.assertIn(DEFAULT_DOC_TYPE, DOC_TYPE_CODES)
+
+    def test_codes_match_db_check_constraint(self):
+        """공통 목록과 DB documents.doc_type CHECK 제약의 허용 값이 같은지 확인한다."""
+        from hyundap.db.schema import DESIGN_DIR
+        import json
+        contract = json.loads((DESIGN_DIR / 'schema_v4_contract.json').read_text(encoding='utf-8'))
+        allowed = set(re.findall(r"'([^']+)'", contract['documents']['checks']['ck_v4_doc_type'][0]))
+        self.assertEqual(DOC_TYPE_CODES, allowed)
+
+
+class SettingsTests(unittest.TestCase):
+    """환경변수·기본값·읽기 전용 속성에 대한 공통 설정 계약을 검증한다."""
+    def load(self, env):
+        """주어진 테스트 환경 딕셔너리만 사용해 Settings를 읽는다.
+
+        실제 .env 로딩을 막고 호출 전후 캐시를 비워 테스트가 서로 영향을 주지 않게 한다."""
+        config.get_settings.cache_clear()
+        with patch.dict('os.environ', env, clear=True), patch.object(config, 'load_dotenv'):
+            settings = config.get_settings()
+        config.get_settings.cache_clear()
+        return settings
+
+    def test_defaults_when_env_empty(self):
+        """환경변수가 없으면 비밀값 없이 문서화된 기본 설정을 반환하는지 확인한다."""
+        settings = self.load({})
+        self.assertIsNone(settings.openai_api_key)
+        self.assertEqual(settings.openai_embedding_model, 'text-embedding-3-small')
+        self.assertEqual(settings.openai_chat_model, 'gpt-5')
+        self.assertEqual(settings.search_min_score, 0.3)
+        self.assertEqual(settings.search_top_k_max, 80)
+        self.assertEqual(settings.chroma_db_path, config.PROJECT_ROOT / 'data/chroma_db')
+
+    def test_reads_env_values(self):
+        """테스트 환경변수의 키·숫자·경로가 설정에 반영되는지 확인한다."""
+        settings = self.load({'OPENAI_API_KEY': 'sk-test', 'SEARCH_MIN_SCORE': '0.5',
+                              'SEARCH_TOP_K_MAX': '40', 'CHROMA_DB_PATH': str(Path('/tmp/chroma').resolve())})
+        self.assertEqual(settings.openai_api_key, 'sk-test')
+        self.assertEqual(settings.search_min_score, 0.5)
+        self.assertEqual(settings.search_top_k_max, 40)
+        self.assertEqual(settings.chroma_db_path, Path('/tmp/chroma').resolve())
+
+    def test_invalid_numbers_fall_back_to_defaults(self):
+        """잘못된 숫자나 범위 밖 점수에 기본값이 적용되는지 확인한다."""
+        settings = self.load({'SEARCH_MIN_SCORE': '1.5', 'SEARCH_TOP_K_MAX': 'abc'})
+        self.assertEqual(settings.search_min_score, 0.3)
+        self.assertEqual(settings.search_top_k_max, 80)
+
+    def test_chunk_settings(self):
+        """청크 크기·겹침의 기본값과 환경변수 값이 반영되는지 확인한다."""
+        settings = self.load({})
+        self.assertEqual((settings.chunk_size, settings.chunk_overlap), (1000, 150))
+        settings = self.load({'CHUNK_SIZE': '500', 'CHUNK_OVERLAP': '50'})
+        self.assertEqual((settings.chunk_size, settings.chunk_overlap), (500, 50))
+
+    def test_invalid_chunk_settings_fall_back(self):
+        """잘못된 청크 값에 기본값이 적용되고 겹침이 항상 청크 크기보다 작은지 확인한다."""
+        cases = [
+            ({'CHUNK_SIZE': '0', 'CHUNK_OVERLAP': '-1'}, (1000, 150)),
+            ({'CHUNK_SIZE': 'abc', 'CHUNK_OVERLAP': '1000'}, (1000, 150)),
+            ({'CHUNK_SIZE': '500', 'CHUNK_OVERLAP': '500'}, (500, 150)),
+            ({'CHUNK_SIZE': '100'}, (100, 0)),
+        ]
+        for env, expected in cases:
+            with self.subTest(env=env):
+                settings = self.load(env)
+                self.assertEqual((settings.chunk_size, settings.chunk_overlap), expected)
+
+    def test_settings_default_for_ocr_threads_matches_get_settings(self):
+        """Settings(...)를 직접 만들 때의 ocr_threads 기본값이 get_settings의 기본값(코어 기준)과 같은지 확인한다."""
+        field = {f.name: f for f in dataclasses.fields(config.Settings)}['ocr_threads']
+        self.assertEqual(field.default_factory(), config.default_ocr_threads())
+
+    def test_ocr_settings_defaults(self):
+        """OCR 설정의 기본값(50쪽·그림 100개·예열 켜짐·코어 기준 스레드 수)이 적용되는지 확인한다."""
+        settings = self.load({})
+        self.assertEqual((settings.ocr_max_pages, settings.ocr_max_figures), (50, 100))
+        self.assertTrue(settings.ocr_warmup)
+        self.assertEqual(settings.ocr_threads, config.default_ocr_threads())
+
+    def test_reads_ocr_env_values(self):
+        """OCR 환경변수가 반영되고 상한 0(해당 OCR 끄기)과 예열 끄기를 받는지 확인한다."""
+        settings = self.load({'OCR_MAX_PAGES': '10', 'OCR_MAX_FIGURES': '0', 'OCR_THREADS': '2', 'OCR_WARMUP': 'False'})
+        self.assertEqual((settings.ocr_max_pages, settings.ocr_max_figures, settings.ocr_threads), (10, 0, 2))
+        self.assertFalse(settings.ocr_warmup)
+
+    def test_invalid_ocr_settings_fall_back(self):
+        """숫자가 아니거나 범위 밖인 OCR 값은 기본값을 쓰는지 확인한다."""
+        threads = config.default_ocr_threads()
+        for env in ({'OCR_MAX_PAGES': '-1', 'OCR_MAX_FIGURES': 'abc', 'OCR_THREADS': '0', 'OCR_WARMUP': 'maybe'},
+                    {'OCR_MAX_PAGES': '100001', 'OCR_THREADS': '257'}):
+            with self.subTest(env=env):
+                settings = self.load(env)
+                self.assertEqual((settings.ocr_max_pages, settings.ocr_max_figures, settings.ocr_threads),
+                                 (50, 100, threads))
+                self.assertTrue(settings.ocr_warmup)
+
+    def test_doc_classify_defaults_off(self):
+        """문서 자동 분류는 값이 없거나 알 수 없는 글자면 꺼짐이고, Settings를 직접 만들 때도 꺼짐인지 확인한다."""
+        for env in ({}, {'DOC_CLASSIFY': 'maybe'}, {'DOC_CLASSIFY': '0'}):
+            with self.subTest(env=env):
+                self.assertFalse(self.load(env).doc_classify)
+        field = {f.name: f for f in dataclasses.fields(config.Settings)}['doc_classify']
+        self.assertIs(field.default, False)
+
+    def test_doc_classify_can_be_enabled(self):
+        """DOC_CLASSIFY를 1·true·on으로 지정하면 문서 자동 분류가 켜지는지 확인한다."""
+        for value in ('1', 'true', 'ON'):
+            with self.subTest(value=value):
+                self.assertTrue(self.load({'DOC_CLASSIFY': value}).doc_classify)
+
+    def test_default_ocr_threads_leaves_one_core_free(self):
+        """코어가 3개 이상이면 하나를 남기고 2개 이하이면 전부 쓰며, 코어 수를 모르면 1인지 확인한다."""
+        for cores, expected in ((1, 1), (2, 2), (3, 2), (4, 3), (8, 7), (None, 1)):
+            with self.subTest(cores=cores), patch('os.cpu_count', return_value=cores):
+                self.assertEqual(config.default_ocr_threads(), expected)
+
+    def test_settings_are_read_only(self):
+        """고정된 Settings 필드를 직접 바꾸면 오류가 발생하는지 확인한다."""
+        with self.assertRaises(AttributeError):
+            self.load({}).search_min_score = 0.9
+
+
+if __name__ == '__main__':
+    unittest.main()
