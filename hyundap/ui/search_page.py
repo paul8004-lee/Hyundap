@@ -32,7 +32,7 @@ SEARCH_CSS = """
 #hd-inline-answer {max-width:760px;margin:0 auto;width:100%;}
 #hd-inline-answer .hd-inline-answer {display:flex;align-items:baseline;gap:10px;min-height:40px;box-sizing:border-box;padding:10px 14px;border-radius:10px;background:#edf0f4;color:#344256;font-size:13px;line-height:20px;}
 #hd-inline-answer .hd-inline-answer-label {flex:none;white-space:nowrap;color:var(--hd-page-accent,#032b5c);font-weight:650;}
-#hd-inline-answer .hd-inline-answer-text {display:-webkit-box;min-width:0;overflow:hidden;-webkit-line-clamp:1;-webkit-box-orient:vertical;word-break:keep-all;overflow-wrap:anywhere;}
+#hd-inline-answer .hd-inline-answer-text {display:-webkit-box;min-width:0;overflow:hidden;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:keep-all;overflow-wrap:anywhere;}
 #hd-search-feedback {max-width:760px;margin:0 auto;width:100%;}
 #hd-search-feedback:not(:has(.hd-notice)) {display:none;}
 #hd-search-feedback .hd-notice {min-height:40px;padding:10px 16px;box-sizing:border-box;align-items:center;font-size:13px;line-height:1.5;}
