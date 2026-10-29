@@ -183,9 +183,9 @@ def build_search_page(companies: list, doc_types: list, demo_mode: bool = True) 
                 detail = gr.HTML(render_document(None))
                 with gr.Column(elem_classes=["hd-summary-card"]):
                     gr.HTML('<div class="hd-summary-title">AI 파일 요약</div>')
-                    summary = gr.Markdown("선택한 문서를 요약해 주요 내용을 확인하세요.", sanitize_html=True, elem_id="hd-summary-body")
+                    summary = gr.Markdown("문서를 선택한 뒤 요약하기를 눌러 주세요.", sanitize_html=True, elem_id="hd-summary-body")
                     coverage = gr.HTML("", elem_id="hd-summary-coverage")
-                    summarize = gr.Button("요약하기", interactive=False, visible=False, elem_id="hd-summary-request")
+                    summarize = gr.Button("요약하기", interactive=False, elem_id="hd-summary-request")
                 with gr.Row(visible=False, elem_id="hd-evidence-nav") as evidence_nav:
                     evidence_prev = gr.Button("← 이전", interactive=False, min_width=80)
                     evidence_position = gr.HTML("")
