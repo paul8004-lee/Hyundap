@@ -90,7 +90,7 @@ else:
 | `INVALID_DOC_TYPE` | 지원하지 않는 문서 유형 |
 | `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 |
 
-DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다. 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수이며 임시 진단값입니다.
+DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다. 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수이며 임시 진단값입니다. 보고서에는 OCR 상태(`ocr_status`)와 읽은 수·읽지 못한 수(`ocr_read_count`·`ocr_unread_count`)도 남으며, OCR이 꺼져 이미지·스캔 쪽을 읽지 못하면 이유가 담긴 경고가 붙습니다(`docs/spec.md`의 "OCR 상태 보고").
 
 
 ## 스캔·그림·차트 읽기
