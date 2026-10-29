@@ -40,6 +40,13 @@ class IngestStorageTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, 'INVALID_INPUT')
             engine.assert_not_called()
 
+    def test_every_ingest_parser_name_is_storable(self):
+        """수집이 보고서에 적는 파서 이름(PARSERS)이 모두 DB 허용 목록에 있는지 확인한다. 형식을 늘릴 때 한쪽만 고치는 실수를 막는다."""
+        from hyundap.ingest.pipeline import PARSERS
+        for extension, parser in PARSERS.items():
+            with self.subTest(extension=extension):
+                self.assertEqual(jobs_repo.normalize_report(dict(self.report, parser=parser))['parser'], parser)
+
     def test_optional_fields_zero_counts_and_stage_scope(self):
         self.assertEqual(jobs_repo.normalize_report(dict(status='success'))['stage'], 'ingest')
         clean = jobs_repo.normalize_report(dict(status='failed', warning_count=0, chunk_count=0,

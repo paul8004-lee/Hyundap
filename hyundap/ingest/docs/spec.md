@@ -14,7 +14,7 @@
 | 하는 일 | 파일 검증 → 글자 추출 → 글자 정리 → 청크로 자르기 |
 | 받는 것 | 파일 경로, 업로드 정보(문서 번호·회사·문서 유형·파일명 등) |
 | 돌려주는 것 | `IngestResult` — 성공이면 청크 목록, 실패면 오류 코드와 문구 |
-| 지원 형식 | PDF · DOCX · PPTX (100MiB 이하) |
+| 지원 형식 | PDF · DOCX · PPTX · XLSX (100MiB 이하) |
 | 하지 않는 일 | 파일 저장·DB 기록(db), 임베딩·벡터 저장(embedding), 화면(ui), 권한 판단(auth) |
 
 예) 현대엘리베이터 PDF 1개(40쪽)를 넣으면 → 쪽마다 글자를 꺼내 정리한 뒤 → 1,000자 안팎 청크 여러 개로 잘라서 돌려줍니다.
@@ -66,6 +66,7 @@ flowchart LR
 | `loaders/pdf_loader.py` | `load_pdf` | 쪽마다 섹션 1개 |
 | `loaders/docx_loader.py` | `load_docx` | 제목 스타일마다 섹션 1개(제목 스타일이 없으면 큰 번호·아웃라인 제목으로 나눔) |
 | `loaders/pptx_loader.py` | `load_pptx` | 슬라이드마다 섹션 1개 |
+| `loaders/xlsx_loader.py` | `load_xlsx`, `read_workbook`, `read_sheet_rows`, `split_titles`, `build_prefix`, `cell_to_text` | 시트마다 섹션 1개, 표 조각마다 `[시트] 이름` 머리글, 숨김·빈 시트·상한 처리 |
 | `loaders/base.py` | `table_to_text`, `build_location_label` | 표→마크다운, 출처 위치 문구 |
 | `loaders/figures.py` | `FigureReader`, `is_figure_size`, `drop_duplicate_lines`, `picture_to_array` | 그림 OCR 공통(크기 기준·중복 제거·상한·저해상도 확대) |
 | `loaders/charts.py` | `chart_to_text`, `ChartReader` | Office 차트 XML → 제목 머리글 붙은 표 (DOCX·PPTX) |
@@ -81,22 +82,22 @@ flowchart LR
 
 | 순서 | 검사 | 기준 | 걸리면 |
 |---|---|---|---|
-| ① | 형식 | 확장자 `.pdf/.docx/.pptx` + 파일 앞부분(시그니처)이 실제 형식과 일치 | `UNSUPPORTED_FORMAT` |
+| ① | 형식 | 확장자 `.pdf/.docx/.pptx/.xlsx` + 파일 앞부분(시그니처)이 실제 형식과 일치 | `UNSUPPORTED_FORMAT` |
 | ② | 용량 | 1바이트 이상 100MiB(104,857,600바이트) 이하 | `FILE_TOO_LARGE`, 0바이트는 `CORRUPTED_FILE` |
-| ③ | 암호화 | PDF는 `is_encrypted`. DOCX·PPTX가 OLE2로 시작하면 안의 스트림 이름으로 구분: `EncryptedPackage`·`EncryptionInfo`는 암호 문서, `WordDocument`·`PowerPoint Document`는 구형 .doc/.ppt, 둘 다 아니면 그 밖의 OLE2 | `ENCRYPTED_FILE` / `LEGACY_FORMAT` / `UNSUPPORTED_FORMAT` |
-| ④ | 손상 | PDF는 1쪽 이상 열림, DOCX·PPTX는 압축 정상 + 필수 파일 존재 | `CORRUPTED_FILE` |
+| ③ | 암호화 | PDF는 `is_encrypted`. DOCX·PPTX·XLSX가 OLE2로 시작하면 안의 스트림 이름으로 구분: `EncryptedPackage`·`EncryptionInfo`는 암호 문서, `WordDocument`·`PowerPoint Document`는 구형 .doc/.ppt(확장자가 .xlsx일 때는 `Workbook`도 구형 .xls), 둘 다 아니면 그 밖의 OLE2 | `ENCRYPTED_FILE` / `LEGACY_FORMAT` / `UNSUPPORTED_FORMAT` |
+| ④ | 손상 | PDF는 1쪽 이상 열림, DOCX·PPTX·XLSX는 압축 정상 + 필수 파일 존재(XLSX는 `xl/workbook.xml`) | `CORRUPTED_FILE` |
 | ⑤ | 해시 | 파일 전체 SHA-256 (1MiB씩 읽음); 호출자가 검증한 해시를 제공하면 재사용 | — |
 | ⑥ | 중복 | 같은 회사에 같은 해시 문서가 있으면 중복 (파일명이 달라도) | `DUPLICATE_FILE` |
 
 - 비밀번호를 받아 푸는 기능은 없습니다.
 - OLE2 구분은 파일을 해석하지 않고 스트림 이름(UTF-16LE) 바이트를 찾는 방식이라 의존성이 없습니다. 실제 암호 DOCX/PPTX와 LibreOffice로 만든 구형 .doc/.ppt로 확인했으며, 다른 Office 버전이 만든 파일은 샘플로 더 확인해야 합니다.
-- 구형 `.doc/.ppt`, 매크로 `.docm/.pptm`, HWP, XLSX, 이미지는 이번 범위 밖이라 거부합니다.
-- 확장자만 바꾼 다른 Office 파일(xlsx·pptx를 `.docx`로, docx를 `.pptx`로 등)과 매크로(`vbaProject.bin`)가 든 파일은 손상이 아니라 `UNSUPPORTED_FORMAT`입니다.
+- 구형 `.doc/.ppt/.xls`, 매크로 `.docm/.pptm/.xlsm`, `.xlsb`, CSV, HWP, 이미지는 이번 범위 밖이라 거부합니다.
+- 확장자만 바꾼 다른 Office 파일(xlsx·pptx를 `.docx`로, docx를 `.pptx`나 `.xlsx`로 등)과 매크로(`vbaProject.bin`)가 든 파일은 손상이 아니라 `UNSUPPORTED_FORMAT`입니다.
 - 압축 데이터가 깨져 읽을 수 없는 DOCX·PPTX, 읽는 중 pypdf가 예외를 내는 PDF는 예외가 아니라 `CORRUPTED_FILE` 결과로 돌아옵니다. (패키지 미설치 같은 개발자 실수는 그대로 올라옵니다.)
 
 ### F64 로더 선택 (`loaders/__init__.py`)
 
-`.pdf → load_pdf`, `.docx → load_docx`, `.pptx → load_pptx`. 모든 로더는 같은 `CommonDocument`를 돌려주므로, **새 형식은 로더 파일 1개 + 선택표 한 줄**만 추가하면 됩니다.
+`.pdf → load_pdf`, `.docx → load_docx`, `.pptx → load_pptx`, `.xlsx → load_xlsx`. 모든 로더는 같은 `CommonDocument`를 돌려주므로, **새 형식은 로더 파일 1개 + 선택표 한 줄**만 추가하면 됩니다.
 
 ### F65~F67 형식별 글자 추출
 
@@ -105,12 +106,13 @@ flowchart LR
 | PDF | 쪽 1개 = 섹션 1개 | `p.3` | 글자 레이어가 없는 쪽(스캔 이미지)은 PaddleOCR로 쪽 전체를 읽음(200dpi, 문서당 `OCR_MAX_PAGES`(기본 50)쪽까지, 경고에 `OCR로 읽음`). 글자 레이어가 있는 쪽 안의 그림(그래프·표 이미지)은 그림 영역만 300dpi로 잘라 OCR해서 본문 뒤에 붙임(문서당 `OCR_MAX_FIGURES`(기본 100)개까지, 신뢰도 0.5 미만 줄은 버림, 본문과 거의 같은 줄은 뺌, 문서 경고에 쪽·그림 수를 한 줄로 남김. 로고 크기의 작은 그림과 쪽 면적 85% 이상인 그림은 제외). 미설치이거나 OCR로도 못 읽어 전체가 비면 `EMPTY_DOCUMENT`. 스캐너가 넣은 글자 레이어는 품질과 관계없이 그대로 씀. 표는 일반 글자로 나옴. 2단 편집은 줄이 섞일 수 있음. 3쪽 이상 맨 위(3줄 안)에 반복되는 머리말과 그 옆 쪽 번호는 모든 쪽에서 뺌(`warnings`에 줄 수만 기록). 줄 끝 글자와 다음 줄 첫 글자가 모두 한글이고 줄 끝에 공백이 없으면 단어가 끊긴 것으로 보고 이어 붙임(짧은 제목 줄은 제외, 개조식 문장 끝 뒤 줄이 붙는 오작동이 드물게 있음). 수식 폰트 등으로 깨진 글자는 그대로 둠 |
 | DOCX | 제목(Heading) 스타일마다 새 섹션. 제목 스타일이 문서에 하나도 없으면 **큰 번호 제목**(`제1장`·`1.`·`Ⅰ.`, 40자 이하, 문장 끝말 `. ! ? 다`로 끝나지 않는 문단, 목록 스타일 제외)과 아웃라인 수준(`w:outlineLvl`) 문단을 제목으로 보아 나눈다(경고에 개수를 남김). `1)`·`가.` 같은 작은 번호와 표 안 글자는 제목으로 보지 않는다. 그래도 제목이 없으면 문서 전체가 1개 | `섹션 2 (제목)` | 페이지 번호가 파일에 저장되지 않아 정확한 쪽수는 알 수 없음. 머리글·바닥글·각주·텍스트상자 제외. 그림은 PaddleOCR가 있으면 OCR해 그림이 있는 문단 뒤(표 칸 안 그림은 표 뒤)에 넣음(PDF와 같은 크기·신뢰도·중복·개수 기준, 저해상도는 최대 3배 확대). Office 차트 개체는 OCR이 아니라 차트 XML에서 제목·항목·계열·값을 읽어 `[차트] 제목 (종류)` 머리글이 붙은 표로 차트 자리에 넣음(항목 60·계열 12·문서당 200개 상한, 넘으면 앞부분만 넣고 표 끝에 안내). EMF 그림과 새 차트 종류(chartex)는 못 읽어 경고에 개수만 남김 |
 | PPTX | 슬라이드 1장 = 섹션 1개. 도형을 위→아래, 왼→오른쪽 순서로 읽고 그룹 도형 안까지 들어감. 위쪽 끝이 0.1인치 이내로 어긋난 도형은 같은 줄로 봄(줄 기준은 그 줄 첫 도형) | `슬라이드 5` | 발표자 노트 제외. 그림은 PaddleOCR가 있으면 읽기 순서대로 그림 자리에서 OCR(그림만 있는 슬라이드도 섹션이 됨, 슬라이드 전체를 덮는 배경 그림은 제외, 요약 경고에 슬라이드 수·그림 수). 차트 도형은 DOCX와 같이 차트 XML에서 읽어 읽기 순서대로 그 자리에 넣음 |
+| XLSX | 시트 1개 = 섹션 1개(숨긴 시트 제외). 시트의 값을 표 하나로 보고 800자 안팎 조각으로 나눔 | `시트 2 (이름)` | 조각마다 `[시트] 이름`과 머리글 행을 되풀이. 표 위의 한 칸짜리 제목 줄(최대 3줄)은 `[시트] 이름 / 제목`에 넣음. 빈 줄·오른쪽 빈 열은 뺌. 수식은 저장된 계산 결과만 읽음(프로그램이 만든 파일은 수식 칸이 빈 칸). 숫자 서식은 단순한 것만 화면처럼 씀(퍼센트·천 단위 쉼표·소수 자릿수·통화 기호/단위, 반올림은 0.5에서 올림). 복잡한 서식(`;` 구역, `[$₩-412]` 등)은 원래 값. 날짜는 ISO 형식. 병합 셀은 첫 칸에만 값. 숨긴 시트·그림·차트·도형·셀 메모는 읽지 않고 경고에 개수를 남김. 상한: 시트당 20,000행·문서당 100,000행과 500,000칸·50열(열이 넓은 시트가 임베딩 호출과 시간을 폭증시키는 것을 막음). 경고에 남김 |
 
 글자가 없는 쪽·슬라이드는 섹션을 만들지 않고 `warnings`에 남깁니다. PPTX는 발표자 노트에만 글자가 있는 슬라이드를 일반 빈 슬라이드와 구분해 적습니다. DOCX는 콘텐츠 컨트롤(`w:sdt`) 안의 본문까지 읽고, 표 칸 안의 표(중첩 표)는 안쪽 글자를 바깥 칸에 이어 붙이며 `warnings`에 남깁니다. 글자를 읽지 않는 그림·도형·차트·텍스트 상자(DOCX), 이미지·차트·미디어·OLE 개체(PPTX, 슬라이드 번호 최대 10개 표기)는 개수만 문서당 경고 1개로 남깁니다. OCR이나 차트 읽기로 글자를 읽은 그림·차트는 이 개수에서 뺍니다.
 
 ### F68 표 처리 (`loaders/base.py`)
 
-DOCX·PPTX의 표를 마크다운 표로 바꿉니다. 표가 길면 행 묶음으로 나누고, **조각마다 맨 위에 머리글 행을 복제**해서 어느 조각을 봐도 열 이름을 알 수 있게 합니다. 병합 셀은 빈 칸으로 나올 수 있어 경고 대상입니다. (P2) 모든 칸이 빈 표는 조각을 만들지 않으며, 한 행이 혼자서 `max_chars`를 넘으면 가장 긴 칸을 나눠 여러 행으로 만들되 다른 칸은 반복하고 모든 조각에 머리글을 붙입니다.
+DOCX·PPTX·XLSX의 표를 마크다운 표로 바꿉니다. 표가 길면 행 묶음으로 나누고, **조각마다 맨 위에 머리글 행을 복제**해서 어느 조각을 봐도 열 이름을 알 수 있게 합니다. 병합 셀은 빈 칸으로 나올 수 있어 경고 대상입니다. (P2) 모든 칸이 빈 표는 조각을 만들지 않으며, 한 행이 혼자서 `max_chars`를 넘으면 가장 긴 칸을 나눠 여러 행으로 만들되 다른 칸은 반복하고 모든 조각에 머리글을 붙입니다.
 
 ### F69 글자 정리 (`normalizer.py`)
 
@@ -163,13 +165,13 @@ IngestResult         status("success"|"failed"), chunks(list[Chunk]), report(dic
 
 | 코드 | 뜻 | 발생 위치 | 사용자 안내 문구 |
 |---|---|---|---|
-| `UNSUPPORTED_FORMAT` | 지원하지 않는 형식 | 형식 검사, 로더 선택 | PDF, DOCX, PPTX 파일만 업로드할 수 있습니다. |
+| `UNSUPPORTED_FORMAT` | 지원하지 않는 형식 | 형식 검사, 로더 선택 | PDF, DOCX, PPTX, XLSX 파일만 업로드할 수 있습니다. |
 | `FILE_TOO_LARGE` | 100MiB 초과 | 용량 검사 | 파일은 100MiB 이하로 선택해 주세요. |
 | `ENCRYPTED_FILE` | 암호가 걸린 문서 | 암호화 검사 | 암호가 걸린 파일은 등록할 수 없습니다. 암호를 해제한 뒤 다시 올려 주세요. |
 | `CORRUPTED_FILE` | 깨진 파일 또는 0바이트 | 용량·손상 검사, 로더 | 파일이 손상되었거나 비어 있어 열 수 없습니다. 파일을 확인한 뒤 다시 올려 주세요. |
 | `DUPLICATE_FILE` | 같은 회사에 같은 내용이 이미 있음 | 중복 검사 | 같은 회사에 동일한 내용의 파일이 이미 등록되어 있습니다. |
 | `EMPTY_DOCUMENT` | 추출된 글자가 없음 (OCR로도 읽지 못한 이미지 문서 등) | 로더 이후, 청킹 | 문서에서 글자를 읽을 수 없습니다. 글자가 없는 문서이거나 스캔한 이미지 문서일 수 있습니다. |
-| `LEGACY_FORMAT` | 구형 .doc/.ppt를 .docx/.pptx로 이름만 바꾼 파일 | 암호화 검사 | 구형 형식은 지원하지 않습니다. .docx 또는 .pptx로 저장한 뒤 다시 올려 주세요. |
+| `LEGACY_FORMAT` | 구형 .doc/.ppt/.xls를 .docx/.pptx/.xlsx로 이름만 바꾼 파일 | 암호화 검사 | 구형 형식은 지원하지 않습니다. .docx, .pptx, .xlsx로 저장한 뒤 다시 올려 주세요. |
 | `INVALID_DOC_TYPE` | 지원하지 않는 문서 유형 | 수집 진입 | 문서 유형을 확인해 주세요. |
 | `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 | 수집 처리 | 파일을 다시 업로드해 주세요. |
 

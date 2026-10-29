@@ -29,7 +29,7 @@ from .models import (
 from .normalizer import normalize_document
 from .validator import validate_upload
 
-PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
+PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx", ".xlsx": "openpyxl"}
 # 품질 판단이 아닌 진단용 임시 기준: 공백 제외 20자 미만.
 SHORT_CHUNK_CHARS = 20
 # 분류 결과에서 보고서로 옮기는 값 4개

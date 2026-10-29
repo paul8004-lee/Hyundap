@@ -12,12 +12,14 @@ import os
 from .docx_loader import load_docx
 from .pdf_loader import load_pdf
 from .pptx_loader import load_pptx
+from .xlsx_loader import load_xlsx
 from ..models import UNSUPPORTED_FORMAT, IngestError
 
 LOADERS = {
     ".pdf": load_pdf,
     ".docx": load_docx,
     ".pptx": load_pptx,
+    ".xlsx": load_xlsx,
 }
 
 
