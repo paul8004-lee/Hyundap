@@ -18,6 +18,7 @@ from sqlalchemy import text
 from hyundap.common.config import get_settings
 from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
 from .errors import DbError
+from .processing import processing_lock
 from .runtime import require_id, transaction
 
 
@@ -120,7 +121,7 @@ def failure_code(error):
 def record_upload_failure(ids, stage, error, backend):
     """게시 미완료는 복구에 맡기고, 비활성 처리 후보만 실패 기록·벡터 정리한다."""
     code = failure_code(error)
-    with version_service.PUBLICATION_LOCK:
+    with processing_lock(), version_service.PUBLICATION_LOCK:
         # 게시 중이거나 이미 활성화된 후보는 게시 복구 절차에서 처리한다.
         with transaction() as database:
             document, _ = version_service.read_candidate(database, ids['document_id'], ids['version_id'], lock=True)
@@ -421,7 +422,7 @@ def upload_document(actor, source_path, metadata, *, ingest_document=None, embed
     if not isinstance(metadata, dict):
         raise DbError('INVALID_INPUT')
     company_id = require_id(metadata.get('company_id'))
-    with WORKFLOW_LOCK:
+    with processing_lock(), WORKFLOW_LOCK:
         with transaction() as database:
             version_service.require_manager(actor, database, company_id)
         ingest_function = get_ingest_function(ingest_document)
@@ -547,7 +548,7 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
     # 저장된 원본 또는 다시 제공된 원본을 확인하고 같은 후보로 재시도한다.
     require_id(version_id)
     # 같은 프로세스에서 업로드와 재시도 흐름을 순차 실행한다.
-    with WORKFLOW_LOCK:
+    with processing_lock(), WORKFLOW_LOCK:
         ingest_function = get_ingest_function(ingest_document)
         backend = version_service.get_embedding_backend(embedding)
         retry_info = prepare_retry(actor, version_id)

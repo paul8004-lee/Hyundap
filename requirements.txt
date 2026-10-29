@@ -28,3 +28,5 @@ langchain-chroma==1.1.0
 python-dotenv==1.2.4
 SQLAlchemy==2.0.55
 PyMySQL[rsa]==1.1.2
+
+filelock==4.2.4
