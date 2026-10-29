@@ -238,10 +238,20 @@ class BackendServices:
         if not username or not username.strip() or not password:
             raise UIServiceError("LOGIN_REQUIRED", "아이디와 비밀번호를 입력해 주세요.", "input_error")
         result = self._dict(await self._call("login", username=username.strip(), password=password), "로그인")
-        required = {"user_id", "display_name", "role", "company_id", "company_name", "allowed_company_ids", "token"}
-        if required - result.keys() or not result.get("token"):
-            raise UIServiceError("INVALID_SESSION", "로그인 응답의 사용자·세션 정보를 확인해 주세요.")
-        return await self._with_company_names({**result, "demo": False})
+        try:
+            required = {"user_id", "display_name", "role", "company_id", "company_name", "allowed_company_ids", "token"}
+            if required - result.keys() or not result.get("token"):
+                raise UIServiceError("INVALID_SESSION", "로그인 응답의 사용자·세션 정보를 확인해 주세요.")
+            return await self._with_company_names({**result, "demo": False})
+        except (Exception, asyncio.CancelledError):
+            # 발급 후 응답 검증/회사명 보강이 실패하면 컨트롤러에 세션이 전달되지 않는다.
+            # 이 경계에서 회수하고, 원래 오류는 그대로 유지한다.
+            if result.get("token"):
+                try:
+                    await asyncio.shield(self.logout(result))
+                except (Exception, asyncio.CancelledError) as error:
+                    logging.getLogger(__name__).warning("Uncommitted adapter login cleanup failed (%s)", type(error).__name__)
+            raise
 
     async def logout(self, session: dict) -> None:
         await self._call("logout", session=session)
