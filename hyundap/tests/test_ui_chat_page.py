@@ -1,4 +1,4 @@
-"""검색창 아래 짧은 답변의 표시·인용 숨김·HTML 안전성 회귀 검사.
+"""검색창 아래 답변(최대 두 줄)의 표시·인용 숨김·HTML 안전성 회귀 검사.
 
 실행: python -B -m unittest hyundap.tests.test_ui_chat_page -v
 백엔드 답변 생성이나 출처 유효성 판정 대신 UI 표시 결과를 검사한다.
@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 import unittest
 
 from hyundap.ui.chat_page import render_compact_answer
+from hyundap.ui.search_page import SEARCH_CSS
 
 
 class _AnswerParser(HTMLParser):
@@ -79,29 +80,26 @@ class CompactAnswerTests(unittest.TestCase):
             "점검 지침을 확인하세요.",
         )
 
-    def test_only_first_sentence_is_shown(self):
+    def test_all_sentences_are_kept(self):
+        """두 줄 표시 정책: 첫 문장에서 자르지 않고 답변 전체를 넘긴다(넘치는 부분은 CSS가 숨긴다)."""
         for punctuation in (".", "!", "?", "。"):
             with self.subTest(punctuation=punctuation):
-                self.assertEqual(
-                    self.rendered_text({"answer": f"첫 번째 안내{punctuation} 다음 문장은 표시하지 않습니다."}),
-                    f"첫 번째 안내{punctuation}",
-                )
+                answer = f"첫 번째 안내{punctuation} 다음 문장도 표시합니다."
+                self.assertEqual(self.rendered_text({"answer": answer}), answer)
 
-    def test_newline_after_first_sentence_also_stops_excerpt(self):
+    def test_newlines_are_joined_with_a_space(self):
         self.assertEqual(
             self.rendered_text({"answer": "첫 번째 안내입니다.[1]\n두 번째 안내입니다.[2]"}),
-            "첫 번째 안내입니다.",
+            "첫 번째 안내입니다. 두 번째 안내입니다.",
         )
 
-    def test_eighty_character_boundary_uses_ellipsis_only_when_needed(self):
-        for length in (79, 80):
-            with self.subTest(length=length):
-                answer = "가" * length
-                self.assertEqual(self.rendered_text({"answer": answer}), answer)
-        self.assertEqual(
-            self.rendered_text({"answer": "가" * 81}),
-            "가" * 79 + "…",
-        )
+    def test_long_answer_is_not_truncated_or_ellipsized(self):
+        answer = "가" * 300
+        self.assertEqual(self.rendered_text({"answer": answer}), answer)
+
+    def test_answer_text_is_clamped_to_two_lines(self):
+        self.assertIn("-webkit-line-clamp:2", SEARCH_CSS)
+        self.assertNotIn("-webkit-line-clamp:1", SEARCH_CSS)
 
     def test_normal_numbers_dates_money_and_decimal_are_preserved(self):
         answer = "점검은 2026-10-28부터 30일마다 3회 진행하며 비용은 1,000원, 기준은 1.5배입니다."
@@ -138,7 +136,7 @@ class CompactAnswerTests(unittest.TestCase):
             "citations": [{"number": 1, "document_id": "doc-1", "version_id": "v-1", "excerpt": "원문"}],
         }
         original = deepcopy(response)
-        self.assertEqual(self.rendered_text(response), "점검을 실시합니다.")
+        self.assertEqual(self.rendered_text(response), "점검을 실시합니다. 자세한 설명입니다.")
         self.assertEqual(response, original)
 
     def test_empty_or_citation_only_answer_uses_fallback_notice(self):
