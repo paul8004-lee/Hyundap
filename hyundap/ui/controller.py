@@ -20,7 +20,7 @@ from .chat_page import checked_answer_citations, render_citation, render_compact
 from .admin_page import render_batch_upload_results, render_upload_result
 from .components import show_feedback, set_loading, render_header, render_login_error
 from .search_page import document_rows, render_document, render_evidence, render_coverage
-from .services import company_choices, validate_upload_file, UIServiceError, UIServices
+from .services import company_choices, validate_upload_file, validate_upload_metadata, UIServiceError, UIServices
 
 
 @dataclass
@@ -621,13 +621,15 @@ class UIController:
         ctx.upload_ready = True
         return {self.admin["submit"]: gr.update(interactive=True)}
 
-    @staticmethod
-    def validate_upload_metadata(company, doc_type):
-        if not company or not doc_type:
-            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+    def validate_upload_metadata(self, company, doc_type):
+        automatic = getattr(self.service, "auto_classify", False) is True
+        # 숨긴 컨트롤의 이전 값/클라이언트 값으로 자동 분류를 덮어쓰지 않는다.
+        selected = None if automatic else doc_type
+        validate_upload_metadata(company, selected, auto_classify=automatic)
+        return selected
 
     async def do_upload(self, ctx, ticket, file_path, company, doc_type):
-        self.validate_upload_metadata(company, doc_type)
+        doc_type = self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(file_path)
         file_path = paths[0] if paths else None
         result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
@@ -635,7 +637,7 @@ class UIController:
 
     async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
         """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
-        self.validate_upload_metadata(company, doc_type)
+        doc_type = self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(files)
         # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
         self.validate_upload_paths(paths)

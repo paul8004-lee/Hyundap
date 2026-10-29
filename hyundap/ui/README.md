@@ -50,7 +50,7 @@ python -m hyundap.app --check-backend
 - 검색어·회사/문서 유형 필터·초기화·결과 목록·선택 문서 상세.
 - 검색 입력을 질문으로 함께 사용하고, 검색 결과 문서에 대한 짧은 AI 답변을 입력칸 바로 아래에 표시. 출처는 기존 스플릿뷰에서 확인.
 - 선택 문서 요약·전체/부분 여부·포함/제외 범위 표시.
-- 관리자 수동 업로드: 회사와 문서 유형을 선택한 뒤 PDF/DOCX/PPTX 여러 파일을 등록할 수 있으며, 파일당 1바이트~100MiB(104,857,600바이트). 같은 회사·문서 유형을 적용해 파일별로 순차 처리하고 각각의 결과·오류를 표시합니다.
+- 관리자 파일 업로드: PDF/DOCX/PPTX 여러 파일을 등록할 수 있으며, 파일당 1바이트~100MiB(104,857,600바이트). 자동 분류 모드에서는 회사만 선택하고 파일별 최종 유형을 백엔드에서 받습니다. 자동 분류가 꺼져 있으면 회사와 유형을 선택하여 모든 파일에 적용합니다. 순차 처리·파일별 결과와 오류 표시를 유지합니다.
 - 로딩·중복 요청 방지·빈 결과·권한/오류 안내·검색 조건 변경 시 이전 답변 초기화·문서 선택 시 이전 요약 초기화.
 
 예시 모드는 실제 인증 서버·DB·LLM을 호출하지 않습니다. 업로드는 입력 검사와 예시 결과만 제공하며 **원본 저장·본문 추출·색인을 수행하지 않습니다.** 다운로드는 회사 원본 대신 예시임을 명시한 `.txt` 파일을 제공합니다.
@@ -58,6 +58,17 @@ python -m hyundap.app --check-backend
 여러 파일 중 입력 검증에 실패한 파일이 있으면 등록을 시작하지 않습니다. 등록 중 개별 파일이 실패하면 나머지를 계속 처리하고 파일별 결과를 보여 줍니다. 단, 세션 만료나 권한 오류가 발생하면 이후 파일 처리를 중단합니다. 파일·회사·문서 유형을 바꾸면 대기 중인 나머지 파일은 중단되지만 이미 시작된 백엔드 작업은 취소되지 않을 수 있으므로 결과를 확인한 후 실패한 파일만 다시 선택해 주세요.
 
 계정·권한 관리, 별도 로그/이력 관리, 삭제·재색인, 저장 원본 재시도, 직원 업로드, 대화 이력, 고급 버전 관리, 추가 파일 형식은 현재 화면 구현 범위에서 제외했습니다. 이는 전체 명세의 우선순위를 다시 분류한다는 뜻이 아니며, 계정 관리를 일괄 P3로 취급하지 않습니다. 기존 Figma의 폴더 연결·자동 스캔·분류 검토 화면도 현재 수동 업로드 범위에 포함하지 않았습니다.
+
+## 자동 문서 유형 연결 (#261)
+
+- 실제 모드는 `backend_documents.auto_classify_enabled()`가 `get_settings().doc_classify`를 읽고 `BackendBindings` → `BackendServices.auto_classify` → `build_admin_page`에 전달합니다. 이전 공통 설정에 필드가 없으면 수동 모드입니다. 설정 변경 후에는 앱을 재시작합니다.
+- 켜져 있으면 유형 선택 칸을 숨기고 `metadata={company_id, auto_classify: True, data_category: "operational"}`을 전송합니다. `doc_type` 키나 임의의 `other`를 보내지 않습니다. 꺼져 있으면 기존 `metadata={company_id, doc_type, data_category: "operational"}`을 유지합니다.
+- 최종 유형은 응답 `doc_type`만 사용합니다. `doc_type_fallback`이 참이면 `LOW_CONFIDENCE`·`CLASSIFY_FAILED`에 맞춰 안내하고, 다중 결과에 `유형 확인 필요 N건`을 표시합니다. 새 버전은 기존 유형이 유지될 수 있으므로 안내 유형을 `other`로 고정하지 않습니다.
+- `company_match="no"`일 때만 회사 확인 안내를 표시하며 회사·권한은 바꾸지 않습니다. 확신도는 `classify_status="success"`이고 유효한 `auto_doc_type`이 있을 때만 표시합니다. UI가 수치로 최종 유형을 재판정하지 않습니다.
+- 수집 이후 게시에 실패한 응답은 `처리 중 판단 유형`으로 표시하며, 저장 완료라고 안내하지 않습니다. 이전 백엔드가 최종 유형을 반환하지 않으면 입력 유형으로 보충하지 않습니다. 자동 업로드 성공 응답은 계약의 7개 분류 필드를 검사합니다.
+- 데모는 기본적으로 자동 모드입니다. 파일명에 `규정`·`매뉴얼`·`안내`·`기타`가 있으면 해당 유형의 고정 예시, `실패`가 있으면 분류 실패 예시, 나머지는 확신도 부족 예시를 보여 줍니다. 실제 본문 분석·AI 호출·DB 저장은 하지 않습니다. 수동 폼 검수에는 `MockServices(auto_classify=False)`를 주입합니다.
+
+**연결 전제:** #261의 DB 입력·반환 계약, 수집의 청킹 전 유형 반영, 분류 결정 함수가 함께 반영된 환경에서 자동 업로드를 사용합니다. `DOC_CLASSIFY`만 켜는 것은 백엔드 구현 완료를 뜻하지 않습니다. 이번 UI 변경에서는 DB·수집·분류 코드와 `.env`를 수정하지 않았으며 실제 저장·검색 일치 검수는 해당 백엔드 반영 후 진행합니다. [검수 및 인계](docs/auto_classification_validation.md)를 참고하세요.
 
 ## 검색·질문 화면 흐름
 
@@ -119,7 +130,7 @@ python -m hyundap.app --check-backend
 | 요약 | `hyundap.chatbot.summary.summarize_document(document_id=, user=)`; 반환 버전 비교 |
 | 문서 상세 | `backend_documents.get_document()`가 DB 활성 버전·auth 접근 권한·벡터 저장소의 실제 발췌문을 조회 |
 | 회사 표시명 | `backend_companies.list_company_names()`가 `current_actor`·`allowed_companies`로 재검증한 허용 범위와 세션의 허용 ID 교집합에서 활성 회사 이름만 조회 |
-| 수동 업로드 | `backend_documents.upload_document()` → `hyundap.db.upload_service.upload_document(actor=, source_path=, metadata=)` |
+| 파일 업로드 | `backend_documents.upload_document()` → `hyundap.db.upload_service.upload_document(actor=, source_path=, metadata=)` |
 | 원문 다운로드 | 공개 함수 대기. 실제 세션 검사를 통과해도 `DOWNLOAD_NOT_CONNECTED` 안내 |
 | 오류 | `backend_feedback.to_feedback()`가 검색·챗봇의 변환기를 연결하고 DB/권한 오류와 감싸진 세션 만료를 처리 |
 

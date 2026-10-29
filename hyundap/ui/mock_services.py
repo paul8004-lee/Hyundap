@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .services import COMPANIES, DOC_TYPES, UIServiceError, validate_upload_file
+from .services import COMPANIES, DOC_TYPES, UIServiceError, validate_upload_file, validate_upload_metadata
 
 
 _COMPANY_NAMES = {code: label for label, code in COMPANIES}
@@ -92,12 +92,29 @@ class _SessionRecord:
     uploaded_hashes: set[tuple[str, str]] = field(default_factory=set)
 
 
+def demo_classification(file_name: str) -> dict:
+    """화면 검수용 고정 결과. 이름에 규정/매뉴얼/안내/기타/실패가 없으면 낮은 확신도 예시."""
+    stem = Path(file_name).stem.lower()
+    values = (("policy", ("규정", "policy")), ("manual", ("매뉴얼", "manual")),
+              ("guide", ("안내", "가이드", "guide")), ("other", ("기타", "other")))
+    kind = next((code for code, words in values if any(word in stem for word in words)), None)
+    if "실패" in stem or "failed" in stem:
+        return {"doc_type": "other", "doc_type_fallback": True,
+                "doc_type_fallback_reason": "CLASSIFY_FAILED", "auto_doc_type": "",
+                "doc_type_confidence": 0.0, "classify_status": "failed", "company_match": ""}
+    return {"doc_type": kind or "other", "doc_type_fallback": kind is None,
+            "doc_type_fallback_reason": None if kind else "LOW_CONFIDENCE",
+            "auto_doc_type": kind or "guide", "doc_type_confidence": 0.94 if kind else 0.55,
+            "classify_status": "success", "company_match": ""}
+
+
 class MockServices:
     """화면 확인 전용. employee / manager / admin, 비밀번호 demo1234."""
 
     demo = True
 
-    def __init__(self, session_ttl_seconds: float = 3600, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, session_ttl_seconds: float = 3600, clock: Callable[[], float] = time.monotonic, *, auto_classify: bool = True):
+        self.auto_classify = auto_classify
         self._ttl = session_ttl_seconds
         self._clock = clock
         self._sessions: dict[str, _SessionRecord] = {}
@@ -254,13 +271,13 @@ class MockServices:
             yield {"type": "delta", "text": line}
         yield {"type": "done", "response": response}
 
-    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
+    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict:
         record = self._checked(session)
         if record.public["role"] not in {"company_admin", "platform_admin"}:
             raise UIServiceError("ACCESS_DENIED", "문서 업로드는 관리자만 사용할 수 있습니다.", "denied")
-        if not company_id or not doc_type:
-            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
-        self._scope(session, [company_id], [doc_type])
+        automatic = self.auto_classify and doc_type is None
+        validate_upload_metadata(company_id, doc_type, auto_classify=automatic)
+        self._scope(session, [company_id], None if automatic else [doc_type])
         path = validate_upload_file(file_path)
 
         def file_hash():
@@ -280,7 +297,10 @@ class MockServices:
             if duplicate_key in record.uploaded_hashes:
                 raise UIServiceError("DUPLICATE_FILE", "이 예시 세션에서 같은 회사에 제출한 파일입니다.", "input_error")
             record.uploaded_hashes.add(duplicate_key)
-        # 원본 보관/추출/색인 없이, 현재 요청의 입력 검사 결과만 반환한다.
+        # 파일명에 따른 고정 예시이며 실제 AI 분류/원본 보관/추출/색인은 하지 않는다.
+        classification = demo_classification(path.name) if automatic else {
+            "doc_type": doc_type, "doc_type_fallback": False, "doc_type_fallback_reason": None,
+        }
         return {
             "status": "simulated",
             "job_status": "succeeded",
@@ -291,7 +311,7 @@ class MockServices:
             "file_name": path.name,
             "company_id": company_id,
             "company_name": _COMPANY_NAMES[company_id],
-            "doc_type": doc_type,
+            **classification,
             "size_bytes": path.stat().st_size,
             "searchable": False,
             "simulated": True,
