@@ -67,3 +67,20 @@ FEEDBACK_STATUS = {
 # 세션 만료(SESSION_EXPIRED)는 권한 없음이 아니라 재로그인 안내로 따로 보낸다
 ACCESS_ERROR_NAMES = ('AccessError',)
 SEARCH_ACCESS_CODES = ('ACCESS_DENIED', 'COMPANY_FORBIDDEN', 'NO_COMPANY_SCOPE')
+
+# 문서 자동 분류 (doc_classifier.py, 명세 밖 추가 기능). OpenAI Decisions API는 현재 gpt-6-luna만 지원한다
+CLASSIFY_MODEL = 'gpt-6-luna'
+CLASSIFY_TIMEOUT_SECONDS = 20          # 부를 때만 1번 호출하므로 질문 답변(30초)보다 짧게
+CLASSIFY_MAX_RETRIES = 1
+CLASSIFY_SAMPLE_CHARS = 6000           # 분류에 보내는 앞쪽 본문 글자 수 상한 (긴 문서도 입력 크기 일정)
+CLASSIFY_COMPANY_NAMED_MIN = 0.5       # 본문에 회사명이 적혀 있을 확률이 이 값 이상일 때만 회사 일치를 판단한다
+CLASSIFY_MATCH_YES_MIN = 0.7           # 회사 일치 확률이 이상이면 'yes'
+CLASSIFY_MATCH_NO_MAX = 0.3            # 이하이면 'no', 그 사이는 판단 보류('')
+CLASSIFY_CACHE_SIZE = 256              # 같은 문서 버전은 메모리에 보관해 다시 부르지 않는다 (DB·Chroma에는 저장하지 않음)
+# 유형 코드별 판단 기준. 코드·표시 이름은 common.schemas.DOC_TYPES를 그대로 쓴다
+CLASSIFY_DOC_TYPE_HINTS = {
+    'manual': '제품·장비·시스템의 사용법, 조작·설치·점검 방법을 단계별로 설명하는 문서',
+    'policy': '사내 규정·정책·지침·기준처럼 지켜야 할 규칙과 책임을 정한 문서',
+    'guide': '업무 안내·절차 소개·온보딩처럼 일을 어떻게 하는지 알려 주는 안내 문서',
+    'other': '위 셋에 해당하지 않는 문서(보고서·회의록·소개 자료·언론 보도 등)',
+}

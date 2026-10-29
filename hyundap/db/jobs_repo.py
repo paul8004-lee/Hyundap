@@ -7,6 +7,8 @@ from dataclasses import asdict, is_dataclass
 
 from sqlalchemy import text
 
+from hyundap.common.schemas import DOC_TYPE_CODES
+
 from .errors import DbError
 from .runtime import require_id, transaction
 from .clock import epoch_now
@@ -15,6 +17,8 @@ from .clock import epoch_now
 STAGES = ('received', 'ingest', 'embedding', 'verify', 'publish', 'complete')
 COUNT_FIELDS = ('total', 'skipped_existing', 'embedded', 'stored', 'truncated_count')
 INGEST_COUNT_FIELDS = ('chunk_size', 'chunk_overlap', 'section_count', 'chunk_count', 'warning_count', 'short_chunk_count')
+# 수집(정규화 직후) 문서 자동 분류 결과(chatbot.doc_classifier). 값 목록은 분류기와 같다.
+CLASSIFY_FIELDS = ('auto_doc_type', 'doc_type_confidence', 'company_match', 'classify_status')
 
 
 def normalize_report(report):
@@ -28,6 +32,7 @@ def normalize_report(report):
     clean = _report_identity(report)
     clean.update(_report_metrics(report))
     clean.update(_ingest_metrics(report, clean['stage']))
+    clean.update(_classify_fields(report, clean['stage']))
     clean.update(_report_failures(report))
 
     # 성공 보고서에 실패 내용이 함께 있으면 서로 모순되므로 저장하지 않는다.
@@ -128,6 +133,36 @@ def _ingest_metrics(report, stage):
     if 'short_chunk_count' in clean and 'chunk_count' in clean:
         if clean['short_chunk_count'] > clean['chunk_count']:
             raise DbError('INVALID_INPUT')
+    return clean
+
+
+def _classify_fields(report, stage):
+    """수집 단계의 문서 분류 결과(유형·확신도·회사 일치·분류 상태)를 검사해 새 dict로 반환한다.
+
+    다른 단계에 섞이거나 허용 목록 밖의 값이면 INVALID_INPUT이다. 분류 실패 원인 문구는 저장하지 않는다.
+    """
+    if any(field in report for field in CLASSIFY_FIELDS) and stage != 'ingest':
+        raise DbError('INVALID_INPUT')
+    clean = {}
+    if 'auto_doc_type' in report:
+        value = report['auto_doc_type']
+        if not isinstance(value, str) or (value and value not in DOC_TYPE_CODES):
+            raise DbError('INVALID_INPUT')
+        clean['auto_doc_type'] = value
+    if 'doc_type_confidence' in report:
+        value = report['doc_type_confidence']
+        # bool은 숫자로 받지 않고 0~1 사이의 유한한 값만 허용한다.
+        if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+            raise DbError('INVALID_INPUT')
+        clean['doc_type_confidence'] = value
+    if 'company_match' in report:
+        if report['company_match'] not in ('yes', 'no', ''):
+            raise DbError('INVALID_INPUT')
+        clean['company_match'] = report['company_match']
+    if 'classify_status' in report:
+        if report['classify_status'] not in ('success', 'failed'):
+            raise DbError('INVALID_INPUT')
+        clean['classify_status'] = report['classify_status']
     return clean
 
 

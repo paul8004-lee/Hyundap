@@ -5,7 +5,8 @@
 
 함수:
     FUN-218 ingest_document — 검증·로딩·정규화·청킹을 순서대로 실행하고 IngestResult를 돌려준다.
-    FUN-219 build_ingest_report — 사용한 파서·청킹 설정·경고·구간/조각 수를 보고서로 구성한다."""
+    FUN-219 build_ingest_report — 사용한 파서·청킹 설정·경고·구간/조각 수를 보고서로 구성한다.
+    classify_normalized — (업로드에서 classify=True일 때) 정규화된 문서를 챗봇 분류기로 분류해 보고서 값을 만든다."""
 
 import os
 from importlib.metadata import version
@@ -31,8 +32,11 @@ PARSERS = {".pdf": "pypdf", ".docx": "python-docx", ".pptx": "python-pptx"}
 SHORT_CHUNK_CHARS = 20
 
 
-def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
-    """검증→로드→정규화→청킹을 순서대로 실행하고 결과를 IngestResult로 돌려준다."""
+def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None, classify=False):
+    """검증→로드→정규화→(분류)→청킹을 순서대로 실행하고 결과를 IngestResult로 돌려준다.
+
+    classify=True이면 정규화 직후 문서 유형·회사 일치를 분류해 보고서에 넣는다(업로드 흐름만 켠다).
+    분류 결과는 청크와 doc_type을 바꾸지 않으며, 분류가 실패해도 수집은 계속한다."""
     upload_info = dict(upload_info)
     if "doc_type" not in upload_info:
         upload_info["doc_type"] = DEFAULT_DOC_TYPE
@@ -51,8 +55,10 @@ def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
         doc = normalize_document(doc)
         if len(doc.sections) == 0:
             raise IngestError(EMPTY_DOCUMENT)
+        classification = classify_normalized(doc) if classify else {}
         chunks = chunk_document(doc)
         report = build_ingest_report(file_path, doc, chunks)
+        report.update(classification)
     except IngestError as e:
         return IngestResult(status=STATUS_FAILED, error_code=e.code, error_message=e.message)
     except (FileNotFoundError, PermissionError):
@@ -60,6 +66,23 @@ def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
         return IngestResult(status=STATUS_FAILED, error_code=error.code, error_message=error.message)
 
     return IngestResult(status=STATUS_SUCCESS, chunks=chunks, report=report)
+
+
+def classify_normalized(doc):
+    """정규화된 문서를 챗봇 분류기(chatbot.doc_classifier)로 분류해 보고서에 넣을 값을 돌려준다.
+
+    값: auto_doc_type·doc_type_confidence·company_match·classify_status. 어떤 오류도 올리지 않는다."""
+    try:
+        from hyundap.chatbot.doc_classifier import classify_common_document
+        result = classify_common_document(doc)
+    except Exception:
+        return {"classify_status": "failed"}
+    return {
+        "auto_doc_type": result.auto_doc_type,
+        "doc_type_confidence": result.confidence,
+        "company_match": result.company_match,
+        "classify_status": result.status,
+    }
 
 
 def build_ingest_report(file_path, doc, chunks):
