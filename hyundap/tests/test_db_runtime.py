@@ -20,7 +20,7 @@ from sqlalchemy.exc import OperationalError
 
 from hyundap.auth.errors import AccessError
 from hyundap.auth.permissions import get_allowed_company_ids, verify_documents_access
-from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, versions_repo
+from hyundap.db import chunks_repo, documents_repo, jobs_repo, runtime, schema, versions_repo, version_service
 from hyundap.db.errors import DbError
 
 
@@ -604,6 +604,50 @@ class DatabaseRuntimeTests(unittest.TestCase):
         with self.assertRaises(DbError) as caught:
             self.candidate()
         self.assertEqual(caught.exception.code, 'INVALID_STATE')
+
+
+    def test_pending_publication_exclusion_and_exists_query_preserve_conflicts(self):
+        first = self.candidate()
+        # 문서별 진행 작업은 하나만 허용된다. 이전 작업은 종료하되 미복구 보고서는 검사 대상이다.
+        jobs_repo.record_stage_result(first['job_id'],
+                                     {'stage': 'received', 'status': 'failed', 'error_code': 'PROCESSING_FAILED'})
+        versions_repo.mark_failed(first['version_id'])
+        second = self.candidate(document_id=first['document_id'], sha256='c' * 64)
+        fetched_counts = []
+        def capture(connection, cursor, statement, parameters, context, many):
+            if 'JSON_UNQUOTE(JSON_EXTRACT(j.report' in statement:
+                fetched_counts.append(cursor.rowcount)
+        event.listen(self.engine, 'after_cursor_execute', capture)
+        try:
+            with self.engine.begin() as database:
+                database.execute(text('SELECT id FROM documents WHERE id=:id FOR UPDATE'), {'id': first['document_id']})
+                version_service.ensure_no_pending_publication(database, first['document_id'])
+                for phase in ('pending_activation', 'restore_pending'):
+                    report = json.dumps({'_publication': {'phase': phase}})
+                    database.execute(text('UPDATE index_jobs SET report=:report WHERE id=:id'),
+                                     {'report': report, 'id': first['job_id']})
+                    version_service.ensure_no_pending_publication(
+                        database, first['document_id'], except_job=first['job_id'])
+                    for excluded in (None, '', 'unknown-job', second['job_id']):
+                        with self.subTest(phase=phase, excluded=excluded), self.assertRaises(DbError) as caught:
+                            version_service.ensure_no_pending_publication(
+                                database, first['document_id'], except_job=excluded)
+                        self.assertEqual(caught.exception.code, 'CONFLICT')
+                # 대기 작업이 두 개면 하나만 제외해도 나머지 작업 때문에 충돌해야 한다.
+                database.execute(text('UPDATE index_jobs SET report=:report WHERE id=:id'),
+                                 {'report': report, 'id': second['job_id']})
+                with self.assertRaises(DbError) as caught:
+                    version_service.ensure_no_pending_publication(
+                        database, first['document_id'], except_job=first['job_id'])
+                self.assertEqual(caught.exception.code, 'CONFLICT')
+                database.execute(text('UPDATE index_jobs SET report=:report WHERE id IN (:first,:second)'),
+                                 {'report': json.dumps({'_publication': {'phase': 'activated'}}),
+                                  'first': first['job_id'], 'second': second['job_id']})
+                version_service.ensure_no_pending_publication(database, first['document_id'])
+            self.assertIn(1, fetched_counts)
+            self.assertTrue(all(count <= 1 for count in fetched_counts))
+        finally:
+            event.remove(self.engine, 'after_cursor_execute', capture)
 
 
 if __name__ == '__main__':

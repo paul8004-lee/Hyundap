@@ -6,6 +6,8 @@
 import unittest
 from contextlib import ExitStack
 from copy import deepcopy
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -210,10 +212,59 @@ class BindingTests(unittest.IsolatedAsyncioTestCase):
         user = {**self.session, "allowed_company_ids": ["fixture-company", "new-company"], "companies": [{"company_id":"new-company", "company_name":"New"}, {"company_id":"outside", "company_name":"Forbidden"}]}
         self.assertEqual(company_choices(user), [("Fixture Company", "fixture-company"), ("New", "new-company")])
 
-    async def test_download_remains_explicitly_unavailable(self):
+    def download_io(self, *, error=None):
+        """DB 원본 준비 함수만 대체해 실제 임시 사본과 호출 인자를 돌려준다."""
+        calls = []
+
+        def prepare(actor, document_id, version_id=None):
+            calls.append((actor, document_id, version_id))
+            if error is not None:
+                raise error
+            temporary = TemporaryDirectory(prefix="hyundap-test-download-")
+            self.addCleanup(temporary.cleanup)
+            path = Path(temporary.name) / "original.bin"
+            path.write_bytes(b"fixture original")
+            return {"path": path, "file_name": "rules.pdf", "temporary": temporary}
+
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch("hyundap.db.download_service.prepare_original_download", prepare))
+        return calls
+
+    async def test_download_returns_prepared_copy_from_db(self):
+        calls = self.download_io()
+        result = await self.service.download(self.session, "fixture-doc", "fixture-version")
+        # 검증된 세션에서 만든 actor와 두 ID가 그대로 DB 함수에 전달된다.
+        self.assertEqual(len(calls), 1)
+        actor, document_id, version_id = calls[0]
+        self.assertEqual((document_id, version_id), ("fixture-doc", "fixture-version"))
+        self.assertEqual(actor["user_id"], SESSION["user_id"])
+        self.assertEqual(actor["session_id"], SESSION["session_id"])
+        self.assertEqual(actor["_session_token"], SESSION["token"])
+        # 준비된 사본을 그대로 돌려주고 정리는 호출자(HTTP 전송자)가 한다.
+        self.assertEqual(result["file_name"], "rules.pdf")
+        self.assertEqual(Path(result["path"]).read_bytes(), b"fixture original")
+        result["temporary"].cleanup()
+        self.assertFalse(Path(result["path"]).exists())
+
+    async def test_download_does_not_call_db_when_session_expired(self):
+        calls = self.download_io()
+
+        async def validate_session(session):
+            raise UIServiceError("SESSION_EXPIRED", "다시 로그인해 주세요.", "session_expired")
+
+        self.service.bindings.validate_session = validate_session
         with self.assertRaises(UIServiceError) as caught:
             await self.service.download(self.session, "fixture-doc", "fixture-version")
-        self.assertEqual(caught.exception.code, "DOWNLOAD_NOT_CONNECTED")
+        self.assertEqual(caught.exception.code, "SESSION_EXPIRED")
+        self.assertEqual(calls, [])
+
+    async def test_download_permission_denial_is_ui_error(self):
+        calls = self.download_io(error=AccessError("ACCESS_DENIED"))
+        with self.assertRaises(UIServiceError) as caught:
+            await self.service.download(self.session, "fixture-doc", "fixture-version")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(caught.exception.code, "ACCESS_DENIED")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -59,7 +59,8 @@ def fake_write():
     """고정 INSERT의 인자를 확인하는 가짜 트랜잭션을 제공한다."""
     database = MagicMock()
     @contextmanager
-    def transaction(connection=None):
+    def transaction(connection=None, *, control=False):
+        assert control, "인증은 공통 DB를 선택해야 한다"
         """호출자가 만든 가짜 연결을 전달한다."""
         yield database
     def insert_call():

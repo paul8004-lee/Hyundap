@@ -36,7 +36,7 @@
 | 검색 | 고정 예시 문서 | PR #143 검색 함수 등록; 실제 서버 세션 필요 |
 | 답변·요약 | 예시 발췌문·범위 정보 | PR #134 질문·요약 함수 등록; 실제 서버 세션 필요 |
 | 업로드 | 입력 검사와 예시 결과 | DB 업로드 대표 함수 등록; 실제 서버 세션 필요 |
-| 다운로드 | 예시임을 표시한 `.txt` 파일 | 공개 함수 대기: `DOWNLOAD_NOT_CONNECTED` |
+| 다운로드 | 예시임을 표시한 `.txt` 파일 | 브라우저별 1분·1회 링크, 실제 전송 시 권한·활성 버전·원본 무결성 재검증 |
 | 미연결·실패 | 예시 규칙에 따른 안내 | 명시적 오류; 예시 모드로 자동 전환하지 않음 |
 
 예시 업로드는 업무 문서 보관·본문 추출·DB 등록·색인을 수행하지 않고 검색 결과에도 추가하지 않는다. 파일 선택 과정에서 Gradio의 임시 파일은 생성될 수 있다. 예시 답변은 실제 AI 생성 결과가 아니다.
@@ -153,7 +153,7 @@ hyundap/
 - `is_full`이 명시적으로 `True`일 때만 전체 범위 요약으로 표시한다.
 - 요약 재요청 시 이전 요약·범위를 지우고, 실패 결과에 이전 성공 내용을 남기지 않는다.
 - 실제 요약 함수에는 문서 ID를 전달하고, 반환된 `version_id`가 선택 버전과 다르면 변경 오류를 표시한다.
-- 다운로드 재요청 시 이전 링크를 지운다. 실제 서버 세션 검사 후에도 다운로드 공개 함수가 없어 현재는 `DOWNLOAD_NOT_CONNECTED`로 안내한다. 원본 경로를 추측하거나 DB 저장 경로를 바로 노출하지 않는다.
+- 다운로드 재요청 시 이전 화면 링크를 지운다. `db.download_service.prepare_original_download`가 실제 전송 시 서버 권한·활성 버전·원본 해시를 확인한다. `ui.downloads.DownloadMiddleware`가 임시 사본을 전송하고 성공·실패 후 정리한다. 원본 경로는 Gradio 파일 캐시에 공개하지 않는다.
 - 예시 모드는 버튼과 파일 안내에서 예시 파일임을 명시한다.
 
 ### 4.4 검색창 AI 답변·출처 — `search_page.py`, `chat_page.py`
@@ -216,7 +216,7 @@ hyundap/
 | `ask(session, question, company_ids, doc_types, document_ids)` | `hyundap.chatbot.ask.ask(question=, filters=, user=검증 사용자)` | 답변 응답 |
 | `summarize(session, document_id, version_id)` | `hyundap.chatbot.summary.summarize_document(document_id=, user=검증 사용자)` | 요약 응답; 결과 버전 비교 |
 | `upload(session, file_path, company_id, doc_type=None)` | 자동 가능 + 유형 생략 시 `backend_documents.upload_document(..., auto_classify=True)`, 명시 유형은 기존 수동 호출 → DB 업로드 함수 | 현재 업로드 결과 dict; 최종 유형은 응답값 사용 |
-| `download(session, document_id, version_id)` | `download_original(user=검증 사용자, document_id=, version_id=)` | 현재 `DOWNLOAD_NOT_CONNECTED`; 후속 계약은 준비된 로컬 파일의 `str` 또는 `Path` |
+| `download(session, document_id, version_id)` | `download_original(user=검증 사용자, document_id=, version_id=)` | 사본 `path`, 표시용 `file_name`, 정리 소유자 `temporary` dict. HTTP 전송자만 사용·정리 |
 
 - 전체 필터의 UI 값은 `__all__`이며 호출 시 `None`으로 변환한다. 개별 회사·유형은 길이 1의 목록으로 전달한다.
 - 질문 `filters`는 `company_ids`, `doc_types`, `document_ids`를 갖는 dict다. PR #134의 `hyundap.chatbot.ask.ask`는 dict·`ChatFilters`·`None`을 받으므로 `filters_factory` 없이 연결할 수 있다. 명시적 변환이 필요하면 `from hyundap.chatbot.models import ChatFilters`와 `filters_factory=lambda d: ChatFilters(**d)`를 사용할 수 있다.
@@ -303,7 +303,7 @@ Gradio 화면 상태 TTL과 예시 세션 기본 유효시간은 각각 3,600초
 | `EMPTY_DOCUMENT` | 추출한 글자가 없는 문서(OCR로도 글자를 읽지 못한 이미지 문서 등). 수집 단계에서 판단하며 0바이트 오류와 구분해 안내 |
 | `METADATA_REQUIRED`, `DUPLICATE_FILE` | 필수 정보·중복 제출 안내; 실제 중복 판정은 DB 업로드 함수에 위임 |
 | `BACKEND_NOT_CONNECTED`, `BACKEND_DEPENDENCY_MISSING`, `DEPENDENCY_MISSING`, `INVALID_RESPONSE`, `INVALID_SESSION` | 함수·의존성 연결 또는 응답 규격 점검 안내 |
-| `DOWNLOAD_NOT_CONNECTED` | 실제 원문 다운로드 공개 함수 연결 대기 |
+| `DOWNLOAD_UNAVAILABLE` | 보호된 다운로드 실행 환경·사본 준비 실패 |
 | `DB_UNAVAILABLE`, `RECOVERY_REQUIRED` 또는 `recovery_required=True` | 저장소 장애·복구 필요 안내; 성공이나 검색 가능 상태로 표시하지 않음 |
 | `DOWNLOAD_UNAVAILABLE`, `BACKEND_ERROR`, `UI_ERROR` | 해당 기능의 실패 안내 |
 
@@ -341,7 +341,7 @@ Gradio 화면 상태 TTL과 예시 세션 기본 유효시간은 각각 3,600초
 | B07 | 질문 입력·전송 상태 | 검색 입력 재사용·결과 우선 표시·답변 진행 처리 — `search_page.py`, `controller.py`, `app.py` |
 | B08 | 로그인 입력 | 구현 — `login_page.py` |
 | B09 | 문서 상세·본문 | 메타정보·발췌문 구현; 전체 원문 뷰어 제외 |
-| B10 | 요약·부분 범위·다운로드 | UI·예시 구현, 실제 요약 함수 등록; 원문 다운로드 공개 함수 대기 |
+| B10 | 요약·부분 범위·다운로드 | 실제 요약 및 보호된 원문 전송 연결 |
 | B11 | 수동 업로드 폼 | 관리자용 구현 — `admin_page.py` |
 | B12 | 파일 선택·형식/크기 검사 | 확장자·크기 검사 구현; 본문 검사는 연결한 DB 업로드·수집 함수에 위임 |
 | B13 | 답변·출처 번호 | 짧은 답변에는 번호 미표시, 출처 정보는 기존 스플릿뷰에서 확인 — `chat_page.py`, `controller.py` |
@@ -426,7 +426,7 @@ python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
 ## 10. 실제 통합 실행에 남은 사항
 
 1. SPEC-AUTH-001의 실제 `hyundap.auth.session_service`를 사용할 실행기에서 해당 모듈의 `login`·`logout`·`validate_session`을 `create_bindings(authentication=...)`에 연결한다. 검증 결과는 화면용 사용자·역할·허용 회사·회사 표시명과 `session_id`, `token`을 제공한다. UI는 이 `token`을 DB 내부 `_session_token` 필드로 전달하며, 별도 `auth_version`·`_session_token` 반환을 요구하지 않는다. 기본 실행은 실제 인증을 사용한다.
-2. 권한·활성 버전을 재검증하고 로컬 원본 파일을 준비하는 다운로드 공개 함수, 임시 파일 정리 책임. 이 함수가 제공될 때까지 `DOWNLOAD_NOT_CONNECTED`를 유지한다.
+2. 다운로드는 활성 버전만 제공한다. 후속 과거 버전 공개 범위는 별도 협의한다. 기본 앱 main은 다운로드 미들웨어를 설치하며 사용자 정의 launch에서도 동일하게 설치해야 한다. 티켓은 프로세스 메모리에 있어 다른 워커에서는 거부된다. 다중 워커 운영은 세션 고정 또는 중앙 티켓 저장 계약이 필요하다.
 3. 루트 requirements 설치, DB·LLM 설정, 사용 가능한 실제 테스트 계정·문서. 검색·ingest 구현은 최신 develop 병합으로 반영했다. 필수 설정값은 화면이나 문서에 넣지 않는다.
 4. 실제 인증·허용 회사 범위·문서 변경/삭제·세션 만료·근거 없음·요약 실패·중복 업로드·복구 필요 상황의 통합 검수. 업로드 후 검색 가능 여부까지 실제 환경에서 확인한다.
 5. 질문 대상 문서의 버전 고정 정책. 현재 질문은 검색 결과 문서 ID를 전달하고 답변 출처의 버전 정보를 보존하며, 특정 과거 버전을 고정하는 계약은 없다.

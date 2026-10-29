@@ -180,6 +180,56 @@ class UploadWorkflowTests(unittest.TestCase):
             self.actor, self.source, dict(company_id=self.company, doc_type='manual', **metadata),
             ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
 
+    def test_download_snapshot_preserves_bytes_and_rejects_changed_source(self):
+        from hyundap.db.download_service import prepare_original_download, read_download_source
+        result = self.upload()
+        prepared = prepare_original_download(self.actor, result['document_id'], upload_dir=self.upload_dir)
+        try:
+            self.assertEqual(prepared['path'].read_bytes(), self.source.read_bytes())
+            self.assertFalse(prepared['path'].is_relative_to(self.upload_dir))
+        finally:
+            prepared['temporary'].cleanup()
+        record = read_download_source(self.actor, result['document_id'])
+        Path(record['storage_path']).write_bytes(b'tampered')
+        with self.assertRaises(DbError) as caught:
+            prepare_original_download(self.actor, result['document_id'], upload_dir=self.upload_dir)
+        self.assertEqual(caught.exception.code, 'CONFLICT')
+
+    def test_download_rechecks_permissions_after_copy_and_rejects_foreign_scope(self):
+        from hyundap.db import download_service
+        result = self.upload()
+        original_copy = download_service.copy_original
+        def revoke_after_copy(*args):
+            original_copy(*args)
+            with self.engine.begin() as database:
+                database.execute(text('UPDATE users SET company_id=:company WHERE id=:id'),
+                                 {'company': self.other_company, 'id': self.user_id})
+        with patch.object(download_service, 'copy_original', side_effect=revoke_after_copy):
+            with self.assertRaises(AccessError):
+                download_service.prepare_original_download(self.actor, result['document_id'], upload_dir=self.upload_dir)
+        with self.assertRaises(AccessError):
+            download_service.prepare_original_download(self.actor, result['document_id'], upload_dir=self.upload_dir)
+
+    def test_download_rejects_missing_file_outside_root_and_stale_version(self):
+        from hyundap.db.download_service import prepare_original_download, read_download_source
+        result = self.upload()
+        record = read_download_source(self.actor, result['document_id'])
+        with self.assertRaises(AccessError):
+            prepare_original_download(self.actor, result['document_id'], str(uuid4()), upload_dir=self.upload_dir)
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
+                             {'path': str(self.source), 'id': result['version_id']})
+        with self.assertRaises(DbError) as caught:
+            prepare_original_download(self.actor, result['document_id'], upload_dir=self.upload_dir)
+        self.assertEqual(caught.exception.code, 'INVALID_STATE')
+        with self.engine.begin() as database:
+            database.execute(text('UPDATE document_versions SET storage_path=:path WHERE id=:id'),
+                             {'path': record['storage_path'], 'id': result['version_id']})
+        Path(record['storage_path']).unlink()
+        with self.assertRaises(DbError) as caught:
+            prepare_original_download(self.actor, result['document_id'], upload_dir=self.upload_dir)
+        self.assertEqual(caught.exception.code, 'FILE_UNAVAILABLE')
+
     def test_p2_three_companies_and_roles_share_detail_history_and_original_contracts(self):
         """같은 공개 문서들에 대해 상세·관리 이력의 역할별 접근 범위를 교차 검증한다."""
         third_company = str(uuid4())

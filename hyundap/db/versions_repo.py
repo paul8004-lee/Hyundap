@@ -21,7 +21,19 @@ def list_document_versions(actor, document_id, *, connection=None):
     """
     # 1단계: 입력 ID를 먼저 검사하여 잘못된 요청으로 DB에 연결하지 않는다.
     document_id = require_id(document_id)
-    with transaction(connection) as database:
+    from .runtime import split_layout
+    company_id = None
+    if split_layout():
+        from .tenancy import company_for_reference, authorize_company
+        authorize_company(actor, manager=True)
+        try:
+            company_id = company_for_reference(document_id=document_id, connection=connection)
+        except DbError as error:
+            if error.code == 'INVALID_STATE':
+                raise AccessError('ACCESS_DENIED') from None
+            raise
+        authorize_company(actor, company_id, manager=True)
+    with transaction(connection, company_id=company_id) as database:
         # 2단계: 전달된 역할을 믿지 않고 현재 세션·사용자·회사 정보를 다시 확인한다.
         current = current_actor(actor, connection=database)
         if current['role'] not in ('platform_admin', 'company_admin'):
@@ -59,7 +71,7 @@ def mark_failed(version_id, *, connection=None):
     이미 실패한 후보의 재호출은 성공으로 처리한다.
     """
     # 문서와 버전을 순서대로 잠가 현재 활성 버전이 실패 처리되지 않게 한다.
-    with transaction(connection) as database:
+    with transaction(connection, version_id=version_id) as database:
         document_id = database.execute(text('SELECT document_id FROM document_versions WHERE id=:id'),
                                        {'id': require_id(version_id)}).scalar_one_or_none()
         if document_id is None:

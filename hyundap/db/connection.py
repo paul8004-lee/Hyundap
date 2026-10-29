@@ -11,7 +11,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import ArgumentError
 
 
-def create_db_engine() -> Engine:
+def create_db_engine(database_url=None) -> Engine:
     """로컬 접속 설정을 검사하고 지연 연결 방식의 SQLAlchemy Engine을 만든다.
 
     프로세스 DATABASE_URL이 레포 루트 .env보다 우선한다.
@@ -21,16 +21,22 @@ def create_db_engine() -> Engine:
     Engine 생성만으로 DB에 접속하지 않으며 사용 후 호출자가 dispose()해야 한다."""
     # 환경변수와 로컬 설정을 읽고 실제 연결 전에 MySQL URL을 검사한다.
     load_dotenv(Path(__file__).resolve().parents[2] / '.env', override=False)
-    value = os.environ.get('DATABASE_URL', '').strip()
+    value = database_url
+    if not value:
+        value = os.environ.get('DATABASE_URL', '').strip()
     if not value:
         raise ValueError('Set DATABASE_URL in your local .env or process environment')
     try:
         # URL의 드라이버, 호스트, 계정, 비밀번호, DB 이름과 포트를 검사한다.
         url = make_url(value)
         # URL 파싱이 성공해도 필요한 값이 비었거나 포트가 범위 밖이면 사용하지 않는다.
-        if (url.drivername not in ('mysql', 'mysql+pymysql') or not url.host
-                or not url.username or not url.password or not url.database
-                or (url.port is not None and not 0 < url.port < 65536)):
+        if url.drivername not in ('mysql', 'mysql+pymysql'):
+            raise ValueError
+        # 연결에 필요한 값 하나씩 확인한다. 비밀값을 오류 메시지에 넣지는 않는다.
+        for required_value in (url.host, url.username, url.password, url.database):
+            if not required_value:
+                raise ValueError
+        if url.port is not None and not 0 < url.port < 65536:
             raise ValueError
     except (ArgumentError, ValueError, TypeError):
         raise ValueError('DATABASE_URL must be a valid MySQL URL; check URL-encoded credentials') from None
@@ -64,10 +70,17 @@ def main() -> int:
         engine = create_db_engine()
         with engine.connect() as connection:
             from .schema import snapshot, validate_v4
+            from .runtime import split_layout
             layout = snapshot(connection)
             version = layout['version']
-            if validate_v4(layout):
-                print('DB_CHECK_FAILED: incomplete schema v4; run python -m hyundap.db.schema --check')
+            if split_layout():
+                from .split_schema import validate_control
+                # CLI 출력용으로 읽은 같은 시점의 구조를 검증에도 사용한다.
+                errors = validate_control(connection, layout=layout)
+            else:
+                errors = validate_v4(layout)
+            if errors:
+                print('DB_CHECK_FAILED: incompatible schema; check the configured DB layout')
                 return 1
             count = len(layout['tables'])
         print(f'DB_CONNECTION_OK: schema_version={version}, tables={count}, '

@@ -131,7 +131,7 @@ python -m hyundap.app --check-backend
 | 문서 상세 | `backend_documents.get_document()`가 DB 활성 버전·auth 접근 권한·벡터 저장소의 실제 발췌문을 조회 |
 | 회사 표시명 | `backend_companies.list_company_names()`가 `current_actor`·`allowed_companies`로 재검증한 허용 범위와 세션의 허용 ID 교집합에서 활성 회사 이름만 조회 |
 | 파일 업로드 | `backend_documents.upload_document()` → `hyundap.db.upload_service.upload_document(actor=, source_path=, metadata=)` |
-| 원문 다운로드 | 공개 함수 대기. 실제 세션 검사를 통과해도 `DOWNLOAD_NOT_CONNECTED` 안내 |
+| 원문 다운로드 | 동일 브라우저의 1분·1회 링크. 실제 전송 시 세션·활성 버전·원본 해시 재검증, 사본 전송 후 정리 |
 | 오류 | `backend_feedback.to_feedback()`가 검색·챗봇의 변환기를 연결하고 DB/권한 오류와 감싸진 세션 만료를 처리 |
 
 질문의 결과 필드 `status`, `answer`, `citations`, `citations_by_company`, `document_ids`, `message`, `error_code`와 요약 필드는 UI와 일치합니다. dataclass 응답은 어댑터가 dict로 변환합니다. 상세는 본문 전체가 아니라 실제 청크에서 가져온 발췌문을 표시하며, 읽기 전후의 접근 권한과 활성 버전을 확인합니다. 업로드의 저장·추출·청킹·임베딩·발행 순서는 기존 DB 업로드 함수가 담당합니다.
