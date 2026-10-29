@@ -152,7 +152,7 @@ class UIController:
 
     def clear_document(self):
         s = self.search
-        return {**self.evidence_navigation(), s["detail"]: render_document(None), s["evidence"]: "", s["summary"]: "선택한 문서를 요약해 주요 내용을 확인하세요.", s["coverage"]: "", s["detail_feedback"]: "", s["summarize"]: gr.update(interactive=False, value="요약하기"), s["source"]: gr.update(interactive=False), s["download"]: gr.update(interactive=False), s["download_file"]: gr.update(value=None, visible=False)}
+        return {**self.evidence_navigation(), s["detail"]: render_document(None), s["evidence"]: "", s["summary"]: "문서를 선택한 뒤 요약하기를 눌러 주세요.", s["coverage"]: "", s["detail_feedback"]: "", s["summarize"]: gr.update(interactive=False, visible=True, value="요약하기"), s["source"]: gr.update(interactive=False), s["download"]: gr.update(interactive=False), s["download_file"]: gr.update(value=None, visible=False)}
 
     def clear_search(self):
         return {**self.clear_modal(), **self.clear_document(), **self.inline_patch(), self.search["table"]: [], self.search["results_area"]: gr.update(visible=False), self.search["empty"]: gr.update(visible=False), self.search["caption"]: "", self.search["feedback"]: "", self.search["intro"]: gr.update(visible=True), self.search["quick"]: gr.update(visible=True), self.search["submit"]: gr.update(interactive=True)}
@@ -164,7 +164,7 @@ class UIController:
         ctx.selected = deepcopy(doc)
         ctx.evidence_index = 0
         s = self.search
-        return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), **self.evidence_patch(ctx, doc), s["summarize"]: gr.update(interactive=True), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
+        return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), **self.evidence_patch(ctx, doc), **self.summary_view(ctx, doc), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
 
     def feedback_target(self, action):
         if action in {"login", "logout"}:
@@ -212,8 +212,10 @@ class UIController:
         elif action == "download":
             initial[self.search["download_file"]] = gr.update(value=None, visible=False)
         elif action == "summarize":
-            initial[self.search["summary"]] = ""
+            initial[self.search["summary"]] = "요약 중입니다."
             initial[self.search["coverage"]] = ""
+            initial[self.search["detail_feedback"]] = ""
+            initial[self.search["summarize"]] = gr.update(interactive=False, visible=False)
         if initial:
             yield initial
         try:
@@ -224,12 +226,9 @@ class UIController:
                 async for patch in self.run_batch_upload(ctx, ticket, *args):
                     yield patch
                 return
-            if action == "summarize" and callable(getattr(self.service, "summarize_stream", None)):
-                async with aclosing(self.do_summarize_stream(ctx, ticket)) as patches:
-                    async for patch in patches:
-                        if not self.current(ctx, ticket):
-                            return
-                        yield patch
+            if action == "summarize":
+                async for patch in self.watch_summary(ctx, ticket, start=True):
+                    yield patch
                 return
             result = await getattr(self, f"do_{action}")(ctx, ticket, *args)
             if self.current(ctx, ticket):
@@ -239,7 +238,7 @@ class UIController:
                 if action == "search":
                     async for patch in self.run_inline_answer(ctx, inline_generation):
                         yield patch
-                elif action == "select" and ctx.selected:
+                elif action in {"select", "nav"} and ctx.selected:
                     async for patch in self.watch_summary(ctx, ticket):
                         yield patch
         except StaleResponse:
@@ -262,8 +261,8 @@ class UIController:
             else:
                 feedback = render_login_error(error.message, error.code) if action == "login" else show_feedback(error.message, "error")
                 patch = {**self.busy_patch(action, False), self.feedback_target(action): feedback}
-                if action == "summarize":
-                    patch.update({self.search["summary"]: "", self.search["coverage"]: ""})
+                if action in {"summarize", "select"} and ctx.selected:
+                    patch.update(self.summary_view(ctx, ctx.selected))
                 yield patch
 
     async def run_inline_answer(self, ctx, generation):
@@ -423,14 +422,26 @@ class UIController:
                 error = UIServiceError("UI_ERROR", "요약을 준비하지 못했어요. 다시 시도해 주세요.")
             job.update(text="", error=error, done=True)
 
-    async def watch_summary(self, ctx, ticket):
-        """선택 문서의 작업을 생성하거나 기존 작업의 최신 결과를 표시한다."""
+    def summary_view(self, ctx, doc):
+        job = ctx.summaries.get((doc.get("document_id"), doc.get("version_id")))
+        running = job is not None and not job.get("done")
+        text = (job.get("text") or ("요약 중입니다." if running else "")) if job else "요약하기를 눌러 주요 내용을 확인하세요."
+        return {self.search["summary"]: text,
+                self.search["coverage"]: render_coverage(job["response"]) if job and job.get("response") and not job.get("error") else "",
+                self.search["summarize"]: gr.update(visible=not running, interactive=not running, value="다시 요약" if job else "요약하기")}
+
+    async def watch_summary(self, ctx, ticket, *, start=False):
+        """버튼만 작업을 시작한다. 문서 선택은 기존 작업의 결과만 표시한다."""
+        if not ctx.selected:
+            raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
         doc = deepcopy(ctx.selected)
         identifier = (doc.get("document_id"), doc.get("version_id"))
         if not all(identifier):
             raise UIServiceError("INVALID_RESPONSE", "문서 버전을 확인할 수 없어 요약할 수 없습니다.")
         job = ctx.summaries.get(identifier)
-        if job is None or job.get("error"):
+        if not start and job is None:
+            return
+        if start and (job is None or job.get("done")):
             job = {"text": "", "status": "요약 순서를 기다리고 있어요.", "done": False}
             ctx.summaries[identifier] = job
             job["task"] = asyncio.create_task(self._summary_worker(ctx, job, deepcopy(ctx.user), doc))
@@ -441,7 +452,7 @@ class UIController:
                 raise error
             snapshot = (job["text"], job["status"], job["done"])
             if snapshot != previous:
-                patch = {self.search["summary"]: job["text"] or ("요약 중입니다." if not job["done"] else ""), self.search["coverage"]: ""}
+                patch = self.summary_view(ctx, doc)
                 if job["done"]:
                     patch[self.search["coverage"]] = render_coverage(job["response"])
                     patch[self.search["detail_feedback"]] = ""
@@ -522,7 +533,7 @@ class UIController:
         upload = destination == "upload"
         if upload and user.get("role") not in {"company_admin", "platform_admin"}:
             raise UIServiceError("FORBIDDEN", "관리자만 파일을 업로드할 수 있습니다.", "denied")
-        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), self.shell["nav_search"]: gr.update(variant="secondary" if upload else "primary"), self.shell["upload_nav"]: gr.update(variant="primary" if upload else "secondary"), self.search["submit"]: gr.update(interactive=True), self.search["summarize"]: gr.update(interactive=bool(ctx.selected)), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
+        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), self.shell["nav_search"]: gr.update(variant="secondary" if upload else "primary"), self.shell["upload_nav"]: gr.update(variant="primary" if upload else "secondary"), self.search["submit"]: gr.update(interactive=True), **(self.summary_view(ctx, ctx.selected) if ctx.selected else {}), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
 
     @staticmethod
     def upload_paths(files):
