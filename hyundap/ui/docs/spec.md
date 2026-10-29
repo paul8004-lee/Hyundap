@@ -278,6 +278,9 @@ Gradio 화면 상태 TTL과 예시 세션 기본 유효시간은 각각 3,600초
 | `FILE_REQUIRED`, `FILE_UNAVAILABLE`, `UNSUPPORTED_FORMAT`, `FILE_TOO_LARGE` | 업로드 입력 안내 |
 | `CORRUPTED_FILE` | 손상 또는 0바이트 파일. UI는 0바이트를 검사하며 그 외 손상 판정은 수집 담당 함수가 수행 |
 | `EMPTY_DOCUMENT` | 추출한 글자가 없는 문서(OCR로도 글자를 읽지 못한 이미지 문서 등). 수집 단계에서 판단하며 0바이트 오류와 구분해 안내 |
+| `ENCRYPTED_FILE` | 암호가 걸린 문서. 수집 단계에서 판단하며 `input_error`로 암호 해제 후 다시 올리도록 안내 |
+| `LEGACY_FORMAT` | 구형 .doc/.ppt를 .docx/.pptx로 이름만 바꾼 파일. 수집 단계에서 판단하며 `input_error`로 .docx/.pptx로 저장 후 다시 올리도록 안내 |
+| `INVALID_DOC_TYPE` | 문서 유형이 매뉴얼·규정·가이드·기타 밖의 값. DB 사전 검사와 수집 진입에서 같은 코드로 거부하며 `input_error`로 유형 선택 안내 |
 | `METADATA_REQUIRED`, `DUPLICATE_FILE` | 필수 정보·중복 제출 안내; 실제 중복 판정은 DB 업로드 함수에 위임 |
 | `BACKEND_NOT_CONNECTED`, `BACKEND_DEPENDENCY_MISSING`, `DEPENDENCY_MISSING`, `INVALID_RESPONSE`, `INVALID_SESSION` | 함수·의존성 연결 또는 응답 규격 점검 안내 |
 | `DOWNLOAD_NOT_CONNECTED` | 실제 원문 다운로드 공개 함수 연결 대기 |
