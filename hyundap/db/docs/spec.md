@@ -243,3 +243,21 @@ UI 전송은 HttpOnly 브라우저 쿠키에 묶인 60초·1회 티켓을 사용
 다시 호출해 현재 세션과 문서 접근을 확인한다. 원본 경로를 gr.File 공개 캐시에 올리지 않는다.
 프로세스 메모리 티켓이므로 단일 앱 프로세스 기준이다. 여러 서버로 확장하려면 공유 티켓 저장소가 필요하다.
 전송 시작 전 권한을 재검증하며 이미 전송한 바이트를 회수하는 기능은 제공하지 않는다.
+## #261 자동 유형 적용 계약
+
+자동 업로드는 `auto_classify=True`를 전달하며 `doc_type` 동시 입력은 거부한다.
+수동 호출은 유지한다. 설정 꺼짐에서는 자동 후보를 만들지 않는다.
+
+`classification.py`의 일반 보조 함수는 입력 구분과 결정값 검증·이력 재사용을 담당한다.
+`upload_document`/`retry_upload`는 메인 진입점, `ingest_and_save_chunks`는 수집 연결,
+`save_ingest_chunks`는 모든 청크와 최종 유형의 일치 검사, `upload_result`는 현재 시도 반환을 담당한다.
+분류 기준은 DB에서 계산하지 않는다. 수집 인자 `apply_classification`·`classification` 지원이 필요하다.
+
+`doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`은 세 필드가 함께 있어야 한다.
+수집 성공 전 실패하면 반환하지 않는다. 게시 실패 반환 유형은 후보의 결정값이지 공개 문서 유형이 아니다.
+`store_pending_publication`은 활성 버전과 유형을 같은 TX에서 갱신하며
+`restore_database_pointer`는 이전 유형을 함께 복원한다. 스키마 변경은 없다.
+
+재시도는 같은 후보의 가장 최근 성공 수집·성공 분류 결과와 결정값을 재사용한다.
+수집기가 재사용 결정값을 변경하면 CONFLICT로 중단한다. 과거 실패 분류는 재사용하지 않는다.
+수집 담당의 결정값 보존 계약 및 실제 수집·분류·UI 통합 검증 전까지 초안 기능이다.

@@ -77,7 +77,11 @@ class DownloadMiddleware:
             try:
                 # 발급 이후 로그아웃·권한 변경·버전 변경도 service와 DB가 다시 검사한다.
                 document = entry['document']
-                prepared = await entry['service'].download(entry['session'], document['document_id'], document['version_id'])
+                try:
+                    prepared = await entry['service'].download(entry['session'], document['document_id'], document['version_id'])
+                except UIServiceError:
+                    # 권한 오류 응답은 전송을 시작하기 전에만 보낸다.
+                    return await Response('다운로드 권한 또는 파일 상태를 확인해 주세요.', status_code=403)(scope, receive, send)
                 filename = str(prepared['file_name']).replace('\\', '/').split('/')[-1]
                 # 전송 중 연결이 끊겨도 파일 핸들을 먼저 닫고 finally에서 사본을 지운다.
                 with prepared['path'].open('rb') as stream:
@@ -85,8 +89,6 @@ class DownloadMiddleware:
                         headers={'Content-Disposition': "attachment; filename*=UTF-8''" + quote(filename, safe=''),
                                  'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
                     await response(scope, receive, send)
-            except UIServiceError:
-                await Response('다운로드 권한 또는 파일 상태를 확인해 주세요.', status_code=403)(scope, receive, send)
             finally:
                 if prepared is not None:
                     prepared['temporary'].cleanup()
