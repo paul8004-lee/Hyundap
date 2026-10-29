@@ -158,7 +158,7 @@ class UIController:
         return {**self.clear_modal(), **self.clear_document(), **self.inline_patch(), self.search["table"]: [], self.search["results_area"]: gr.update(visible=False), self.search["empty"]: gr.update(visible=False), self.search["caption"]: "", self.search["feedback"]: "", self.search["intro"]: gr.update(visible=True), self.search["quick"]: gr.update(visible=True), self.search["submit"]: gr.update(interactive=True)}
 
     def signed_out(self, message=""):
-        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False), self.shell["account"]: "", self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
+        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False, elem_classes=["hd-app"]), self.shell["account"]: "", self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
 
     def document_patch(self, ctx, doc):
         ctx.selected = deepcopy(doc)
@@ -311,6 +311,18 @@ class UIController:
         ctx.user = checked
         return checked
 
+    def shell_patch(self, user, *, upload=False):
+        """검증된 역할로 상단바 색상·메뉴·계정 표시를 함께 동기화한다."""
+        admin = user.get("role") in {"company_admin", "platform_admin"}
+        classes = ["hd-app", "hd-role-admin" if admin else "hd-role-employee"]
+        return {
+            self.shell["container"]: gr.update(visible=True, elem_classes=classes),
+            self.shell["account"]: render_header(user),
+            self.shell["nav_search"]: gr.update(value="문서 검색", visible=True, interactive=True, variant="secondary" if upload else "primary", elem_classes=["hd-nav-button"]),
+            self.shell["upload_nav"]: gr.update(value="문서 업로드", visible=admin, interactive=admin, variant="primary" if upload else "secondary", elem_classes=["hd-nav-button"]),
+            self.shell["logout"]: gr.update(value="로그아웃", visible=True, interactive=True, elem_classes=["hd-account"]),
+        }
+
     async def do_login(self, ctx, ticket, username, password, role):
         user = await self.wait(ctx, ticket, self.service.login(username, password))
         is_admin = user.get("role") in {"company_admin", "platform_admin"}
@@ -330,7 +342,7 @@ class UIController:
         platform_admin = user.get("role") == "platform_admin"
         company_name = next((name for name, company_id in companies if company_id == user.get("company_id")), "회사명 확인 필요")
         footer_name = "© Hyundap" if platform_admin else company_name
-        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", self.shell["container"]: gr.update(visible=True), self.shell["account"]: render_header(user), self.shell["footer_company"]: escape(footer_name), self.shell["upload_nav"]: gr.update(visible=is_admin), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.shell["nav_search"]: gr.update(variant="primary"), self.shell["upload_nav"]: gr.update(visible=is_admin, variant="secondary")}
+        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", **self.shell_patch(user), self.shell["footer_company"]: escape(footer_name), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: ""}
 
     async def do_logout(self, ctx, ticket):
         previous = ctx.user
@@ -533,7 +545,7 @@ class UIController:
         upload = destination == "upload"
         if upload and user.get("role") not in {"company_admin", "platform_admin"}:
             raise UIServiceError("FORBIDDEN", "관리자만 파일을 업로드할 수 있습니다.", "denied")
-        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), self.shell["nav_search"]: gr.update(variant="secondary" if upload else "primary"), self.shell["upload_nav"]: gr.update(variant="primary" if upload else "secondary"), self.search["submit"]: gr.update(interactive=True), **(self.summary_view(ctx, ctx.selected) if ctx.selected else {}), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
+        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), **self.shell_patch(user, upload=upload), self.search["submit"]: gr.update(interactive=True), **(self.summary_view(ctx, ctx.selected) if ctx.selected else {}), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
 
     @staticmethod
     def upload_paths(files):
