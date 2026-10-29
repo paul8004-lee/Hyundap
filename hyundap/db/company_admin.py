@@ -5,6 +5,7 @@
 """
 
 import argparse
+from contextlib import contextmanager
 import os
 import re
 import secrets
@@ -20,6 +21,17 @@ from .split_schema import create_split_schema
 from .tenancy import quoted_database
 from .company_credentials import credential_path as local_credential_path, credential_source, has_credential, save_credential
 from .company_routines import procedure_statements
+
+
+@contextmanager
+def admin_transaction(admin_engine):
+    """등록부 변경도 준비 관리자 연결에서 수행한다. 일반 서비스 권한을 늘리지 않는다."""
+    try:
+        with admin_engine.begin() as connection:
+            with runtime.transaction(connection, control=True) as database:
+                yield database
+    except SQLAlchemyError:
+        raise DbError('DB_UNAVAILABLE') from None
 
 
 def create_company_db_user(company_id, *, admin_engine, credential_path=None, _allow_creating=False):
@@ -45,7 +57,7 @@ def create_company_db_user(company_id, *, admin_engine, credential_path=None, _a
     control_target = (control.url.host, control.url.port, control.url.database)
     if admin_target != control_target:
         raise DbError('INVALID_INPUT')
-    with runtime.transaction(control=True) as database:
+    with admin_transaction(admin_engine) as database:
         row = database.execute(text('''
             SELECT r.database_name,r.status,c.is_active FROM company_databases r
             JOIN companies c ON c.id=r.company_id WHERE r.company_id=:id
@@ -167,7 +179,7 @@ def provision_company(name, *, admin_engine, company_id=None):
         raise DbError('INVALID_INPUT')
     database_name = 'tenant_' + uuid4().hex
     # 1. 공통 DB에 비활성 회사와 생성 중 상태를 저장한다. 아직 앱에서 사용할 수 없다.
-    with runtime.transaction(control=True) as database:
+    with admin_transaction(admin_engine) as database:
         registered = database.execute(text('SELECT database_name,status FROM company_databases WHERE company_id=:id FOR UPDATE'),
                                       {'id': company_id}).mappings().one_or_none()
         if registered:
@@ -179,7 +191,6 @@ def provision_company(name, *, admin_engine, company_id=None):
         database.execute(text('''INSERT INTO company_databases (company_id,database_name,status)
                                  VALUES (:id,:database,'creating')'''),
                          {'id': company_id, 'database': database_name})
-        account = database.scalar(text('SELECT CURRENT_USER()'))
     company_engine = None
     try:
         # 2. 관리자 연결로 새 DB를 만든다. DDL은 뒤에서 실패해도 자동 롤백되지 않는다.
@@ -196,18 +207,21 @@ def provision_company(name, *, admin_engine, company_id=None):
             create_company_db_user(company_id, admin_engine=admin_engine, _allow_creating=True)
         else:
             # 공통 계정 모드는 현재 업무 계정에 새 회사 DB의 읽기/쓰기 권한을 준다.
+            # 등록부 쓰기는 관리자 연결로 옮겼으므로 실제 업무 계정을 별도로 조회한다.
+            with control.connect() as database:
+                account = database.scalar(text('SELECT CURRENT_USER()'))
             user, host = account.rsplit('@', 1)
             with admin_engine.connect() as database:
                 database.execute(text('GRANT SELECT,INSERT,UPDATE,DELETE ON ' + quoted_database(database_name) +
                                       '.* TO :user@:host'), {'user': user, 'host': host})
         # 5. 생성·검증·권한 부여가 끝난 회사만 ready로 바꾸고 활성화한다.
-        with runtime.transaction(control=True) as database:
+        with admin_transaction(admin_engine) as database:
             database.execute(text("UPDATE company_databases SET status='ready',error_code=NULL WHERE company_id=:id"),
                              {'id': company_id})
             database.execute(text('UPDATE companies SET is_active=1 WHERE id=:id'), {'id': company_id})
     except Exception as error:
         # 실패 회사는 비활성 상태로 남긴다. 부분 생성 DB를 삭제하거나 재실행하지 않는다.
-        with runtime.transaction(control=True) as database:
+        with admin_transaction(admin_engine) as database:
             database.execute(text("UPDATE company_databases SET status='failed',error_code='PROVISION_FAILED' WHERE company_id=:id"),
                              {'id': company_id})
         if isinstance(error, DbError) and error.code == 'RECOVERY_REQUIRED':

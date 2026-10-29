@@ -1,21 +1,43 @@
 """시험용 회사 DB 계정을 Git 제외 로컬 설정에 보관한다.
 
 이 파일은 평문 비밀번호를 포함한다. 운영 비밀 저장소를 대신하지 않으며
-동시 운영자 프로세스의 쓰기 조정 기능은 제공하지 않는다.
+같은 호스트의 프로세스는 별도 파일 잠금으로 읽기·저장을 조정한다.
 """
 
 import json
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
 import tempfile
 from threading import RLock
+from filelock import FileLock, Timeout
 
 from .errors import DbError
 
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / '.env.company-databases.json'
 _lock = RLock()
+LOCK_TIMEOUT = 10
+
+
+@contextmanager
+def credential_file_lock(path):
+    """교체되지 않는 별도 잠금 파일로 전체 읽기·수정·저장 구간을 보호한다.
+
+    데이터 파일 자체를 잠그면 os.replace 이후 다른 파일을 잠글 수 있다.
+    잠금 파일은 삭제하지 않는다. 프로세스 종료 시 OS가 잠금을 해제한다.
+    """
+    path = Path(path).resolve()
+    lock = FileLock(str(path) + '.lock', timeout=LOCK_TIMEOUT)
+    try:
+        lock.acquire()
+    except (OSError, Timeout):
+        raise DbError('DB_UNAVAILABLE') from None
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def credential_source():
@@ -57,7 +79,9 @@ def _load(path):
 def _load_config(path):
     """호스팅 비밀이 없거나 손상되면 로컬 파일로 대체하지 않는다."""
     if credential_source() == 'file':
-        return _load(path)
+        # Windows에서 읽기 핸들과 파일 교체도 겹치지 않도록 같은 잠금을 쓴다.
+        with credential_file_lock(path):
+            return _load(path)
     try:
         data = json.loads(os.environ['HYUNDAP_COMPANY_DATABASE_CREDENTIALS'])
         if not isinstance(data, dict):
@@ -104,9 +128,9 @@ def save_credential(company_id, username, password, *, path=DEFAULT_PATH):
     _validate(company_id, username, password)
     if credential_source() != 'file':
         raise DbError('CONFIG_MISSING')
-    path = Path(path)
-    with _lock:
-        # 같은 프로세스의 읽기/쓰기끼리 겹치지 않게 한다. 여러 프로세스용 파일 잠금은 아니다.
+    path = Path(path).resolve()
+    with _lock, credential_file_lock(path):
+        # 잠금을 얻은 뒤 최신 내용을 읽어야 다른 프로세스의 신규 회사를 보존한다.
         data = _load(path)
         entry = {'username': username, 'password': password}
         if company_id in data:

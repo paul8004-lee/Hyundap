@@ -7,7 +7,11 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 import re
+import hashlib
+import logging
+from pathlib import Path
 from threading import RLock
+from filelock import FileLock, Timeout
 
 from sqlalchemy import text
 
@@ -22,6 +26,7 @@ _engines = {}
 _engine_lock = RLock()
 _workflow_locks = {}
 _publication_locks = {}
+logger = logging.getLogger(__name__)
 
 
 def quoted_database(name):
@@ -89,6 +94,7 @@ def get_company_engine(company_id):
             return _engines[key]
         # 여기부터는 아직 풀을 만들지 않은 회사다. 생성까지 잠가 중복 생성을 막는다.
         if len(_engines) >= 32:
+            logger.warning('company engine capacity reached: %s', len(_engines))
             raise DbError('DB_UNAVAILABLE')
         company_url = control.url.set(database=name)
         if isolated_accounts:
@@ -108,6 +114,7 @@ def get_company_engine(company_id):
             raise DbError('DB_UNAVAILABLE') from None
         # 구조 검사를 통과한 풀만 보관한다. 실패한 풀은 다음 호출에 재사용하지 않는다.
         _engines[key] = engine
+        logger.info('company engine created; cached=%s', len(_engines))
         return engine
 
 
@@ -161,16 +168,19 @@ def company_scope(company_id):
         _company.reset(token)
 
 
+@contextmanager
 def processing_lock(fallback, *, publication=False):
-    """분리 모드는 회사별 Python 잠금, 기존 모드는 기존 전역 잠금을 사용한다.
+    """분리 모드는 회사별 OS 파일 잠금, 기존 단일 DB 모드는 전역 Python 잠금을 쓴다.
 
-    단일 앱 프로세스용이다. 여러 프로세스의 동일 후보 실행 임대는 제공하지 않는다.
-    반환값은 잠금 객체다. 이 함수가 전체 작업을 잠그는 것은 아니며,
-    호출자가 with processing_lock(...):으로 사용할 때 작업 잠금이 적용된다.
-    RLock은 같은 스레드의 중첩 잠금 획득을 허용하여 게시 실패 후 복구 호출도 처리한다.
+    분리 모드는 같은 호스트·같은 원본 저장 루트를 쓰는 프로세스끼리 OS 파일 잠금을
+    공유한다. 프로세스가 죽으면 OS가 잠금을 해제한다. 여러 서버의 분산 임대는 아니다.
+    DB 트랜잭션을 외부 임베딩 호출 동안 유지하지 않는다. 같은 스레드의 중첩 게시·복구는
+    캐시된 동일 FileLock의 재진입으로 처리한다. 잠금 파일을 작업 종료 때 직접 지우지 않는다.
     """
     if not runtime.split_layout():
-        return fallback
+        with fallback:
+            yield
+        return
     selected = _company.get()
     if selected is None:
         raise DbError('INVALID_STATE')
@@ -179,11 +189,47 @@ def processing_lock(fallback, *, publication=False):
         locks = _publication_locks
     else:
         locks = _workflow_locks
+    from hyundap.common.config import get_settings
+    control = runtime.get_engine().url
+    root = Path(get_settings().upload_dir).resolve() / '.locks'
+    # 계정·비밀번호는 파일 이름에 넣지 않는다. 같은 서버/DB/회사/작업 종류만 공유한다.
+    identity = f'{control.host}:{control.port}:{control.database}:{selected}:{publication}'
+    name = hashlib.sha256(identity.encode()).hexdigest()
+    key = (str(root), name)
     with _engine_lock:
         # 잠금 사전에 새 객체를 넣는 짧은 구간만 보호한다. 회사 작업 전체의 공통 잠금이 아니다.
-        if selected not in locks:
-            locks[selected] = RLock()
-        return locks[selected]
+        if key not in locks:
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                raise DbError('DB_UNAVAILABLE') from None
+            locks[key] = FileLock(str(root / (name + '.lock')), timeout=30)
+        lock = locks[key]
+    try:
+        lock.acquire()
+    except (Timeout, OSError):
+        raise DbError('DB_UNAVAILABLE') from None
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+def invalidate_company_engine(company_id):
+    """해당 회사의 캐시만 제거한다. 진행 중 연결·작업 잠금은 강제로 끊지 않는다.
+
+    다른 프로세스의 캐시는 바꾸지 않는다. 비밀 교체는 요청을 중지한 뒤 모든 워커에
+    실행하거나 재시작한다. 다음 요청이 최신 비밀을 읽어 새 풀을 만든다.
+    """
+    company_id = runtime.require_id(company_id)
+    with _engine_lock:
+        keys = [key for key in _engines if key[1] == company_id]
+        for key in keys:
+            engine = _engines.pop(key)
+            engine.dispose()
+        # 잠금 사전을 지우면 이미 실행 중인 작업과 새 잠금이 병존하므로 건드리지 않는다.
+        logger.info('company engines invalidated; removed=%s cached=%s', len(keys), len(_engines))
+        return len(keys)
 
 
 def close_company_engines():

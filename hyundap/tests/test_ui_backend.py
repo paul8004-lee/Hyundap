@@ -210,10 +210,19 @@ class BindingTests(unittest.IsolatedAsyncioTestCase):
         user = {**self.session, "allowed_company_ids": ["fixture-company", "new-company"], "companies": [{"company_id":"new-company", "company_name":"New"}, {"company_id":"outside", "company_name":"Forbidden"}]}
         self.assertEqual(company_choices(user), [("Fixture Company", "fixture-company"), ("New", "new-company")])
 
-    async def test_download_remains_explicitly_unavailable(self):
-        with self.assertRaises(UIServiceError) as caught:
-            await self.service.download(self.session, "fixture-doc", "fixture-version")
-        self.assertEqual(caught.exception.code, "DOWNLOAD_NOT_CONNECTED")
+    async def test_download_calls_authorized_original_service(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        path = Path(temporary.name) / 'original.bin'
+        path.write_bytes(b'original')
+        prepared = dict(path=path, file_name='original.txt', temporary=temporary)
+        with patch('hyundap.db.download_service.prepare_original_download', return_value=prepared) as prepare:
+            result = await self.service.download(self.session, 'fixture-doc', 'fixture-version')
+        self.assertEqual(result['path'], prepared['path'])
+        self.assertIs(result['temporary'], temporary)
+        self.assertEqual(prepare.call_args.args[0]['session_id'], self.session['session_id'])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

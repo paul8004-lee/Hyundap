@@ -81,7 +81,7 @@ class UIServices(Protocol):
     async def summarize(self, session: dict, document_id: str, version_id=None) -> dict: ...
     def summarize_stream(self, session: dict, document_id: str, version_id=None) -> AsyncIterator[dict]: ...
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict: ...
-    async def download(self, session: dict, document_id: str, version_id=None) -> str: ...
+    async def download(self, session: dict, document_id: str, version_id=None) -> str | dict: ...
 
 
 def to_plain(value: Any) -> Any:
@@ -138,7 +138,7 @@ class BackendBindings:
     login(username=, password=), logout(session=), validate_session(session=)
     detail(user=, document_id=, version_id=)
     upload(user=, file_path=, company_id=, doc_type=)
-    download(user=, document_id=, version_id=) -> 실제 로컬 파일 경로
+    download(user=, document_id=, version_id=) -> 사본 path·file_name·temporary (전송자가 정리)
 
     search(user=, query=, company_ids=, doc_types=, limit=)는 통합 명세 5장을 따른다.
     ask/summarize_document도 user=로 검증된 사용자 정보를 전달한다.
@@ -378,8 +378,14 @@ class BackendServices:
         result = self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, doc_type=doc_type), "업로드")
         return {**result, "company_name": _company_names(checked, demo=self.temporary_auth).get(company_id, "회사명 확인 필요")}
 
-    async def download(self, session: dict, document_id: str, version_id=None) -> str:
+    async def download(self, session: dict, document_id: str, version_id=None) -> str | dict:
         result = await self._call("download", user=await self._user(session), document_id=document_id, version_id=version_id)
+        if isinstance(result, dict) and 'temporary' in result:
+            # DB 사본은 일반 gr.File 캐시에 올리지 않고 보호된 HTTP 경로로만 전송한다.
+            if not Path(result['path']).is_file():
+                result['temporary'].cleanup()
+                raise UIServiceError("DOWNLOAD_UNAVAILABLE", "다운로드할 파일을 준비하지 못했습니다.")
+            return result
         if not isinstance(result, (str, Path)) or not Path(result).is_file():
             raise UIServiceError("DOWNLOAD_UNAVAILABLE", "다운로드할 파일을 준비하지 못했습니다.")
         return str(result)

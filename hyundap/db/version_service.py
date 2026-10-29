@@ -1,7 +1,7 @@
 """DB·벡터 적재 완전성, 조건부 게시, 부분 활성화 실패의 복구를 연결한다.
 
 SQL 트랜잭션은 DB 검사·상태 변경에만 사용한다. 외부 벡터 함수는 커밋 후 호출한다.
-P0는 공용 앱 서버의 단일 프로세스 실행이며 다중 프로세스 작업 큐를 제공하지 않는다.
+분리 모드는 같은 호스트·원본 루트의 프로세스 간 잠금을 사용한다. 분산 작업 큐는 제공하지 않는다.
 """
 
 import hashlib
@@ -19,7 +19,7 @@ from .sessions_repo import current_actor
 from . import jobs_repo
 
 
-# ponytail: P0 단일 프로세스의 게시/복구를 직렬화한다. 다중 작업자는 외부 작업 임대가 필요하다.
+# 단일 DB 모드용 잠금. 분리 모드의 회사별 게시/복구는 tenancy의 OS 잠금을 사용한다.
 PUBLICATION_LOCK = RLock()
 PENDING_PHASES = ('pending_activation', 'restore_pending')
 

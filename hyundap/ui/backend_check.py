@@ -144,7 +144,7 @@ def collect_backend_status() -> list[dict[str, str]]:
     rows = [
         _row("인증", "pending", "기본 backend 모드는 실제 인증 함수를 사용합니다. DB 접속과 계정 로그인은 별도 검수가 필요합니다."),
         _row("보호된 업무 요청", "pending", "실제 서버 세션·권한·업무 데이터 연결은 별도 검수가 필요합니다."),
-        _row("원본 다운로드", "pending", "권한을 재검증해 원본을 제공하는 공개 다운로드 함수가 아직 없습니다."),
+        _row("원본 다운로드", "pending", "원본 준비·보호된 HTTP 전송이 연결되었습니다. 실제 세션·파일 다운로드 검수는 별도로 필요합니다."),
     ]
     rows.extend(_package_status())
     rows.extend(_environment_status())
