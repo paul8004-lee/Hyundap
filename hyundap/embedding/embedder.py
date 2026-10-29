@@ -295,7 +295,8 @@ def _check_scope(chunks: list) -> tuple[str, str, str]:
         raise EmbeddingError("EMPTY_CHUNKS", "임베딩할 청크가 없습니다.")
     scopes = set()
     for c in chunks:
-        scopes.add(tuple(str(get_chunk_value(c, key, "")) for key in ("document_id", "version_id", "company_id")))
+        # 값이 None이면 "None" 글자가 되지 않도록 빈 문자열로 바꾼다(비면 뒤에서 MISSING_METADATA로 거부된다)
+        scopes.add(tuple("" if get_chunk_value(c, key) is None else str(get_chunk_value(c, key)) for key in ("document_id", "version_id", "company_id")))
     if len(scopes) != 1:
         raise EmbeddingError("MIXED_SCOPE", "한 번에 같은 문서·버전·회사의 청크만 처리할 수 있습니다.")
     ids = [str(get_chunk_value(c, "chunk_id", "")) for c in chunks]
@@ -344,12 +345,13 @@ def embed_and_store(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Em
                 [i.chunk for i in good], [i.vector for i in good], [i.metadata for i in good], batch_size=batch_size,
             )
         except VectorStoreError as error:
-            for i in good:
+            # 저장은 앞에서부터 묶음 단위로 진행되므로, 오류 전에 저장된 앞쪽 error.stored개는 성공으로 세고 나머지만 실패로 기록한다
+            report.stored = min(max(error.stored, 0), len(good))
+            for i in good[report.stored:]:
                 report.failures.append(EmbeddingFailure(
                     chunk_id=str(get_chunk_value(i.chunk, "chunk_id", "")),
                     code=error.code, message=error.message, retryable=True,
                 ))
-            report.stored = 0
 
     # 결과 판정: 실패 없으면 success, 실패가 있어도 저장·건너뜀이 있으면 partial, 하나도 없으면 failed. partial도 호출한 쪽은 실패로 취급해야 한다
     if not report.failures:
