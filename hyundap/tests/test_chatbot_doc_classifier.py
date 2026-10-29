@@ -291,6 +291,8 @@ class UploadPath(Base):
             self.ingest(classify=True)
 
     def test_upload_turns_on_classify_only_for_supporting_ingest(self):
+        import os
+        from hyundap.common import config
         from hyundap.db import upload_service, version_service
         seen = []
 
@@ -305,11 +307,19 @@ class UploadPath(Base):
             pass
 
         ids = {'document_id': 'd1', 'version_id': 'v1', 'job_id': 'j1'}
-        with patch.object(version_service, 'call_external', side_effect=capture):
-            for function in (new_ingest, old_ingest):
-                upload_service.ingest_and_save_chunks('a.docx', {'company_id': 'co'}, ids, function)
-        self.assertIs(seen[0].get('classify'), True)
-        self.assertNotIn('classify', seen[1])               # 옛 수집기 모양이면 넘기지 않는다
+        try:
+            with patch.object(config, 'load_dotenv'), patch.object(version_service, 'call_external', side_effect=capture):
+                for value, function in ((None, new_ingest), ('0', new_ingest), ('1', new_ingest), ('1', old_ingest)):
+                    env = {} if value is None else {'DOC_CLASSIFY': value}
+                    with patch.dict(os.environ, env, clear=True):
+                        config.get_settings.cache_clear()
+                        upload_service.ingest_and_save_chunks('a.docx', {'company_id': 'co'}, ids, function)
+            self.assertNotIn('classify', seen[0])
+            self.assertNotIn('classify', seen[1])
+            self.assertIs(seen[2].get('classify'), True)
+            self.assertNotIn('classify', seen[3])  # 옛 수집기에는 넘기지 않는다.
+        finally:
+            config.get_settings.cache_clear()
 
     def test_job_report_keeps_ingest_classification(self):
         from hyundap.db import jobs_repo
