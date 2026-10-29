@@ -98,7 +98,8 @@ class SummaryResponse:
 
 @dataclass
 class DocClassification:
-    """문서 자동 분류 결과 (doc_classifier.classify_document). 관리자가 고른 doc_type은 바꾸지 않고 나란히 돌려준다.
+    """문서 자동 분류 결과 (doc_classifier.classify_common_document). 수집 헤더의 doc_type은 바꾸지 않고 나란히 돌려준다.
+    자동 분류 업로드(#261)에서 실제 저장할 유형은 doc_classifier.decide_doc_type이 이 결과로 정한다.
     분류에 실패하면 status='failed'이고 유형·일치 값은 비어 있다. detail에는 예외 이름만 넣는다(키 노출 방지)."""
     document_id: str
     version_id: str

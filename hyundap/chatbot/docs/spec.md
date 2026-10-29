@@ -5,7 +5,7 @@
 | 담당 | 소용우 |
 | 브랜치 | `feat/chatbot` (chatbot 작업은 이 브랜치 하나에서 진행) |
 | 기준 문서 | 통합 기능명세서 `docs/spec.md` 3.5절 (드라이브 `문서검색_통합_기능명세서.xlsm.xlsx`, 10/26 11:26) · DB·인증 연동 계약 `docs/db-design/DB_contract.md` · 드라이브 `chatbot_기능명세서_소용우_초안.xlsx` |
-| 번호 | 통합본 번호를 쓴다. 기능 F120~F128, 함수 FUN-401~427, 클래스 CLS-120~125, 모듈 MOD-120~126 |
+| 번호 | 통합본 번호를 쓴다. 기능 F120~F128, 함수 FUN-401~427, 클래스 CLS-120~125, 모듈 MOD-120~126. 명세 밖 추가(문서 자동 분류)는 함수 FUN-430~435, 클래스 CLS-126, 모듈 MOD-127 |
 | import | 이슈 #133 기준. 다른 폴더는 `from hyundap.<폴더>...`, chatbot 안은 상대 경로(`from .models ...`). 실행은 저장소 맨 위에서 |
 | 상태 | P1(질문 답변)·P2(요약) 구현, 코드 리뷰 반영 완료 · 큰 함수 7개를 하위 함수로 나눔 · `common.config` 연결 완료 · search(#143)·auth·embedding이 develop에 구현돼 실제 함수와 연결됨 (실제 OpenAI·MySQL·Chroma로 끝까지 실행은 통합 테스트에서 확인) |
 
@@ -25,14 +25,14 @@
 
 | 모듈 | 파일 | 책임 | 함수·클래스 |
 |---|---|---|---|
-| MOD-120 | `__init__.py` | 다른 폴더에 내보낼 이름 | `ask`, `summarize_document`, `classify_document`, `to_feedback` (결과 클래스는 `chatbot.models`) |
+| MOD-120 | `__init__.py` | 다른 폴더에 내보낼 이름 | `ask`, `summarize_document`, `to_feedback` (결과 클래스는 `chatbot.models`. 업로드 자동 분류는 ingest가 `doc_classifier`를 직접 부름) |
 | MOD-121 | `ask.py` | 질문 1개 처리 흐름 | FUN-401~407 |
 | MOD-122 | `prompts.py` | 프롬프트·LLM 체인 | FUN-408~410 |
 | MOD-123 | `citations.py` | 이름표·인용 검사·출처 | FUN-411~419 |
 | MOD-124 | `summary.py` | 선택 문서 요약 (P2) | FUN-420~424 |
 | MOD-125 | `models.py` | 오류·결과 데이터 형식. ChatFilters·Citation·ChatResponse·SummaryResponse·DocClassification의 정의 위치 (D04 결정, common.schemas 아님) | FUN-425~427, CLS-120·121·123·124·125·126 |
 | MOD-126 | `constants.py` | 기본값·오류 문구 | 상수 |
-| MOD-127 | `doc_classifier.py` | 문서 유형·업로드 회사 일치 자동 분류 (명세 밖 추가, 10/29) | FUN-429~434 |
+| MOD-127 | `doc_classifier.py` | 업로드 문서 유형·회사 일치 자동 분류와 자동 분류 업로드의 최종 유형 결정 (명세 밖 추가, 10/29·#261) | FUN-430~435 (FUN-429 `classify_document`는 #261에서 삭제) |
 
 ## 3. 처리 흐름
 
@@ -215,25 +215,35 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-424 | `plan_summary_segments` | `hits`, 단계 상한 | SummaryPlan | 상한 단위로 담아 구간 수(≤3)를 정하고 고르게 나눠지면 고르게. 청크는 쪼개지 않음 |
 | 424 보조 | `get_summary_encoder` · `count_summary_tokens` · `step_token_limit` · `pack_segments` · `trim_overflow` | | | 인코더 1회 로드(실패 시 글자×2), 토큰×1.03, 23만−8천−1천, 상한까지 담기, 앞 3구간 외 제외 |
 
-### doc_classifier.py (명세 밖 추가, 10/29)
+### doc_classifier.py (명세 밖 추가, 10/29 · #261)
 
-OpenAI Decisions API(`gpt-6-luna`)는 글 대신 보기 중 하나·확률로 답한다. 입구는 두 개다: 화면에서 선택한 문서(`classify_document`)와, 업로드 중 수집 정규화 직후의 문서(`classify_common_document`). 업로드 경로 결과는 수집 보고서를 거쳐 업로드 작업 기록(`index_jobs.report`의 `ingest`)에 남는다. 관리자 doc_type과 청크는 바꾸지 않는다.
+OpenAI Decisions API(`gpt-6-luna`)는 글 대신 보기 중 하나·확률로 답한다. 업로드 중 수집(ingest)이 정규화 직후의 문서로 `classify_common_document`를 부르고, 결과는 수집 보고서를 거쳐 업로드 작업 기록(`index_jobs.report`의 `ingest`)에 남는다. 화면용 입구 `classify_document`(옛 FUN-429)와 그 보조 `classify_hits`·`remember`·`recall`(메모리 보관)은 부르는 곳이 없어 #261에서 지웠다. 화면은 업로드 반환값·작업 기록을 읽으므로 분류 API를 다시 부르지 않는다.
 
-업로드 연결(다른 폴더, 10/29): `ingest/pipeline.py`의 `ingest_document(..., classify=False)`가 `classify=True`일 때 정규화 직후 `classify_normalized`로 이 함수를 부르고, `db/upload_service.py`의 `ingest_and_save_chunks`가 실제 업로드에서만 `classify=True`를 넘긴다(수집기가 이 인자를 받을 때만). `db/jobs_repo.py`는 수집 단계 보고서의 `auto_doc_type`·`doc_type_confidence`·`company_match`·`classify_status`를 검사해 저장한다.
+업로드 연결(다른 폴더, 10/29): `ingest/pipeline.py`의 `ingest_document(..., classify=False)`가 `classify=True`일 때 정규화 직후 `classify_normalized`로 이 함수를 부르고, `db/upload_service.py`의 `ingest_and_save_chunks`가 설정 `DOC_CLASSIFY`가 켜져 있고 수집기가 이 인자를 받을 때만 `classify=True`를 넘긴다(#252·#256, 기본 꺼짐). `db/jobs_repo.py`는 수집 단계 보고서의 `auto_doc_type`·`doc_type_confidence`·`company_match`·`classify_status`를 검사해 저장한다.
+
+자동 분류 업로드(#261 확정안, 각 담당 구현): 관리자가 유형 대신 `auto_classify=True`로 올리면 수집이 `ingest_document(..., apply_classification=True)`에서 분류한 뒤 `decide_doc_type(결과, upload_info['doc_type'])`로 최종 유형을 정하고, 청크를 나누기 전에 헤더 `doc_type`을 바꾼다. 수집 보고서에는 `doc_type`·`doc_type_fallback`·`doc_type_fallback_reason`이 더해진다. DB 유형 반영·반환·화면 표시는 db·ui 담당이다(#261 2-3·2-4).
 
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
-| FUN-429 | `classify_document` | `document_id`, `user` | DocClassification | 공개 청크 조회(`summarize_document_load`) → 접근 확인(`recheck_before_return`, API 호출 전) → 같은 버전이면 보관한 결과 → Decisions API 1회. 조회 실패 RETRIEVAL_FAILED, 청크 없음 NO_EVIDENCE, 권한 오류는 그대로. 분류 실패는 `status='failed'` |
-| 429 보조 | `classify_hits` | ChunkHit 목록 | DocClassification | 키 없음·호출 오류·거부 응답도 예외 대신 failed(detail은 예외 이름만). 관리자 유형과 같은지(`matches_admin_type`) 계산 |
-| FUN-434 | `classify_common_document` | ingest 정규화 후 CommonDocument | DocClassification | 업로드 흐름 안이라 접근 확인·메모리 보관 없음. 본문이 없으면 API를 부르지 않고 failed(EMPTY_DOCUMENT). 어떤 오류도 올리지 않음 |
-| 429·434 보조 | `run_classification` | 결과, 파일명, 회사명, 본문 목록 | DocClassification | 두 입구 공통. API 1회, 실패는 failed |
-| 429 보조 | `remember` · `recall` | 결과 / 버전 ID | 없음 / 결과 | 성공한 결과만 버전별로 메모리에 보관, `CLASSIFY_CACHE_SIZE`(256) 넘으면 오래된 것부터 삭제 |
-| FUN-430 | `build_classify_input` | 파일명, 본문 목록 | str | `파일명: …` + 앞쪽 본문 `CLASSIFY_SAMPLE_CHARS`(6000자)까지 (청크 경로는 chunk_index 순으로 넘김) |
+| FUN-434 | `classify_common_document` | ingest 정규화 후 CommonDocument | DocClassification | 업로드 흐름 안이라 접근 확인 없음(업로드 권한은 db가 먼저 확인). 본문이 없으면 API를 부르지 않고 failed(EMPTY_DOCUMENT). 어떤 오류도 올리지 않음. 헤더 유형과 같은지(`matches_admin_type`) 계산 |
+| 434 보조 | `run_classification` | 결과, 파일명, 회사명, 본문 목록 | DocClassification | API 1회. 키 없음·호출 오류·거부 응답도 예외 대신 failed(detail은 예외 이름 또는 챗봇 오류 코드만) |
+| FUN-435 | `decide_doc_type` | 분류 결과(DocClassification 또는 수집 보고서 dict), 현재 유형 | (`doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`) | 아래 규칙표. 현재 유형은 새 문서면 임시값 `other`, 새 버전이면 기존 유형이며, 목록 밖이면 `other`를 쓴다. 예외를 올리지 않음 |
+| FUN-430 | `build_classify_input` | 파일명, 본문 목록 | str | `파일명: …` + 앞쪽 본문 `CLASSIFY_SAMPLE_CHARS`(6000자)까지 (본문 목록 순서대로) |
 | FUN-431 | `build_classify_questions` | 업로드 회사명 | 질문 목록 | `doc_type`(choice, DOC_TYPES 4종)·회사명이 있으면 `company_named`·`company_match`(predicate) |
 | FUN-432 | `read_classify_answers` | Decisions 응답 | (유형, 확신도, 회사 일치) | 유형 답 없음·거부 → ValueError. 목록 밖 유형 → ('', 0.0). 회사명 기재 확률 0.5 이상일 때만 일치 확률 0.7 이상 yes, 0.3 이하 no |
 | FUN-433 | `get_classify_client` | 없음 | OpenAI 클라이언트 | 키는 `common.config.get_settings()`. 없으면 CONFIG_MISSING. 10초 제한·재시도 없음, 키마다 한 번만 생성 |
 
-**DocClassification (CLS-126, models.py):** `document_id`, `version_id`, `admin_doc_type`(관리자 유형), `auto_doc_type`(manual·policy·guide·other·''), `confidence`(0~1), `matches_admin_type`(bool, 자동 유형이 비면 None), `company_match`('yes'·'no'·''), `status`('success'·'failed'), `detail`.
+**`decide_doc_type` 규칙 (FUN-435, #261 확정안 1-2):**
+
+| 분류 결과 | 반환 |
+|---|---|
+| `classify_status='success'`, `auto_doc_type`이 4개 유형 중 하나, 확신도 ≥ `CLASSIFY_APPLY_MIN_CONFIDENCE`(0.8, 임시) | (`auto_doc_type`, False, None). AI가 `other`라고 해도 대체 저장이 아니다 |
+| 위와 같고 확신도 < 0.8 | (현재 유형, True, `LOW_CONFIDENCE`) |
+| 그 밖(실패, `auto_doc_type=''`·목록 밖, 확신도 없음·bool·숫자 아님·NaN·0~1 밖) | (현재 유형, True, `CLASSIFY_FAILED`) |
+
+사유 코드는 `constants.py`의 `CLASSIFY_FALLBACK_LOW_CONFIDENCE`(`'LOW_CONFIDENCE'`)·`CLASSIFY_FALLBACK_FAILED`(`'CLASSIFY_FAILED'`)다. 확신도 기준 0.8은 실제 문서 평가 후 확정하며, 상수 하나만 바꾸면 된다.
+
+**DocClassification (CLS-126, models.py):** `document_id`, `version_id`, `admin_doc_type`(수집 헤더 유형. 자동 분류 업로드면 임시값 `other` 또는 기존 유형), `auto_doc_type`(manual·policy·guide·other·''), `confidence`(0~1), `matches_admin_type`(bool, 자동 유형이 비면 None), `company_match`('yes'·'no'·''), `status`('success'·'failed'), `detail`.
 
 ### models.py
 
@@ -336,9 +346,9 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | `LLM_TIMEOUT_SECONDS` | 상수 | constants.py | LLM 호출 30초 제한 | 선택 |
 | Citation `version_no`, ChatResponse `citations_by_company`·`document_ids` | 클래스 필드 | models.py | WF-15 버전 표시, FR-06 회사별 출처(D08), ui 화면 섞임 방지(L29) | 요청 (D08) |
 | `map_dependency_error`의 stage 값 `'recheck'` | 인자 값 | models.py | 재검증 중 auth·DB 오류를 계약대로 바꾸고, 예상 못 한 오류는 감추지 않으려고 | 요청 |
-| `classify_document`(FUN-429~433), `DocClassification`(CLS-126), `CLASSIFY_*` 상수 | 기능·클래스·상수 | doc_classifier.py, models.py, constants.py | 문서 유형·업로드 회사 일치 자동 분류 (10/29). 확신도 기준을 정하기 전이라 화면 연결은 아직 없음 | 요청 |
+| `classify_common_document`·`decide_doc_type`(FUN-430~435), `DocClassification`(CLS-126), `CLASSIFY_*` 상수 | 기능·클래스·상수 | doc_classifier.py, models.py, constants.py | 업로드 문서 유형·회사 일치 자동 분류 (10/29), 자동 분류 업로드의 최종 유형 규칙·사유 코드 (#261). 확신도 기준 0.8은 실제 문서 평가 후 확정 | 요청 |
 
-**기능은 통합본 FUN-401~427 그대로다.** 큰 함수 7개는 모함수 이름으로 시작하는 보조 함수 23개로 나눴다(10/26, 3절 호출 트리). 명세 밖 기능은 없다.
+**통합본 기능은 FUN-401~427 그대로다.** 큰 함수 7개는 모함수 이름으로 시작하는 보조 함수 23개로 나눴다(10/26, 3절 호출 트리). 명세 밖 기능은 문서 자동 분류(MOD-127, FUN-430~435)뿐이다(요약 스트리밍 `summarize_document_stream`은 FUN-420의 보조 함수).
 **삭제한 것:**
 
 - 리뷰 반영 중 `_setting`(설정 읽기 보조 함수)과 `DEFAULT_CHAT_MODEL`·`LLM_TEMPERATURE` 상수를 지웠다. `common.config.get_settings()`가 생겨 필요 없어졌다.
@@ -408,7 +418,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 - 모듈마다 통합본 함수만 있는지·인자 모양이 통합본과 같은지, `__all__`
 - 리뷰 수정: 문장별 인용, 바꿔 말한 유보, version_id 빈 값, 병합 이름표 제한, `get_settings`로 gpt-5 모델 생성, 키 없음 CONFIG_MISSING
 
-- 문서 분류(`test_chatbot_doc_classifier.py`, 13개): 입력 6000자·순서, 질문 3개, 회사 일치 기준, 목록 밖 유형·거부 응답, 관리자 유형 비교, 접근 확인이 API 호출보다 먼저·권한 없으면 호출 안 함, 청크 없음·조회 실패, API 실패는 failed(키 노출 없음), 키 없음, 같은 버전 보관(접근 확인은 매번), 보관 개수 상한, 실제 클라이언트 설정. 실제 API로 업로드 문서 1건과 합성 문서 16건×2(맞는·다른 회사)를 확인했다(유형 16/16, 회사 일치 yes 13/13·no 13/13, 회사명 없음 빈 값 6/6).
+- 문서 분류(`test_chatbot_doc_classifier.py`, 21개): 입력 6000자·섹션 순서, 질문 3개, 회사 일치 기준, 목록 밖 유형·거부 응답, 헤더 유형 비교, 접근 확인 안 함·본문 없으면 호출 안 함, API·클라이언트 실패는 failed(키 노출 없음), 키 없음, 실제 클라이언트 설정, 최종 유형 규칙(기준 경계 0.8·0.799, 기준 상수 변경, AI `other` 확정은 대체 아님, 실패·빈 값·잘못된 확신도는 CLASSIFY_FAILED, 새 버전 기존 유형 유지, 잘못된 현재 유형은 `other`), 업로드 연결(수집 옵션·실패 로그·작업 기록 검사). 실제 API로 업로드 문서 1건과 합성 문서 16건×2(맞는·다른 회사)를 확인했다(유형 16/16, 회사 일치 yes 13/13·no 13/13, 회사명 없음 빈 값 6/6).
 
 실제 OpenAI 호출과 다른 폴더 실제 함수 연결은 통합 테스트(10/29~)에서 확인한다.
 

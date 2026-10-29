@@ -71,12 +71,15 @@ SEARCH_ACCESS_CODES = ('ACCESS_DENIED', 'COMPANY_FORBIDDEN', 'NO_COMPANY_SCOPE')
 # 문서 자동 분류 (doc_classifier.py, 명세 밖 추가 기능). OpenAI Decisions API는 현재 gpt-6-luna만 지원한다
 CLASSIFY_MODEL = 'gpt-6-luna'
 CLASSIFY_TIMEOUT_SECONDS = 10          # 업로드 중(WORKFLOW_LOCK 안)에도 불리므로 최악 대기를 약 10초로 묶는다
-CLASSIFY_MAX_RETRIES = 0               # 재시도하지 않는다. 실패해도 업로드는 계속되고 classify_status='failed'만 남는다
+CLASSIFY_MAX_RETRIES = 0               # 재시도하지 않는다. 실패해도 업로드는 계속되고 classify_status='failed'가 남는다 (자동 분류 업로드면 현재 유형 유지·사유 CLASSIFY_FAILED)
 CLASSIFY_SAMPLE_CHARS = 6000           # 분류에 보내는 앞쪽 본문 글자 수 상한 (긴 문서도 입력 크기 일정)
 CLASSIFY_COMPANY_NAMED_MIN = 0.5       # 본문에 회사명이 적혀 있을 확률이 이 값 이상일 때만 회사 일치를 판단한다
 CLASSIFY_MATCH_YES_MIN = 0.7           # 회사 일치 확률이 이상이면 'yes'
 CLASSIFY_MATCH_NO_MAX = 0.3            # 이하이면 'no', 그 사이는 판단 보류('')
-CLASSIFY_CACHE_SIZE = 256              # 같은 문서 버전은 메모리에 보관해 다시 부르지 않는다 (DB·Chroma에는 저장하지 않음)
+# 자동 분류 업로드의 최종 유형 규칙 (decide_doc_type, #261). 기준 미만·실패면 현재 유형을 유지하고 사유 코드를 남긴다
+CLASSIFY_APPLY_MIN_CONFIDENCE = 0.8    # AI 유형을 실제 유형으로 쓰는 확신도 하한 (임시값, 실제 문서 평가 후 확정)
+CLASSIFY_FALLBACK_LOW_CONFIDENCE = 'LOW_CONFIDENCE'   # 대체 저장 사유: AI 유형은 나왔지만 확신도가 기준 미만
+CLASSIFY_FALLBACK_FAILED = 'CLASSIFY_FAILED'          # 대체 저장 사유: AI 유형을 얻지 못함(API 실패·거부 응답·목록 밖 유형)
 # 유형 코드별 판단 기준. 코드·표시 이름은 common.schemas.DOC_TYPES를 그대로 쓴다
 CLASSIFY_DOC_TYPE_HINTS = {
     'manual': '제품·장비·시스템의 사용법, 조작·설치·점검 방법을 단계별로 설명하는 문서',

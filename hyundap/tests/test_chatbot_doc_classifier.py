@@ -3,28 +3,22 @@
 실행(저장소 맨 위 폴더에서):  python -m unittest hyundap.tests.test_chatbot_doc_classifier -v
 """
 import unittest
-from contextlib import ExitStack
 from unittest.mock import patch
 
 from openai.types.decision import Decision
 
-from hyundap.chatbot import classify_document, doc_classifier
+from hyundap.chatbot import doc_classifier
 from hyundap.chatbot.constants import CLASSIFY_MODEL, CLASSIFY_SAMPLE_CHARS
 from hyundap.chatbot.models import ChatbotError, DocClassification
-from hyundap.embedding.models import VectorHit
-from hyundap.search.models import ChunkHit
+from hyundap.common.schemas import CommonDocument, Section
 
 
-def vhit(i, text=None, version='v1', doc_type='manual'):
-    return VectorHit(f'c{i}', text if text is not None else f'A사 점검 절차 {i}단계', {
-        'document_id': 'd1', 'version_id': version, 'company_id': 'co', 'company_name': 'A사', 'doc_type': doc_type,
-        'file_name': '점검절차.docx', 'section_no': None, 'location_label': f'p.{i + 1}', 'chunk_index': i})
-
-
-def chunk_hit(i, text):
-    return ChunkHit(chunk_id=f'c{i}', document_id='d1', version_id='v1', version_no=None, company_id='co',
-                    company_name='A사', doc_type='manual', file_name='점검절차.docx', section_no=None,
-                    location_label=f'p.{i + 1}', chunk_index=i, text=text, score=None)
+# ingest 정규화가 끝난 문서 (업로드 경로 입력)
+def common_doc(doc_type='manual', sections=None):
+    if sections is None:
+        sections = [Section(1, 'p.1', 'A사 사내 규정 제1조'), Section(2, 'p.2', '제2조 책임')]
+    return CommonDocument(header={'document_id': 'd9', 'version_id': 'v9', 'company_id': 'co', 'company_name': 'A사',
+                                  'doc_type': doc_type, 'file_name': '규정.docx'}, sections=sections)
 
 
 # Decisions API 응답을 SDK의 실제 응답 형식(Decision)으로 만든다
@@ -63,24 +57,12 @@ class FakeClient:
         return self.reply
 
 
-class Base(unittest.TestCase):
-    def setUp(self):
-        doc_classifier._RESULTS.clear()
-        self.addCleanup(doc_classifier._RESULTS.clear)
-
-    def run_classify(self, reply, hits=None, access_error=None, chunks_error=None):
-        client = FakeClient(reply)
-        with ExitStack() as stack:
-            if chunks_error:
-                stack.enter_context(patch('hyundap.embedding.vector_store.get_document_chunks', side_effect=chunks_error))
-            else:
-                stack.enter_context(patch('hyundap.embedding.vector_store.get_document_chunks',
-                                          return_value=hits if hits is not None else [vhit(0), vhit(1)]))
-            access = stack.enter_context(patch('hyundap.auth.permissions.verify_documents_access',
-                                               side_effect=access_error))
-            stack.enter_context(patch.object(doc_classifier, 'get_classify_client', return_value=client))
-            result = classify_document('d1', {'user_id': 'u1'})
-        return result, client, access
+def run_common(reply, doc=None):
+    """업로드 경로(classify_common_document)를 대역 클라이언트로 실행하고 (결과, 클라이언트)를 돌려준다."""
+    client = FakeClient(reply)
+    with patch.object(doc_classifier, 'get_classify_client', return_value=client):
+        result = doc_classifier.classify_common_document(common_doc() if doc is None else doc)
+    return result, client
 
 
 # 입력·질문 만들기와 응답 읽기 (호출 없음)
@@ -90,10 +72,8 @@ class Pieces(unittest.TestCase):
         self.assertTrue(text.startswith('파일명: 점검절차.docx'))
         self.assertLess(text.index('첫째'), text.index('둘째'))
         self.assertEqual(len(text.split('본문:\n')[1].replace('\n', '')), CLASSIFY_SAMPLE_CHARS)
-        # 청크 경로는 chunk_index 순서로 본문을 넘긴다
-        client = FakeClient(GOOD)
-        with patch.object(doc_classifier, 'get_classify_client', return_value=client):
-            doc_classifier.classify_hits([chunk_hit(1, '둘째'), chunk_hit(0, '첫째')])
+        # 업로드 경로는 정규화된 섹션 순서대로 본문을 넘긴다
+        _, client = run_common(GOOD, common_doc(sections=[Section(1, 'p.1', '첫째'), Section(2, 'p.2', '둘째')]))
         sent = client.calls[0]['input']
         self.assertLess(sent.index('첫째'), sent.index('둘째'))
 
@@ -122,51 +102,46 @@ class Pieces(unittest.TestCase):
         self.assertEqual(answer, ('manual', 0.95, ''))
 
 
-# classify_document 흐름: 조회 → 접근 확인 → 분류 → 보관
-class Flow(Base):
-    def test_success_compares_with_admin_type(self):
-        result, client, access = self.run_classify(GOOD)
+# 업로드 경로 분류 흐름: 정규화된 문서 → API 1회 (접근 확인은 업로드 쪽이 먼저 한다)
+class Flow(unittest.TestCase):
+    def test_success_compares_with_header_type(self):
+        result, client = run_common(GOOD)
         self.assertEqual(result, DocClassification(
-            document_id='d1', version_id='v1', admin_doc_type='manual', auto_doc_type='policy', confidence=0.93,
+            document_id='d9', version_id='v9', admin_doc_type='manual', auto_doc_type='policy', confidence=0.93,
             matches_admin_type=False, company_match='yes', status='success', detail=''))
         call = client.calls[0]
         self.assertEqual(call['model'], CLASSIFY_MODEL)
-        self.assertIn('A사 점검 절차 0단계', call['input'])
+        self.assertIn('파일명: 규정.docx', call['input'])
+        self.assertIn('A사 사내 규정 제1조', call['input'])
         self.assertEqual(len(call['questions']), 3)
-        access.assert_called_once_with({'user_id': 'u1'}, [('d1', 'v1')])
+        self.assertIn("'A사'", call['questions'][2]['instructions'])
 
     def test_same_type_marks_match(self):
-        reply = decision(choice('manual', 0.9))
-        result, _, _ = self.run_classify(reply)
+        result, _ = run_common(decision(choice('manual', 0.9)))
         self.assertIs(result.matches_admin_type, True)
 
-    def test_access_checked_before_api_and_errors_raise(self):
-        access_error = type('AccessError', (Exception,), {'code': 'ACCESS_DENIED'})()
-        client = FakeClient(GOOD)
-        with patch('hyundap.embedding.vector_store.get_document_chunks', return_value=[vhit(0)]), \
-                patch('hyundap.auth.permissions.verify_documents_access', side_effect=access_error), \
-                patch.object(doc_classifier, 'get_classify_client', return_value=client):
-            with self.assertRaises(Exception) as caught:
-                classify_document('d1', {'user_id': 'u1'})
-        self.assertIs(caught.exception, access_error)
-        self.assertEqual(client.calls, [])   # 권한이 없으면 API를 부르지 않는다
-
-    def test_empty_document_and_retrieval_failure(self):
-        with self.assertRaises(ChatbotError) as caught:
-            self.run_classify(GOOD, hits=[])
-        self.assertEqual(caught.exception.code, 'NO_EVIDENCE')
-        with self.assertRaises(ChatbotError) as caught:
-            self.run_classify(GOOD, chunks_error=RuntimeError('chroma down'))
-        self.assertEqual(caught.exception.code, 'RETRIEVAL_FAILED')
+    def test_no_access_check_and_no_call_without_text(self):
+        with patch('hyundap.auth.permissions.verify_documents_access') as access:
+            run_common(GOOD)
+        access.assert_not_called()
+        # 본문이 없으면 API를 부르지 않는다
+        for doc in (common_doc(sections=[]), object()):
+            with self.subTest(doc=type(doc).__name__):
+                with patch.object(doc_classifier, 'get_classify_client') as get_client:
+                    result = doc_classifier.classify_common_document(doc)
+                self.assertEqual((result.status, result.detail), ('failed', 'EMPTY_DOCUMENT'))
+                get_client.assert_not_called()
 
     def test_api_failure_returns_failed_without_secret(self):
         for reply in (RuntimeError('boom sk-test-key'), TimeoutError('slow'),
                       decision({'type': 'refusal', 'name': 'doc_type'})):
             with self.subTest(reply=type(reply).__name__):
-                result, _, _ = self.run_classify(reply)
+                result, _ = run_common(reply)
                 self.assertEqual((result.status, result.auto_doc_type, result.matches_admin_type), ('failed', '', None))
                 self.assertNotIn('sk-test', result.detail)
-                self.assertEqual(doc_classifier._RESULTS, {})   # 실패는 보관하지 않는다
+        # 클라이언트를 만들다 실패해도 올리지 않는다
+        with patch.object(doc_classifier, 'get_classify_client', side_effect=RuntimeError('down')):
+            self.assertEqual(doc_classifier.classify_common_document(common_doc()).status, 'failed')
 
     def test_missing_key_is_failed_not_raised(self):
         with patch('hyundap.common.config.get_settings') as settings:
@@ -174,49 +149,10 @@ class Flow(Base):
             with self.assertRaises(ChatbotError) as caught:
                 doc_classifier.get_classify_client()
         self.assertEqual(caught.exception.code, 'CONFIG_MISSING')
-        # classify_hits는 키 없음도 예외 대신 failed로 돌려준다
+        # 업로드 경로는 키 없음도 예외 대신 failed로 돌려준다
         with patch.object(doc_classifier, 'get_classify_client', side_effect=ChatbotError('CONFIG_MISSING')):
-            result = doc_classifier.classify_hits([chunk_hit(0, '본문')])
+            result = doc_classifier.classify_common_document(common_doc())
         self.assertEqual((result.status, result.detail), ('failed', 'CONFIG_MISSING'))
-
-    def test_same_version_uses_kept_result_but_rechecks_access(self):
-        first, client, _ = self.run_classify(GOOD)
-        second, client2, access = self.run_classify(GOOD)
-        self.assertEqual((len(client.calls), len(client2.calls)), (1, 0))   # 두 번째는 API를 부르지 않는다
-        self.assertEqual(first, second)
-        access.assert_called_once()   # 보관한 결과를 돌려줄 때도 접근 확인은 한다
-        # 새 버전이면 다시 분류한다
-        _, client3, _ = self.run_classify(GOOD, hits=[vhit(0, version='v2')])
-        self.assertEqual(len(client3.calls), 1)
-
-    def test_common_document_after_normalize(self):
-        # 업로드 중 정규화된 문서: 접근 확인 없이 바로 분류하고, 관리자 유형과 비교한다
-        from hyundap.common.schemas import CommonDocument, Section
-        doc = CommonDocument(header={'document_id': 'd9', 'version_id': 'v9', 'company_id': 'co', 'company_name': 'A사',
-                                     'doc_type': 'policy', 'file_name': '규정.docx'},
-                             sections=[Section(1, 'p.1', 'A사 사내 규정 제1조'), Section(2, 'p.2', '제2조 책임')])
-        client = FakeClient(GOOD)
-        with patch.object(doc_classifier, 'get_classify_client', return_value=client), \
-                patch('hyundap.auth.permissions.verify_documents_access') as access:
-            result = doc_classifier.classify_common_document(doc)
-        self.assertEqual((result.document_id, result.version_id, result.auto_doc_type, result.matches_admin_type,
-                          result.company_match, result.status), ('d9', 'v9', 'policy', True, 'yes', 'success'))
-        self.assertIn('파일명: 규정.docx', client.calls[0]['input'])
-        self.assertIn("'A사'", client.calls[0]['questions'][2]['instructions'])
-        access.assert_not_called()
-        self.assertEqual(doc_classifier._RESULTS, {})   # 업로드 경로는 메모리에 보관하지 않는다
-        # 오류는 올리지 않는다
-        with patch.object(doc_classifier, 'get_classify_client', side_effect=RuntimeError('down')):
-            self.assertEqual(doc_classifier.classify_common_document(doc).status, 'failed')
-        with patch.object(doc_classifier, 'get_classify_client', return_value=client) as get_client:
-            self.assertEqual(doc_classifier.classify_common_document(object()).detail, 'EMPTY_DOCUMENT')
-        get_client.assert_not_called()   # 본문이 없으면 API를 부르지 않는다
-
-    def test_cache_size_limit(self):
-        with patch.object(doc_classifier, 'CLASSIFY_CACHE_SIZE', 2):
-            for version in ('v1', 'v2', 'v3'):
-                doc_classifier.remember(DocClassification('d1', version, 'manual'))
-        self.assertEqual(list(doc_classifier._RESULTS), ['v2', 'v3'])
 
     def test_real_client_settings(self):
         doc_classifier._CLIENTS.clear()
@@ -229,8 +165,65 @@ class Flow(Base):
         self.assertTrue(hasattr(client.decisions, 'create'))
 
 
+# 자동 분류 업로드의 최종 유형 규칙 (#261 확정안 1-2): (doc_type, doc_type_fallback, doc_type_fallback_reason)
+class Decide(unittest.TestCase):
+    def classified(self, auto_doc_type='policy', confidence=0.93, status='success'):
+        return DocClassification('d1', 'v1', 'other', auto_doc_type, confidence, None, 'yes', status)
+
+    def test_confident_type_is_used_for_result_and_report(self):
+        # 분류기 결과(DocClassification)와 수집 보고서 dict를 모두 받는다
+        report = {'auto_doc_type': 'policy', 'doc_type_confidence': 0.93, 'company_match': 'yes',
+                  'classify_status': 'success'}
+        for value in (self.classified(), report):
+            with self.subTest(kind=type(value).__name__):
+                self.assertEqual(doc_classifier.decide_doc_type(value, 'other'), ('policy', False, None))
+
+    def test_threshold_boundary(self):
+        decide = doc_classifier.decide_doc_type
+        self.assertEqual(decide(self.classified(confidence=0.8), 'other'), ('policy', False, None))
+        self.assertEqual(decide(self.classified(confidence=0.799), 'other'), ('other', True, 'LOW_CONFIDENCE'))
+        # 기준은 상수 하나로 바뀐다
+        with patch.object(doc_classifier, 'CLASSIFY_APPLY_MIN_CONFIDENCE', 0.95):
+            self.assertEqual(decide(self.classified(confidence=0.93), 'other'), ('other', True, 'LOW_CONFIDENCE'))
+
+    def test_ai_other_is_not_fallback(self):
+        # AI가 기준 이상으로 '기타'라고 판단하면 대체 저장이 아니다
+        self.assertEqual(doc_classifier.decide_doc_type(self.classified('other', 0.9), 'other'), ('other', False, None))
+
+    def test_failed_or_unusable_result_is_classify_failed(self):
+        cases = [
+            self.classified('', 0.0, 'failed'),           # API 실패·거부 응답
+            self.classified('', 0.0),                     # 목록 밖 유형 (read_classify_answers가 ''로 비움)
+            self.classified('policy', 0.93, 'failed'),    # 상태가 실패면 값이 있어도 쓰지 않는다
+            {'classify_status': 'failed'},                # 수집이 분류기 예외를 받은 경우
+            {}, None, 'policy',
+            {'classify_status': 'success', 'auto_doc_type': 'contract', 'doc_type_confidence': 0.9},
+            {'classify_status': 'success', 'auto_doc_type': 'policy'},
+            {'classify_status': 'success', 'auto_doc_type': 'policy', 'doc_type_confidence': True},
+            {'classify_status': 'success', 'auto_doc_type': 'policy', 'doc_type_confidence': '0.9'},
+            {'classify_status': 'success', 'auto_doc_type': 'policy', 'doc_type_confidence': float('nan')},
+            {'classify_status': 'success', 'auto_doc_type': 'policy', 'doc_type_confidence': 1.5},
+        ]
+        for value in cases:
+            with self.subTest(value=value):
+                self.assertEqual(doc_classifier.decide_doc_type(value, 'other'), ('other', True, 'CLASSIFY_FAILED'))
+
+    def test_new_version_keeps_current_type(self):
+        # 새 버전은 현재 유형이 기존 유형이다. 대체 저장이면 기존 유형을 유지하고, 확정이면 AI 유형으로 바뀐다
+        decide = doc_classifier.decide_doc_type
+        self.assertEqual(decide(self.classified('manual', 0.6), 'policy'), ('policy', True, 'LOW_CONFIDENCE'))
+        self.assertEqual(decide(self.classified('', 0.0, 'failed'), 'policy'), ('policy', True, 'CLASSIFY_FAILED'))
+        self.assertEqual(decide(self.classified('manual', 0.9), 'policy'), ('manual', False, None))
+
+    def test_bad_current_type_uses_default(self):
+        for current in (None, '', 'contract', ['policy']):
+            with self.subTest(current=current):
+                self.assertEqual(doc_classifier.decide_doc_type(self.classified(confidence=0.5), current),
+                                 ('other', True, 'LOW_CONFIDENCE'))
+
+
 # 업로드 연결: ingest 정규화 직후 분류 → 수집 보고서 → 작업 기록(jobs_repo). API는 부르지 않는다
-class UploadPath(Base):
+class UploadPath(unittest.TestCase):
     def make_docx(self, text):
         import tempfile
         from pathlib import Path
