@@ -186,7 +186,7 @@ python -m unittest discover -s hyundap/tests -t .   # 전체 테스트
 | `CHUNK_SIZE`, `CHUNK_OVERLAP` | 선택 | 청크 길이와 겹침(글자 수) | `1000`, `150` |
 | `SEARCH_MIN_SCORE`, `SEARCH_TOP_K_MAX` | 선택 | 검색 최소 유사도와 최대 조회 수 | `0.3`, `80` |
 | `SESSION_TTL_MINUTES` | 선택 | 로그인 세션 유지 시간(분) | `480` |
-| `DOC_CLASSIFY` | 선택 | 임베딩 때 문서 유형·회사 일치를 자동 분류할지(OpenAI Decisions API, `OPENAI_API_KEY` 사용). `0`이면 끔 | `1` |
+| `DOC_CLASSIFY` | 선택 | 임베딩 때 문서 유형·회사 일치를 자동 분류할지(OpenAI Decisions API, `OPENAI_API_KEY` 사용). `1`이면 켬 | `0` (끔) |
 | `OPENAI_CLASSIFY_MODEL` | 선택 | 문서 분류 모델(Decisions API는 현재 이 모델만 지원) | `gpt-6-luna` |
 
 ### 계정 만들기

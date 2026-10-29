@@ -48,7 +48,7 @@ _clients: dict[str, Any] = {}
 
 # FUN-321. Decisions API를 부를 OpenAI 클라이언트. 분류가 꺼져 있거나 키가 없으면 None(분류를 건너뛴다)
 def get_classifier_client():
-    """FUN-321. OpenAI 클라이언트를 만들고 같은 키면 재사용한다. DOC_CLASSIFY=0이거나 키가 없으면 None."""
+    """FUN-321. OpenAI 클라이언트를 만들고 같은 키면 재사용한다. DOC_CLASSIFY가 꺼져 있거나(기본) 키가 없으면 None."""
     api_key = get_api_key()
     if not (get_settings().doc_classify and api_key):
         return None

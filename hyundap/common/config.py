@@ -46,7 +46,7 @@ class Settings:
     ocr_max_figures: int = DEFAULT_OCR_MAX_FIGURES  # 0이면 쪽·슬라이드 안의 그림 OCR을 하지 않는다
     ocr_threads: int = field(default_factory=lambda: default_ocr_threads())   # OCR이 쓰는 CPU 스레드 수(get_settings와 같은 기본값)
     ocr_warmup: bool = True                         # 서버 시작 때 OCR 엔진을 미리 불러올지
-    doc_classify: bool = True                       # 임베딩 때 문서 유형·회사 일치를 분류할지
+    doc_classify: bool = False                      # 임베딩 때 문서 유형·회사 일치를 분류할지(기본 끔)
     openai_classify_model: str = DEFAULT_CLASSIFY_MODEL  # 문서 분류(Decisions API) 모델
 
 
@@ -135,7 +135,8 @@ def get_settings() -> Settings:
         ocr_max_figures=_read_number('OCR_MAX_FIGURES', DEFAULT_OCR_MAX_FIGURES, int, lambda v: 0 <= v <= 100000),
         ocr_threads=_read_number('OCR_THREADS', default_ocr_threads(), int, lambda v: 1 <= v <= 256),
         ocr_warmup=_read_bool('OCR_WARMUP', True),
-        # 문서 분류(OpenAI Decisions API). OPENAI_API_KEY를 같이 쓰며 DOC_CLASSIFY=0이면 분류하지 않는다.
-        doc_classify=_read_bool('DOC_CLASSIFY', True),
+        # 문서 분류(OpenAI Decisions API). 기본은 끔이며 DOC_CLASSIFY=1일 때만 OPENAI_API_KEY로 분류한다.
+        # 분류 결과를 쓰는 곳(검색·화면)이 정해지기 전에는 업로드 동작·시간을 바꾸지 않도록 꺼 둔다.
+        doc_classify=_read_bool('DOC_CLASSIFY', False),
         openai_classify_model=_read('OPENAI_CLASSIFY_MODEL') or DEFAULT_CLASSIFY_MODEL,
     )

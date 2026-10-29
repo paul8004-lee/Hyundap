@@ -1358,6 +1358,27 @@
 - **정의 ID**: FUN-310
 - **소스 위치**: embedding/vector_store.py (구현 예정)
 
+##### F116 업로드 문서 유형·회사 일치 자동 분류
+
+- **분류**: 임베딩
+- **담당자**: 박영준
+- **적용 모드**: 팀 P3(부가)
+- **사용 주체**: 업로드 처리 흐름(embed_and_store 안에서 호출)
+- **화면·진입점**: embedding.classify_document
+- **주요 입력**: 같은 문서·버전·회사의 청크 목록(파일명·업로드 회사명 포함)
+- **처리 흐름**: 새로 저장할 청크가 있을 때 문서(버전)당 1번, 파일명과 앞쪽 본문 6000자로 OpenAI Decisions API(gpt-6-luna)를 호출한다. 문서 유형(choice)과 회사명 기재 여부·업로드 회사 일치(predicate)를 받아 모든 청크 메타데이터와 EmbedStoreReport에 같은 값으로 붙인다. 보고서 값은 db가 업로드 작업 기록(index_jobs.report의 embedding 단계)에 남긴다.
+- **출력·상태**: ClassifyResult (auto_doc_type, doc_type_confidence, company_match, status: skipped·success·failed)
+- **조건·범위**: 기본 꺼짐(DOC_CLASSIFY=1일 때만 동작). 관리자가 고른 doc_type은 바꾸지 않는다. 분류 실패·거부·시간 초과는 classify_status=failed로만 남기고 업로드는 계속한다. 결과를 검색·화면에 쓰는 기능은 아직 없다(확신도 기준 결정 후 후속 작업).
+- **연결 상태**: 구현(기본 꺼짐)
+- **정의 ID**:
+  - FUN-321
+  - FUN-322
+  - FUN-323
+  - FUN-324
+  - FUN-325
+  - CLS-109
+- **소스 위치**: embedding/classifier.py
+
 #### 실행 경로·권한
 
 | 경로 ID | 경로·명령·이벤트 | 방식 | 적용 모드 | 접근 권한 | 역할 | 처리 인자 | 연결 기호 | 정의 ID | 소스 위치 |
@@ -1370,6 +1391,7 @@
 | ENT-105 | embedding.get_version_chunk_ids(document_id, version_id) | 함수 호출 | 팀 P1(필수) | 내부 호출 (db/ 완전성 검증) | 저장된 청크 ID 목록을 반환해 DB의 청크 목록과 비교하게 한다. | document_id, version_id | db/ → embedding.vector_store.get_version_chunk_ids | FUN-318 | embedding/vector_store.py (구현 예정) |
 | ENT-106 | embedding.get_document_chunks(document_id) | 함수 호출 | 팀 P2(상용화) | 로그인 사용자(문서 접근 권한은 auth/가 먼저 확인) | 선택 문서의 공개 청크를 순서대로 반환해 요약에 쓰게 한다. | document_id, version_id(선택) | chatbot/summary.py → embedding.vector_store.get_document_chunks | FUN-319 | embedding/vector_store.py (구현 예정) |
 | ENT-107 | embedding.check_embedding_health() · check_vector_store_health() | 함수 호출 | 팀 P2(상용화) | 개발자·로컬 실행자 | 임베딩 모델과 벡터 저장소가 준비됐는지 점검한다. | 없음 | app.py · tests/test_embedding.py → embedding | FUN-309<br>FUN-320 | embedding/embedder.py (구현 예정)<br>embedding/vector_store.py (구현 예정) |
+| ENT-108 | embedding.classify_document(chunks) | 함수 호출 | 팀 P3(부가) | 내부 호출 (embed_and_store 안, DOC_CLASSIFY=1일 때만) | 문서 유형과 업로드 회사 일치 여부를 분류해 청크 메타데이터·보고서에 붙인다. | chunks: list[Chunk] | embedding.embedder.embed_and_store → embedding.classifier.classify_document → OpenAI Decisions API | FUN-325 | embedding/classifier.py |
 
 #### 모듈
 
@@ -1379,6 +1401,7 @@
 | MOD-101 | embedding/embedder.py | 임베딩 생성 | 팀 P1(필수) | 기업명·문서 유형 메타데이터를 붙여 청크를 임베딩하고, 질문 임베딩과 상태 점검을 제공한다. | .vector_store, .models, common.config, common.schemas | langchain_openai, openai(예외 클래스), numpy, collections, time |
 | MOD-102 | embedding/vector_store.py | 벡터 저장·조회 | 팀 P1(필수) | Chroma 저장·필터 조회·버전 공개·삭제·청크 조회를 제공한다. | .models, common.config, common.schemas | langchain_chroma, time |
 | MOD-103 | embedding/models.py | 결과 형식·오류 | 팀 P1(필수) | embedding이 주고받는 결과 데이터(dataclass)와 오류 클래스를 정의한다. | common.schemas | dataclasses |
+| MOD-104 | embedding/classifier.py | 문서 자동 분류 | 팀 P3(부가) | 임베딩 때 OpenAI Decisions API로 문서 유형·업로드 회사 일치를 분류한다(기본 꺼짐). | .models, common.config, common.schemas | openai(OpenAI 클라이언트) |
 
 #### 클래스
 
@@ -1446,7 +1469,7 @@
 - **분류**: 데이터 스키마
 - **역할**: embed_and_store의 결과 보고서. db/가 처리 결과·실패 원인을 기록할 때 쓴다.
 - **상속**: dataclass
-- **직접 정의 속성**: document_id, version_id, company_id, model_name, total, skipped_existing, embedded, stored, truncated_count, failures, status, elapsed_sec
+- **직접 정의 속성**: document_id, version_id, company_id, model_name, total, skipped_existing, embedded, stored, truncated_count, failures, status, elapsed_sec, auto_doc_type, doc_type_confidence, company_match, classify_status
 - **직접 정의 메서드**: 직접 정의 없음
 - **사용 상태**: 설계 단계
 - **연결 기능**: F107
@@ -1467,6 +1490,10 @@
 | FLD-330 | failures | list[EmbeddingFailure] |  |  |
 | FLD-331 | status | str |  |  |
 | FLD-332 | elapsed_sec | float |  |  |
+| FLD-410 | auto_doc_type | str | 기본 빈 문자열. DOC_TYPES 코드 또는 빈 문자열 | index_jobs.report(embedding) |
+| FLD-411 | doc_type_confidence | float | 기본 0.0. 0~1 | index_jobs.report(embedding) |
+| FLD-412 | company_match | str | 기본 빈 문자열. yes·no·빈 문자열 | index_jobs.report(embedding) |
+| FLD-413 | classify_status | str | 기본 skipped. skipped·success·failed (분류 실패는 status에 영향 없음) | index_jobs.report(embedding) |
 
 ##### CLS-105 `VectorHit`
 
@@ -1532,7 +1559,7 @@
 - **역할**: Chroma에 청크와 함께 저장하는 메타데이터의 키 규약. 클래스가 아니라 build_chunk_metadata가 만드는 딕셔너리 형식이다.
 - **상속**: dict
 - **DB 테이블**: Chroma: chunks__<모델> 컬렉션
-- **직접 정의 속성**: chunk_id, document_id, version_id, company_id, company_name, doc_type, file_name, section_no, location_label, chunk_index, embedding_model, truncated, is_active, embedded_at
+- **직접 정의 속성**: chunk_id, document_id, version_id, company_id, company_name, doc_type, file_name, section_no, location_label, chunk_index, embedding_model, truncated, is_active, embedded_at, auto_doc_type, doc_type_confidence, company_match
 - **직접 정의 메서드**: 직접 정의 없음
 - **사용 상태**: 설계 단계
 - **연결 기능**: F106, F109, F110
@@ -1555,6 +1582,30 @@
 | FLD-353 | truncated | bool |  | Chroma: chunks__<모델> |
 | FLD-354 | is_active | bool |  | Chroma: chunks__<모델> |
 | FLD-355 | embedded_at | int |  | Chroma: chunks__<모델> |
+| FLD-414 | auto_doc_type | str | 분류 전·실패면 빈 문자열 | Chroma: chunks__<모델> |
+| FLD-415 | doc_type_confidence | float | 분류 전·실패면 0.0 | Chroma: chunks__<모델> |
+| FLD-416 | company_match | str | yes·no·빈 문자열 | Chroma: chunks__<모델> |
+
+##### CLS-109 `ClassifyResult`
+
+- **모듈**: embedding.models
+- **분류**: 데이터 스키마
+- **역할**: classify_document의 결과. 값을 모르면 빈 문자열·0.0(Chroma 메타데이터에 None을 넣을 수 없다).
+- **상속**: dataclass
+- **직접 정의 속성**: auto_doc_type, doc_type_confidence, company_match, status, detail
+- **직접 정의 메서드**: 직접 정의 없음
+- **사용 상태**: 구현
+- **연결 기능**: F116
+- **소스 위치**: embedding/models.py
+- **담당자**: 박영준
+
+| 속성 ID | 속성 | 타입 | 기본값·필수·검증 기준 | DB 테이블 |
+|---|---|---|---|---|
+| FLD-417 | auto_doc_type | str | 기본 빈 문자열. manual·policy·guide·other 또는 빈 문자열 |  |
+| FLD-418 | doc_type_confidence | float | 기본 0.0. Decisions API confidence(0~1), 목록 밖 유형이면 0.0 |  |
+| FLD-419 | company_match | str | 기본 빈 문자열. 본문에 회사명이 있을 때만 yes(일치 확률 0.7 이상)·no(0.3 이하) |  |
+| FLD-420 | status | str | 기본 skipped. skipped(꺼짐·키 없음)·success·failed |  |
+| FLD-421 | detail | str | 실패 원인. 예외 이름만(비밀 값 미포함) |  |
 
 #### 함수·메서드
 
@@ -1873,6 +1924,81 @@
 - **소스 위치**: embedding/vector_store.py (구현 예정)
 - **담당자**: 박영준
 
+##### FUN-321 `get_classifier_client`
+
+- **모듈**: embedding.classifier
+- **구분**: 모듈 함수
+- **역할**: Decisions API를 부를 OpenAI 클라이언트를 만들고 같은 키면 재사용한다. DOC_CLASSIFY가 꺼져 있거나(기본) OPENAI_API_KEY가 없으면 None.
+- **입력 인자·기본값**: (없음)
+- **반환 형식·구조**: OpenAI 또는 None
+- **진입점·연결 방식**: 모듈 내부 호출 (classify_document)
+- **직접 호출 대상**: get_api_key, get_settings, OpenAI(timeout=20, max_retries=1)
+- **직접 발생 오류**: 직접 발생 없음
+- **데코레이터**: 없음
+- **연결 기능**: F116
+- **소스 위치**: embedding/classifier.py
+- **담당자**: 박영준
+
+##### FUN-322 `build_classify_input`
+
+- **모듈**: embedding.classifier
+- **구분**: 모듈 함수
+- **역할**: chunk_index 순으로 앞쪽 본문을 SAMPLE_CHARS(6000자)까지 모아 파일명과 함께 입력 글을 만든다.
+- **입력 인자·기본값**: chunks: list
+- **반환 형식·구조**: str (파일명 줄 + 본문)
+- **진입점·연결 방식**: 모듈 내부 호출 (classify_document)
+- **직접 호출 대상**: get_chunk_value
+- **직접 발생 오류**: 직접 발생 없음
+- **데코레이터**: 없음
+- **연결 기능**: F116
+- **소스 위치**: embedding/classifier.py
+- **담당자**: 박영준
+
+##### FUN-323 `build_classify_questions`
+
+- **모듈**: embedding.classifier
+- **구분**: 모듈 함수
+- **역할**: doc_type(choice, DOC_TYPES 4종)과, 업로드 회사명이 있으면 company_named·company_match(predicate) 질문을 만든다.
+- **입력 인자·기본값**: company_name: str
+- **반환 형식·구조**: list[dict] (질문 1~3개)
+- **진입점·연결 방식**: 모듈 내부 호출 (classify_document)
+- **직접 호출 대상**: 없음
+- **직접 발생 오류**: 직접 발생 없음
+- **데코레이터**: 없음
+- **연결 기능**: F116
+- **소스 위치**: embedding/classifier.py
+- **담당자**: 박영준
+
+##### FUN-324 `read_classify_answers`
+
+- **모듈**: embedding.classifier
+- **구분**: 모듈 함수
+- **역할**: 응답에서 유형·확신도를 읽고, company_named 확률이 0.5 이상일 때만 company_match 확률로 yes(0.7 이상)·no(0.3 이하)를 정한다.
+- **입력 인자·기본값**: decision: openai Decision
+- **반환 형식·구조**: ClassifyResult
+- **진입점·연결 방식**: 모듈 내부 호출 (classify_document)
+- **직접 호출 대상**: 없음
+- **직접 발생 오류**: ValueError (유형 답이 없거나 거부)
+- **데코레이터**: 없음
+- **연결 기능**: F116
+- **소스 위치**: embedding/classifier.py
+- **담당자**: 박영준
+
+##### FUN-325 `classify_document`
+
+- **모듈**: embedding.classifier
+- **구분**: 모듈 함수
+- **역할**: 한 문서(버전)의 청크로 유형·회사 일치를 분류한다. 꺼짐·키 없음은 skipped, 호출·응답 오류는 failed로 돌려주고 예외를 올리지 않는다.
+- **입력 인자·기본값**: chunks: list
+- **반환 형식·구조**: ClassifyResult
+- **진입점·연결 방식**: 다른 함수에서 호출 (embed_and_store)
+- **직접 호출 대상**: get_classifier_client, build_classify_input, build_classify_questions, client.decisions.create, read_classify_answers
+- **직접 발생 오류**: 직접 발생 없음 (오류는 status=failed로 반환)
+- **데코레이터**: 없음
+- **연결 기능**: F116
+- **소스 위치**: embedding/classifier.py
+- **담당자**: 박영준
+
 #### 제약·운영 규칙
 
 | 규칙 ID | 분류 | 항목 | 현재 값·조건 | 적용 범위 | 설명·범위 |
@@ -1892,6 +2018,9 @@
 | L113 | 운영 | 상태 점검 비용 | 시험 임베딩 5초 제한 · 재시도 없음 · 결과 저장 안 함 | 팀 P2(상용화) | 점검이 실제 API를 호출하므로 비용이 발생할 수 있다. |
 | L114 | 구조 | 처리 단위 | 한 번에 한 문서의 한 버전 | 팀 P1(필수) | embed_and_store는 문서·버전 단위로 호출한다. 여러 문서는 호출자가 반복한다. |
 | L115 | 범위 | 이번 설계 범위 | 텍스트 청크 벡터만 (이미지 자체 임베딩·재순위화 제외) | 팀 P1(필수) | PDF·DOCX·PPTX에서 추출된 텍스트 청크만 대상으로 한다. 스캔·그림 속 글자는 ingest 단계에서 OCR로 텍스트가 된 뒤 일반 텍스트 청크로 처리하므로 임베딩 쪽 변경은 없다. |
+| L116 | 분류 | 사용 여부 | DOC_CLASSIFY 기본 0(끔), 1이면 켬 · 모델 OPENAI_CLASSIFY_MODEL(기본 gpt-6-luna) | 팀 P3(부가) | 결과를 쓰는 곳(검색·화면)이 정해지기 전에는 업로드 동작·시간을 바꾸지 않도록 꺼 둔다. 키는 OPENAI_API_KEY를 같이 쓴다. |
+| L117 | 분류 | 호출·입력 | 문서(버전)당 1번 · 파일명 + 앞쪽 본문 6000자 · 20초 제한, 재시도 1번 | 팀 P3(부가) | 긴 문서도 입력 크기가 일정하다. 실패해도 업로드는 계속하며 최대 약 40초가 늘 수 있다. |
+| L118 | 분류 | 결과 사용 | 관리자 doc_type은 유지, auto_doc_type·doc_type_confidence·company_match는 별도 저장 | 팀 P3(부가) | 실제 문서에서 매뉴얼·가이드 경계가 흐려 확신도가 낮게 나올 수 있으므로, 확신도 기준을 정하기 전에는 검색·화면에 쓰지 않는다. |
 
 ### 3.4 search — 통합 검색
 

@@ -9,7 +9,7 @@ Spec: AI_문서검색_통합_기능명세서 (MOD-103)
 
 Classes:
     CLS-101 EmbeddedChunk / CLS-102 EmbeddingFailure / CLS-103 EmbeddingBatch
-    CLS-104 EmbedStoreReport / CLS-105 VectorHit / CLS-106 EmbeddingError / CLS-107 VectorStoreError
+    CLS-104 EmbedStoreReport / CLS-105 VectorHit / CLS-106 EmbeddingError / CLS-107 VectorStoreError / CLS-109 ClassifyResult
 """
 # dataclass: 값을 담는 클래스를 짧게 만드는 파이썬 기본 기능 (팀 db 코드가 이 형태로 읽어서 유지)
 # field(default_factory=list): 리스트 기본값을 객체마다 새로 만들기 위해 사용
@@ -100,9 +100,9 @@ class EmbedStoreReport:
 
 
 @dataclass
-# CLS-126. 문서 분류 결과. 값을 모르면 빈 문자열(Chroma 메타데이터에 None을 넣을 수 없다)
+# CLS-109. 문서 분류 결과. 값을 모르면 빈 문자열(Chroma 메타데이터에 None을 넣을 수 없다)
 class ClassifyResult:
-    """CLS-126. classify_document의 결과.
+    """CLS-109. classify_document의 결과.
 
     auto_doc_type: DOC_TYPES 코드(manual·policy·guide·other) 중 하나 또는 빈 문자열
     doc_type_confidence: auto_doc_type의 확신도(0~1, Decisions API의 confidence). 분류 전·실패면 0

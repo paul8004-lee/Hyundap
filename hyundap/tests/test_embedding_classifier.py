@@ -124,6 +124,16 @@ class Pieces(ClassifyBase):
 
 # classify_document: 꺼짐·성공·실패
 class Classify(ClassifyBase):
+    def test_disabled_by_default(self):
+        # DOC_CLASSIFY를 따로 켜지 않으면 분류하지 않는다(업로드 동작·시간이 바뀌지 않게)
+        env = dict(os.environ)
+        env.pop("DOC_CLASSIFY", None)
+        with patch.dict(os.environ, env, clear=True):
+            team_config.get_settings.cache_clear()
+            self.assertFalse(team_config.get_settings().doc_classify)
+            self.assertIsNone(get_classifier_client())
+            self.assertEqual(classify_document([make_chunk(0)]).status, "skipped")
+
     def test_disabled_or_no_key_skips(self):
         classifier._clients.clear()
         self.addCleanup(classifier._clients.clear)
