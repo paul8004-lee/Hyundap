@@ -27,6 +27,7 @@ from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page
 from hyundap.ui.chat_page import CHAT_CSS
 from hyundap.ui.components import apply_common_style, brand_html, get_theme
 from hyundap.ui.controller import UIController
+from hyundap.ui.component_contract import validate_component_contract
 from hyundap.ui.login_page import build_login_page
 from hyundap.ui.search_page import SEARCH_CSS, build_search_page
 from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices, UIServices
@@ -152,6 +153,10 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
         key.delete_callback = controller.discard
         # 반환 dict의 일부 항목만 갱신한다. 다른 화면/입력은 그대로 유지한다.
         outputs = list(dict.fromkeys(component for refs in [login, search, admin, shell] for component in refs.values() if isinstance(component, (gr.components.Component, gr.layouts.Column, gr.layouts.Row))))
+        validate_component_contract(
+            {"login": login, "search": search, "admin": admin, "shell": shell},
+            registered=demo.blocks, outputs=outputs,
+        )
 
         def handler(action):
             async def callback(session_key, *values):

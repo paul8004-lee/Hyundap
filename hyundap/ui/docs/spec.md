@@ -374,7 +374,7 @@ python -m unittest hyundap.tests.test_ui_controller hyundap.tests.test_ui_servic
 python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
 ```
 
-체험 로그인은 일반 사용자 `employee`, 관리자 `manager` 또는 `admin`, 공통 비밀번호 `demo1234`다. 기본 backend 모드에서는 임시 로그인만 가능하며 업무 요청은 `AUTH_BACKEND_PENDING`으로 차단한다. 전체 demo 모드에서 `점검`을 검색하면 결과·짧은 AI 답변·오른쪽 문서 상세/출처·요약 흐름을 확인할 수 있다. 상세 실행 방법은 [UI README](../README.md)를 따른다.
+체험 로그인은 일반 사용자 `employee`, 관리자 `manager` 또는 `admin`, 공통 비밀번호 `demo1234`다. 기본 backend 모드는 실제 인증 함수를 사용하므로 DB 설정과 실제 계정이 필요하다. 인증 인자 없이 create_bindings()를 직접 호출하는 임시 실행기는 서버 세션 없는 업무 요청을 차단한다. 전체 demo 모드에서 `점검`을 검색하면 결과·짧은 AI 답변·오른쪽 문서 상세/출처·요약 흐름을 확인할 수 있다. 상세 실행 방법은 [UI README](../README.md)를 따른다.
 
 최신 develop `98d428e` 병합으로 검색 PR #143, 수집 PR #136, 챗봇 PR #144와 임베딩 PR #151 구현을 가져왔다. UI 담당이 백엔드 파일을 별도로 수정하지는 않았다. 의존성 설치·실제 서버 세션·DB 및 LLM 설정을 갖춘 환경에서 별도의 통합 검수가 필요하다.
 
@@ -524,3 +524,7 @@ python -m unittest discover -s hyundap/tests -t . -p "test_ui*.py" -v
 선택 문서의 답변 근거는 한 번에 한 개씩 표시하며, 여러 개면 이전·다음 화살표와 현재 위치를 표시합니다. 원래 출처 번호와 순서는 유지합니다. 처음·마지막에서는 해당 방향을 비활성화하고, 문서를 바꾸면 첫 출처부터 표시합니다. 출처 확인 모달은 기존 전체 목록을 유지합니다.
 
 요약 진행 안내는 AI 파일 요약 본문에 `요약 중입니다.`로 표시합니다. 요약 진행 중에는 버튼과 별도 대기 알림을 숨기고, 생성된 내용이 도착하면 안내를 요약 내용으로 교체합니다. 완료되거나 실패하면 다시 요약 버튼을 표시합니다.
+
+### 로그인 화면 구성 검사 (#233·#234)
+
+`component_contract.py`는 실제 Gradio 컴포넌트로 구성한 login/search/admin/shell의 필수 키·앱 등록·이벤트 출력 등록을 build_app()에서 검사합니다. footer_company 등 필수 항목이 빠지면 앱 생성 시 해당 키를 포함한 구성 오류를 발생시킵니다. 인증 서버·DB의 성공을 뜻하는 검사는 아닙니다. QA 테스트는 실제 build_app()으로 만든 참조를 사용하고, 일부러 키를 제거했을 때 검사 실패를 확인해야 합니다. ComponentKeys.__missing__만으로 화면 키 누락을 검증하지 않습니다.
