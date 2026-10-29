@@ -144,6 +144,20 @@ class SettingsTests(unittest.TestCase):
                                  (50, 100, threads))
                 self.assertTrue(settings.ocr_warmup)
 
+    def test_doc_classify_defaults_off(self):
+        """문서 자동 분류는 값이 없거나 알 수 없는 글자면 꺼짐이고, Settings를 직접 만들 때도 꺼짐인지 확인한다."""
+        for env in ({}, {'DOC_CLASSIFY': 'maybe'}, {'DOC_CLASSIFY': '0'}):
+            with self.subTest(env=env):
+                self.assertFalse(self.load(env).doc_classify)
+        field = {f.name: f for f in dataclasses.fields(config.Settings)}['doc_classify']
+        self.assertIs(field.default, False)
+
+    def test_doc_classify_can_be_enabled(self):
+        """DOC_CLASSIFY를 1·true·on으로 지정하면 문서 자동 분류가 켜지는지 확인한다."""
+        for value in ('1', 'true', 'ON'):
+            with self.subTest(value=value):
+                self.assertTrue(self.load({'DOC_CLASSIFY': value}).doc_classify)
+
     def test_default_ocr_threads_leaves_one_core_free(self):
         """코어가 3개 이상이면 하나를 남기고 2개 이하이면 전부 쓰며, 코어 수를 모르면 1인지 확인한다."""
         for cores, expected in ((1, 1), (2, 2), (3, 2), (4, 3), (8, 7), (None, 1)):

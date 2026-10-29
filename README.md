@@ -190,6 +190,7 @@ python -m unittest discover -s hyundap/tests -t .   # 전체 테스트
 | `CHUNK_SIZE`, `CHUNK_OVERLAP` | 선택 | 청크 길이와 겹침(글자 수) | `1000`, `150` |
 | `SEARCH_MIN_SCORE`, `SEARCH_TOP_K_MAX` | 선택 | 검색 최소 유사도와 최대 조회 수 | `0.3`, `80` |
 | `SESSION_TTL_MINUTES` | 선택 | 로그인 세션 유지 시간(분) | `480` |
+| `DOC_CLASSIFY` | 선택 | 업로드 중 문서 유형·회사 일치 자동 분류(OpenAI Decisions API, `OPENAI_API_KEY` 사용). `1`이면 켬 | `0` (끔) |
 
 ### 계정 만들기
 
