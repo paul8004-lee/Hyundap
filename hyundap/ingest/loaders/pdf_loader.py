@@ -4,7 +4,13 @@
 기준 명세: AI_문서검색_통합_기능명세서
 
 함수:
-    FUN-208 load_pdf — PDF 페이지 텍스트를 공통 문서로 읽는다."""
+    FUN-208 load_pdf — PDF 페이지 텍스트를 공통 문서로 읽는다.
+        top_lines — 쪽 맨 위에서 글자가 있는 줄 몇 개를 고른다.
+        is_page_number — 줄이 쪽 번호(숫자·로마 숫자)인지 확인한다.
+        find_header_lines — 여러 쪽 맨 위에 반복되는 줄(머리말)을 찾는다.
+        remove_page_header — 한 쪽에서 머리말과 쪽 번호 줄을 뺀다.
+        can_join_lines — 앞 줄과 뒤 줄이 한 단어가 끊긴 것인지 확인한다.
+        join_split_words — 단어 중간에서 끊긴 줄을 이어 붙인다."""
 
 import logging
 import zlib
@@ -34,6 +40,111 @@ OCR_MAX_SIDE_PX = 4000  # 아주 큰 쪽(포스터 등)은 긴 변이 이 값을
 # 쪽 전체를 읽을 때보다 영역을 300dpi로 잘라 읽을 때 눈금·범례를 더 많이 읽었다.
 FIGURE_DPI = 300
 FIGURE_MAX_SIDE_PX = 8000   # 쪽을 그릴 때 긴 변 상한(아주 큰 쪽의 메모리 폭증 방지)
+
+# 쪽 맨 위에서 머리말을 찾을 줄 수
+HEADER_LINE_COUNT = 3
+# 이 쪽 수 이상의 맨 위에 같은 줄이 있으면 머리말로 본다
+MIN_HEADER_PAGES = 3
+# 줄 길이가 그 쪽에서 가장 긴 줄의 이 비율 이상일 때만 끊긴 단어를 이어 붙인다 (짧은 제목 줄이 붙는 것을 막는다)
+JOIN_MIN_RATIO = 0.3
+# 머리말 옆에 있으면 같이 지우는 로마 숫자 쪽 번호
+ROMAN_PAGE_NUMBERS = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"]
+
+
+def top_lines(text):
+    """쪽 맨 위에서 글자가 있는 줄을 HEADER_LINE_COUNT개까지 (줄 번호, 줄 내용) 목록으로 돌려준다."""
+    result = []
+    for number, line in enumerate(text.split("\n")):
+        if line.strip() == "":
+            continue
+        result.append((number, line.strip()))
+        if len(result) == HEADER_LINE_COUNT:
+            break
+    return result
+
+
+def is_page_number(line):
+    """숫자만 있거나 로마 숫자(i, ii, iii …)만 있는 줄이면 True."""
+    return line.isdigit() or line.lower() in ROMAN_PAGE_NUMBERS
+
+
+def find_header_lines(page_texts):
+    """쪽별 글자 목록에서 MIN_HEADER_PAGES쪽 이상의 맨 위에 반복되는 줄을 찾아 목록으로 돌려준다.
+
+    본문 중간에 반복되는 줄(예: 그래프 출처)은 맨 위가 아니므로 찾지 않는다."""
+    counts = {}
+    for text in page_texts:
+        found = []
+        for number, line in top_lines(text):
+            if len(line) >= 3 and not is_page_number(line) and line not in found:
+                found.append(line)
+        for line in found:
+            counts[line] = counts.get(line, 0) + 1
+
+    headers = []
+    for line, count in counts.items():
+        if count >= MIN_HEADER_PAGES:
+            headers.append(line)
+    return headers
+
+
+def remove_page_header(text, headers):
+    """한 쪽의 맨 위 줄 중 머리말이 있으면, 머리말 줄과 쪽 번호 줄을 함께 뺀 글자를 돌려준다.
+
+    머리말이 없는 쪽은 그대로 돌려준다. 그래서 쪽 번호만 있는 줄은 지우지 않는다."""
+    top = top_lines(text)
+    has_header = False
+    for number, line in top:
+        if line in headers:
+            has_header = True
+    if not has_header:
+        return text
+
+    remove_numbers = []
+    for number, line in top:
+        if line in headers or is_page_number(line):
+            remove_numbers.append(number)
+
+    kept = []
+    for number, line in enumerate(text.split("\n")):
+        if number not in remove_numbers:
+            kept.append(line)
+    return "\n".join(kept)
+
+
+def is_hangul(char):
+    """완성형 한글 글자이면 True."""
+    return "가" <= char <= "힣"
+
+
+def can_join_lines(before, after, longest):
+    """앞 줄 끝과 뒤 줄 시작이 모두 한글이고 앞 줄이 충분히 길면 True.
+
+    줄 끝에 공백이 있으면(단어 사이에서 줄이 바뀐 경우) 끝 글자가 한글이 아니라서 붙이지 않는다."""
+    if before == "" or after == "":
+        return False
+    if not is_hangul(before[-1]) or not is_hangul(after[0]):
+        return False
+    return len(before) >= longest * JOIN_MIN_RATIO
+
+
+def join_split_words(text):
+    """줄 끝에서 단어가 끊긴 곳(예: '수' + '준에')의 줄바꿈을 지워 이어 붙인다.
+
+    정규화 단계가 줄 끝 공백을 지우기 전의 원문에서 해야 단어 사이 줄바꿈과 구분할 수 있다."""
+    lines = text.split("\n")
+    longest = 0
+    for line in lines:
+        if len(line) > longest:
+            longest = len(line)
+
+    result = []
+    for number, line in enumerate(lines):
+        if number > 0 and can_join_lines(lines[number - 1], line, longest):
+            result[-1] = result[-1] + line
+        else:
+            result.append(line)
+    return "\n".join(result)
 
 
 def render_page(pdf, index):
@@ -104,6 +215,13 @@ def read_pages(file_path, upload_info, opened):
         raise IngestError(CORRUPTED_FILE)
 
     doc = CommonDocument(header=dict(upload_info))
+    # 여러 쪽에 반복되는 머리말·쪽 번호는 모든 쪽에서 똑같이 뺀다. 글자 레이어가 없는 쪽(스캔)은 빈 글자라 세지 않는다.
+    page_texts = []
+    for page in pages:
+        page_texts.append(page.page_content)
+    headers = find_header_lines(page_texts)
+    if len(headers) > 0:
+        doc.warnings.append(f"반복 머리말 {len(headers)}줄 제거")
     max_pages = get_settings().ocr_max_pages
     can_render = pdfium_available()
     page_ocr = ocr.is_available() and can_render and max_pages > 0   # 글자 없는 쪽 전체 OCR
@@ -118,7 +236,8 @@ def read_pages(file_path, upload_info, opened):
     figure_pages = 0  # 그림 속 글자를 본문에 붙인 쪽 수
     for page in pages:
         section_no = page.metadata["page"] + 1
-        text = page.page_content
+        # 머리말을 빼고 끊긴 단어를 이은 글자를 쓴다. 머리말뿐이던 쪽은 빈 글자가 되어 아래의 빈 쪽 처리를 따른다.
+        text = join_split_words(remove_page_header(page.page_content, headers))
         # OCR이 꺼져 있어도 PDF를 열어 읽지 못한 그림을 센다(보고서에 OCR 상태와 함께 남기려고).
         if pdf is None and not pdf_failed and can_render and ((text.strip() == "" and page_ocr) or text.strip() != ""):
             try:
