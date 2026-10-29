@@ -1,10 +1,11 @@
-"""업로드·다운로드가 공유하는 원본 해시·안전한 경로·검증된 복사 함수."""
-
+"""원본 저장과 다운로드가 공유하는 경로 및 무결성 검사."""
 import hashlib
 import os
+import re
 from pathlib import Path
 from uuid import uuid4
 from .errors import DbError
+from .runtime import require_id
 
 
 def file_digest(path):
@@ -27,6 +28,22 @@ def file_digest(path):
         raise DbError('INVALID_INPUT')
     return digest.hexdigest(), size
 
+
+def source_destination(root, company_id, document_id, version_id, suffix):
+    """안전한 식별자로 순수 경로를 계산한다. 실제 링크·루트 검사는 TX 밖에서 수행한다."""
+    # 경로에 쓸 식별자를 검사하고 허용되지 않은 확장자는 .bin으로 대체한다.
+    # 회사·문서·버전 ID를 차례대로 확인한다. 세 값 중 하나라도 잘못되면 중단한다.
+    # 예: 회사 ID가 '../company'이면 안전한 경로를 만들기 전에 거부한다.
+    for identifier in (company_id, document_id, version_id):
+        if not re.fullmatch(r'[a-zA-Z0-9_-]{1,36}', require_id(identifier)):
+            raise DbError('INVALID_INPUT')
+    if not re.fullmatch(r'\.[a-zA-Z0-9]{1,12}', suffix):
+        suffix = '.bin'
+    # 서버 루트 아래 회사, 문서, 버전 순서로 경로를 구성한다.
+    destination = root / company_id / document_id / version_id / ('source' + suffix)
+    if not destination.is_relative_to(root):
+        raise DbError('INVALID_INPUT')
+    return destination
 
 
 def copy_original(source, destination, expected_hash, expected_size):
@@ -58,7 +75,6 @@ def copy_original(source, destination, expected_hash, expected_size):
     finally:
         # 성공하면 목적지 이름이 같은 파일을 가리키므로 임시 이름만 지운다.
         temporary.unlink(missing_ok=True)
-
 
 
 def resolve_stored_source(source, root):

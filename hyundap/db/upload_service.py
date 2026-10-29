@@ -18,7 +18,7 @@ from hyundap.common.config import get_settings
 from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
 from .errors import DbError
 from .classification import (validate_auto_request, decision_fields, reusable_classification, CLASSIFICATION_FIELDS)
-from .source_files import file_digest, resolve_stored_source, copy_original
+from .source_files import file_digest, source_destination, resolve_stored_source, copy_original
 from .runtime import require_id, transaction, shared_table, split_layout
 from .tenancy import company_scope, company_for_reference, processing_lock, authorize_company
 
@@ -37,24 +37,6 @@ def get_ingest_function(function=None):
         raise DbError('INTEGRATION_UNAVAILABLE')
     return function
 
-
-
-
-def source_destination(root, company_id, document_id, version_id, suffix):
-    """안전한 식별자로 순수 경로를 계산한다. 실제 링크·루트 검사는 TX 밖에서 수행한다."""
-    # 경로에 쓸 식별자를 검사하고 허용되지 않은 확장자는 .bin으로 대체한다.
-    # 회사·문서·버전 ID를 차례대로 확인한다. 세 값 중 하나라도 잘못되면 중단한다.
-    # 예: 회사 ID가 '../company'이면 안전한 경로를 만들기 전에 거부한다.
-    for identifier in (company_id, document_id, version_id):
-        if not re.fullmatch(r'[a-zA-Z0-9_-]{1,36}', require_id(identifier)):
-            raise DbError('INVALID_INPUT')
-    if not re.fullmatch(r'\.[a-zA-Z0-9]{1,12}', suffix):
-        suffix = '.bin'
-    # 서버 루트 아래 회사, 문서, 버전 순서로 경로를 구성한다.
-    destination = root / company_id / document_id / version_id / ('source' + suffix)
-    if not destination.is_relative_to(root):
-        raise DbError('INVALID_INPUT')
-    return destination
 
 
 
