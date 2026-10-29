@@ -80,7 +80,7 @@ class UIServices(Protocol):
     async def ask(self, session: dict, question: str, company_ids=None, doc_types=None, document_ids=None) -> dict: ...
     async def summarize(self, session: dict, document_id: str, version_id=None) -> dict: ...
     def summarize_stream(self, session: dict, document_id: str, version_id=None) -> AsyncIterator[dict]: ...
-    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict: ...
+    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict: ...
     async def download(self, session: dict, document_id: str, version_id=None) -> str: ...
 
 
@@ -137,7 +137,7 @@ class BackendBindings:
 
     login(username=, password=), logout(session=), validate_session(session=)
     detail(user=, document_id=, version_id=)
-    upload(user=, file_path=, company_id=, doc_type=)
+    upload(user=, file_path=, company_id=, doc_type=선택)
     download(user=, document_id=, version_id=) -> 실제 로컬 파일 경로
 
     search(user=, query=, company_ids=, doc_types=, limit=)는 통합 명세 5장을 따른다.
@@ -359,7 +359,7 @@ class BackendServices:
             if events is not None and callable(getattr(events, "close", None)):
                 await asyncio.to_thread(events.close)
 
-    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
+    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict:
         checked = await self.validate_session(session)
         user = await self._actor(checked)
         path = validate_upload_file(file_path)

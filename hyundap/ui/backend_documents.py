@@ -131,16 +131,19 @@ def get_document(*, user, document_id, version_id=None):
     }
 
 
-def upload_document(*, user, file_path, company_id, doc_type):
+def upload_document(*, user, file_path, company_id, doc_type=None):
     """DB 담당의 업로드 전체 흐름을 호출하고 게시 결과를 UI 상태로 변환한다."""
     from .backend_feedback import safe_upload_message
 
     submit = _function("hyundap.db.upload_service", "upload_document")
     path = validate_upload_file(file_path)
+    metadata = {"company_id": company_id, "data_category": "operational"}
+    if doc_type is not None:
+        metadata["doc_type"] = doc_type
     result = to_plain(submit(
         actor=user,
         source_path=str(path),
-        metadata={"company_id": company_id, "doc_type": doc_type, "data_category": "operational"},
+        metadata=metadata,
     ))
     if not isinstance(result, dict) or result.get("status") not in {"success", "failed"}:
         raise UIServiceError("INVALID_RESPONSE", "업로드 처리 결과 형식을 확인해 주세요.")

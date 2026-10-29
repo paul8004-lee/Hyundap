@@ -6,6 +6,7 @@ Gradio별 세션 키로 화면 상태를 분리한다. 회사/문서/로그인�
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import aclosing
 from copy import deepcopy
@@ -36,6 +37,7 @@ class ViewState:
     inline_generation: int = 0
     answer_citations: list[dict] = field(default_factory=list)
     upload_ready: bool = False
+    summaries: dict = field(default_factory=dict)
 
 
 class StaleResponse(Exception):
@@ -49,6 +51,7 @@ class UIController:
         self.service = services
         self.login, self.search, self.admin, self.shell = login, search, admin, shell
         self.states: dict[str, ViewState] = {}
+        self.summary_lock = asyncio.Lock()
 
     def state(self, key: str) -> ViewState:
         return self.states.setdefault(key, ViewState())
@@ -58,6 +61,14 @@ class UIController:
         if ctx is not None:
             ctx.epoch += 1
             self.invalidate_inline(ctx)
+            self.clear_summaries(ctx)
+
+    @staticmethod
+    def clear_summaries(ctx):
+        for job in ctx.summaries.values():
+            if job.get("task") and not job["task"].done():
+                job["task"].cancel()
+        ctx.summaries.clear()
 
     @staticmethod
     def optional_ref(refs, name):
@@ -203,6 +214,9 @@ class UIController:
                 if action == "search":
                     async for patch in self.run_inline_answer(ctx, inline_generation):
                         yield patch
+                elif action == "select" and ctx.selected:
+                    async for patch in self.watch_summary(ctx, ticket):
+                        yield patch
         except StaleResponse:
             return
         except Exception as error:
@@ -214,6 +228,7 @@ class UIController:
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
+                self.clear_summaries(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
                 message = "로그인 시간이 만료되었습니다. 다시 로그인해 주세요."
                 if action == "upload":
@@ -258,6 +273,7 @@ class UIController:
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
+                self.clear_summaries(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
                 yield self.signed_out("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.")
             else:
@@ -278,6 +294,7 @@ class UIController:
         if user.get("must_change_password"):
             await self.service.logout(user)
             raise UIServiceError("PASSWORD_CHANGE_REQUIRED", "비밀번호 변경이 필요한 계정입니다. 인증 담당에게 변경 절차를 요청해 주세요.")
+        self.clear_summaries(ctx)
         ctx.user = user
         ctx.upload_ready = False
         ctx.results, ctx.selected = [], None
@@ -293,6 +310,7 @@ class UIController:
 
     async def do_logout(self, ctx, ticket):
         previous = ctx.user
+        self.clear_summaries(ctx)
         ctx.user, ctx.results, ctx.selected = None, [], None
         message = ""
         if previous:
@@ -344,11 +362,84 @@ class UIController:
         doc = await self.wait(ctx, ticket, self.service.detail(ctx.user, entry["document_id"], entry.get("version_id")))
         return {**self.document_patch(ctx, doc), self.search["feedback"]: ""}
 
+    async def _summary_worker(self, ctx, job, user, doc):
+        """선택이 바뀌어도 요약을 계속하고 세션별 결과만 보관한다."""
+        try:
+            async with self.summary_lock:
+                job["status"] = "요약을 준비하고 있어요."
+                stream_fn = getattr(self.service, "summarize_stream", None)
+                if not callable(stream_fn):
+                    response = await self.service.summarize(user, doc["document_id"], doc.get("version_id"))
+                    job.update(response=response, text=str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), done=True)
+                    return
+                async with aclosing(stream_fn(user, doc["document_id"], doc.get("version_id"))) as events:
+                    async for event in events:
+                        if not isinstance(event, dict):
+                            raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+                        kind = event.get("type")
+                        if kind == "status" and isinstance(event.get("message"), str):
+                            job["status"] = event["message"]
+                        elif kind == "delta" and isinstance(event.get("text"), str):
+                            job["text"] += event["text"]
+                        elif kind == "reset" and isinstance(event.get("reason"), str):
+                            job.update(text="", status=event["reason"])
+                        elif kind == "done" and isinstance(event.get("response"), dict):
+                            response = event["response"]
+                            job.update(response=response, text=str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), done=True)
+                            return
+                        else:
+                            raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+                raise UIServiceError("INVALID_RESPONSE", "요약이 완료되기 전에 응답이 끝났습니다.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            if not isinstance(error, UIServiceError):
+                logging.getLogger(__name__).exception("Background summary failed")
+                error = UIServiceError("UI_ERROR", "요약을 준비하지 못했어요. 다시 시도해 주세요.")
+            job.update(text="", error=error, done=True)
+
+    async def watch_summary(self, ctx, ticket):
+        """선택 문서의 작업을 생성하거나 기존 작업의 최신 결과를 표시한다."""
+        doc = deepcopy(ctx.selected)
+        identifier = (doc.get("document_id"), doc.get("version_id"))
+        if not all(identifier):
+            raise UIServiceError("INVALID_RESPONSE", "문서 버전을 확인할 수 없어 요약할 수 없습니다.")
+        job = ctx.summaries.get(identifier)
+        if job is None or job.get("error"):
+            job = {"text": "", "status": "요약 순서를 기다리고 있어요.", "done": False}
+            ctx.summaries[identifier] = job
+            job["task"] = asyncio.create_task(self._summary_worker(ctx, job, deepcopy(ctx.user), doc))
+        previous = None
+        while self.current(ctx, ticket) and ctx.user and ctx.selected and (ctx.selected.get("document_id"), ctx.selected.get("version_id")) == identifier:
+            error = job.get("error")
+            if error:
+                raise error
+            snapshot = (job["text"], job["status"], job["done"])
+            if snapshot != previous:
+                patch = {self.search["summary"]: job["text"], self.search["coverage"]: "", self.search["summarize"]: gr.update(interactive=job["done"], value="다시 요약" if job["done"] else "요약 중")}
+                if job["done"]:
+                    patch[self.search["coverage"]] = render_coverage(job["response"])
+                    patch[self.search["detail_feedback"]] = ""
+                else:
+                    patch[self.search["detail_feedback"]] = set_loading(job["status"])
+                yield patch
+                previous = snapshot
+            if job["done"]:
+                return
+            await asyncio.sleep(0.2)
+
+    @staticmethod
+    def store_manual_summary(ctx, doc, response):
+        key = (doc.get("document_id"), doc.get("version_id"))
+        if all(key):
+            ctx.summaries[key] = {"text": str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), "status": "", "done": True, "response": response}
+
     async def do_summarize(self, ctx, ticket):
         if not ctx.selected:
             raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
         doc = deepcopy(ctx.selected)
         response = await self.wait(ctx, ticket, self.service.summarize(ctx.user, doc["document_id"], doc.get("version_id")))
+        self.store_manual_summary(ctx, doc, response)
         return {self.search["summary"]: str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), self.search["coverage"]: render_coverage(response), self.search["detail_feedback"]: "", self.search["summarize"]: gr.update(value="다시 요약", interactive=True)}
 
     async def do_summarize_stream(self, ctx, ticket):
@@ -379,6 +470,7 @@ class UIController:
                     yield {self.search["summary"]: "", self.search["detail_feedback"]: set_loading(event["reason"])}
                 elif kind == "done" and isinstance(event.get("response"), dict):
                     response = event["response"]
+                    self.store_manual_summary(ctx, doc, response)
                     yield {**self.busy_patch("summarize", False), self.search["summary"]: str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), self.search["coverage"]: render_coverage(response), self.search["detail_feedback"]: "", self.search["summarize"]: gr.update(value="다시 요약", interactive=True)}
                     return
                 else:
@@ -432,13 +524,13 @@ class UIController:
         ctx.upload_ready = True
         return {self.admin["submit"]: gr.update(interactive=True)}
 
-    async def do_upload(self, ctx, ticket, file_path, company, doc_type):
+    async def do_upload(self, ctx, ticket, file_path, company, doc_type=None):
         paths = self.upload_paths(file_path)
         file_path = paths[0] if paths else None
-        result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
+        result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company))
         return {self.admin["result"]: render_upload_result({**result, "demo": self.service.demo}), self.admin["feedback"]: show_feedback("입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다." if self.service.demo else result.get("message") or "업로드 요청 결과를 확인해 주세요.", "info")}
 
-    async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
+    async def run_batch_upload(self, ctx, ticket, files, company, doc_type=None):
         """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
         paths = self.upload_paths(files)
         # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
@@ -452,7 +544,7 @@ class UIController:
             if not self.current(ctx, ticket):
                 return
             try:
-                result = await self.wait(ctx, ticket, self.service.upload(ctx.user, path, company, doc_type))
+                result = await self.wait(ctx, ticket, self.service.upload(ctx.user, path, company))
             except StaleResponse:
                 return
             except UIServiceError as error:

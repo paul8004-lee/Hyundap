@@ -1,7 +1,7 @@
 """관리자 수동 업로드 화면 — UI 담당: 박경환.
 
 기준 명세: AI_문서검색_통합_기능명세서 (MOD-035).
-B11/B12/B16/B21: 회사·문서 유형·파일 입력과 현재 업로드 결과를 표시한다.
+B11/B12/B16/B21: 회사·파일 입력과 현재 업로드 결과를 표시한다.
 FUN-167 build_admin_page. 업로드 제출(FUN-168 on_upload_submit)은
 app.py와 controller.py에서 담당 함수에 연결한다.
 FUN-169 load_account_options, FUN-170 on_role_change_submit,
@@ -162,7 +162,6 @@ def build_admin_page(
     enforce authorization; hidden controls are not an authorization boundary.
     """
     company_options = list(companies)
-    document_options = list(doc_types)
     with gr.Column(visible=False, elem_id="hd-upload-page", elem_classes=["hd-content"]) as container:
         gr.HTML(
             '<div class="hd-upload-heading"><h1>문서 업로드</h1>'
@@ -171,16 +170,12 @@ def build_admin_page(
         with gr.Column(elem_id="hd-upload-form", elem_classes=["hd-card"]):
             gr.HTML(
                 '<div><h2 class="hd-upload-section-title">문서 정보</h2>'
-                '<p class="hd-upload-intro">문서를 등록할 회사와 문서 유형을 선택해 주세요.</p></div>'
+                '<p class="hd-upload-intro">문서를 등록할 회사를 선택해 주세요.</p></div>'
             )
             with gr.Row():
                 company = gr.Dropdown(
                     company_options, value=company_options[0][1] if len(company_options) == 1 else None,
                     label="회사", interactive=len(company_options) != 1,
-                    elem_classes=["hd-select"],
-                )
-                doc_type = gr.Dropdown(
-                    document_options, value=None, label="문서 유형", interactive=True,
                     elem_classes=["hd-select"],
                 )
             file = gr.File(
@@ -190,7 +185,7 @@ def build_admin_page(
                 elem_id="hd-upload-file",
             )
             gr.HTML(
-                '<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 여러 개 선택할 수 있어요. 선택한 회사와 문서 유형이 모든 파일에 적용됩니다.<br>'
+                '<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 여러 개 선택할 수 있어요. 선택한 회사가 모든 파일에 적용됩니다.<br>'
                 '파일당 최대 100MiB(104,857,600바이트)이며, 빈 파일은 등록할 수 없어요.<br>'
                 '파일별로 순서대로 처리합니다. 실패한 파일은 결과를 확인하고 다시 선택해 주세요.<br>'
                 '처리 중 입력을 바꾸면 현재 파일은 등록될 수 있고 나머지 파일은 중단됩니다.<br>'
@@ -207,6 +202,6 @@ def build_admin_page(
             feedback = gr.HTML("", elem_id="hd-upload-feedback", elem_classes=["hd-feedback"])
         result = gr.HTML("", elem_id="hd-upload-result")
     return {
-        "container": container, "company": company, "doc_type": doc_type,
+        "container": container, "company": company,
         "file": file, "submit": submit, "feedback": feedback, "result": result,
     }
