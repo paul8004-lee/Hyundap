@@ -19,6 +19,7 @@
     CLS-123 Citation
     CLS-124 ChatResponse
     CLS-125 SummaryResponse
+    CLS-126 DocClassification — 문서 자동 분류 결과 (명세 밖 추가)
     SummaryPlan — 요약 구간 계획 (summary.plan_summary_segments 결과, 명세 밖 내부 자료형)
 
 결과·필터 클래스 4개는 chatbot만 만들고 쓰므로 common이 아니라 이 파일에 둔다 (D04, 이성민 결정 10/26).
@@ -93,6 +94,21 @@ class SummaryResponse:
     used_chunks: int = 0
     cited_ratio: float = 0.0  # 사용 청크 중 인용된 비율 (명세 밖 추가 필드, ui는 읽지 않아도 된다)
 
+
+
+@dataclass
+class DocClassification:
+    """문서 자동 분류 결과 (doc_classifier.classify_document). 관리자가 고른 doc_type은 바꾸지 않고 나란히 돌려준다.
+    분류에 실패하면 status='failed'이고 유형·일치 값은 비어 있다. detail에는 예외 이름만 넣는다(키 노출 방지)."""
+    document_id: str
+    version_id: str
+    admin_doc_type: str                       # 관리자가 업로드 때 고른 유형
+    auto_doc_type: str = ''                   # manual·policy·guide·other 또는 ''(모름)
+    confidence: float = 0.0                   # auto_doc_type 확신도(0~1)
+    matches_admin_type: bool | None = None    # auto_doc_type이 비면 None
+    company_match: str = ''                   # 업로드 회사와 같으면 'yes', 다르면 'no', 본문에 회사명이 없거나 애매하면 ''
+    status: str = 'success'                   # 'success' 또는 'failed'
+    detail: str = ''
 
 
 @dataclass

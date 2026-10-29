@@ -42,7 +42,7 @@ HEADING_LINE = re.compile(r'#{1,6}\s+(.+?)\s*:?|\*\*([^*]+)\*\*\s*:?|__([^_]+)__
 HEADING_MAX_CHARS = 40
 # 제목이 이 끝말로 끝나면 문장으로 본다. '개요'·'중요'처럼 '요'로 끝나는 명사는 통과시킨다
 HEADING_SENTENCE_ENDINGS = ('.', '!', '?', '다', '니다', '세요', '해요', '어요', '아요', '에요', '예요', '네요', '죠')
-# version_id는 필수로 두지 않는다: 공유 DB는 아직 스키마 v3라 문서 버전이 없어 빈 값이 올 수 있다 (v4 적용 후 재검토)
+# 출처 표시에 꼭 필요한 값만 검사한다. version_id는 반환 직전 auth.verify_documents_access가 (문서 ID, 버전 ID)를 필수로 다시 확인한다
 REQUIRED_FIELDS = ('company_name', 'file_name', 'document_id', 'location_label')
 
 

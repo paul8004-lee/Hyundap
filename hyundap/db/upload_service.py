@@ -284,6 +284,9 @@ def ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None):
         parameters = {}
     if file_hash is not None and 'file_hash' in parameters:
         kwargs['file_hash'] = file_hash
+    # 정규화 직후 문서 자동 분류는 실제 업로드 흐름에서만 켠다. 결과는 수집 보고서로 작업 기록에 남는다.
+    if 'classify' in parameters:
+        kwargs['classify'] = True
     raw_result = version_service.call_external(ingest_function, str(source), info, **kwargs)
     result = version_service.as_mapping(raw_result)
     if result.get('status') != 'success':
