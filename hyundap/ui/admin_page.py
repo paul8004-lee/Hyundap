@@ -1,7 +1,7 @@
 """관리자 수동 업로드 화면 — UI 담당: 박경환.
 
 기준 명세: AI_문서검색_통합_기능명세서 (MOD-035).
-B11/B12/B16/B21: 회사·문서 유형·파일 입력과 현재 업로드 결과를 표시한다.
+B11/B12/B16/B21: 회사·파일 입력, 자동/수동 유형 처리와 현재 업로드 결과를 표시한다.
 FUN-167 build_admin_page. 업로드 제출(FUN-168 on_upload_submit)은
 app.py와 controller.py에서 담당 함수에 연결한다.
 FUN-169 load_account_options, FUN-170 on_role_change_submit,
@@ -48,6 +48,7 @@ ADMIN_CSS = """
 .hd-upload-result dt { color: #667389; }
 .hd-upload-result dd { color: #19212b; margin: 0; overflow-wrap: anywhere; }
 .hd-upload-result-message { font-size: 13px; line-height: 22px; color: #39465a; margin: 14px 0 0; white-space: pre-wrap; }
+.hd-upload-type-note { color: #775217; background: #fff8e7; border-radius: 8px; padding: 10px 12px; margin: 12px 0 0; font-size: 13px; line-height: 21px; }
 .hd-upload-demo { color: #8a5b00; font-size: 12px; line-height: 20px; background: #fff8e7; border-radius: 8px; padding: 10px 12px; margin: 12px 0 0; }
 @media (max-width: 640px) {
   #hd-upload-page { margin-top: 24px; }
@@ -80,6 +81,30 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return {}
 
 
+def _classification_notes(data: Mapping, status: str) -> list[str]:
+    """AI 판정과 실제 게시 성공을 구분한다. 기존 버전의 유지 유형도 그대로 표시한다."""
+    names = {code: name for name, code in DOC_TYPES}
+    notes = []
+    if data.get("doc_type_fallback") is True:
+        kind = names.get(data.get("doc_type"), "확인 필요한 유형")
+        reason = data.get("doc_type_fallback_reason")
+        prefix = {"LOW_CONFIDENCE": "AI가 유형을 확신하지 못해",
+                  "CLASSIFY_FAILED": "자동 분류를 하지 못해"}.get(reason, "유형 확인이 필요해")
+        if data.get("demo"):
+            message = f"{prefix} ‘{kind}’ 유형을 사용하는 예시입니다. 실제 저장은 하지 않았어요."
+        elif status == "succeeded":
+            message = f"{prefix} ‘{kind}’ 유형으로 저장했습니다."
+        else:
+            message = f"{prefix} 처리 유형을 ‘{kind}’로 대체했습니다. 업로드가 완료되지 않아 최종 저장 유형은 확인되지 않았어요."
+        guess = names.get(data.get("auto_doc_type"))
+        if reason == "LOW_CONFIDENCE" and data.get("classify_status") == "success" and guess:
+            message += f" (AI 추정: {guess})"
+        notes.append(message)
+    if data.get("classify_status") in ("success", "failed") and data.get("company_match") == "no":
+        notes.append("본문의 회사 정보가 선택한 회사와 다를 수 있어요. 업로드 대상 회사를 확인해 주세요. 회사는 자동으로 변경하지 않았어요.")
+    return notes
+
+
 def render_upload_result(result: Any) -> str:
     """B21: render only the current request; success alone is not 'searchable'.
 
@@ -101,7 +126,16 @@ def render_upload_result(result: Any) -> str:
             value = str(data[key])
             if key == "doc_type":
                 value = {code: name for name, code in DOC_TYPES}.get(value, "문서 유형 확인 필요")
+                if data.get("demo"):
+                    label = "예시 문서 유형"
+                elif status != "succeeded":
+                    label = "처리 중 판단 유형"
             rows.append((label, value))
+    confidence = data.get("doc_type_confidence")
+    if (data.get("classify_status") == "success"
+            and data.get("auto_doc_type") in {code for _, code in DOC_TYPES}
+            and type(confidence) in (int, float) and 0 <= confidence <= 1):
+        rows.append(("AI 분류 확신도", f"{confidence:.0%}"))
     stage = data.get("stage") or data.get("step")
     if stage:
         rows.append(("진행 단계", _STAGE_LABELS.get(str(stage), "진행 상태 확인 필요")))
@@ -129,12 +163,16 @@ def render_upload_result(result: Any) -> str:
         '<p class="hd-upload-demo">화면 확인용 예시 결과입니다. 실제 문서 저장이나 검색 등록은 수행하지 않았어요.</p>'
         if data.get("demo") else ""
     )
+    classification_html = "".join(
+        f'<p class="hd-upload-type-note">{escape(note)}</p>'
+        for note in _classification_notes(data, status)
+    )
     return (
         '<section class="hd-upload-result" aria-live="polite">'
         '<div class="hd-upload-result-top"><h2>이번 업로드 결과</h2>'
         f'<span class="hd-upload-status {status_class}">{escape(status_label)}</span></div>'
         f'<dl>{rows_html}</dl><p class="hd-upload-result-message">{escape(message)}</p>'
-        f'{demo_html}</section>'
+        f'{classification_html}{demo_html}</section>'
     )
 
 
@@ -144,6 +182,8 @@ def render_batch_upload_results(results: list[dict], total: int) -> str:
     failed = sum(str(item.get("job_status") or item.get("status") or "").lower() == "failed" for item in results)
     pending = len(results) - completed - failed
     summary = f"{len(results)}/{total}건 처리 · 완료 {completed}건 · 실패 {failed}건"
+    fallback_count = sum(item.get("doc_type_fallback") is True for item in results)
+    summary += f" · 유형 확인 필요 {fallback_count}건"
     if pending:
         summary += f" · 상태 확인 필요 {pending}건"
     cards = "".join(render_upload_result(item) for item in results)
@@ -154,6 +194,7 @@ def build_admin_page(
     companies: Sequence[tuple[str, str]],
     doc_types: Sequence[tuple[str, str]],
     demo_mode: bool = True,
+    *, auto_classify: bool = False,
 ) -> dict[str, Any]:
     """FUN-167: build admin-only upload form; app.py controls role visibility.
 
@@ -163,6 +204,8 @@ def build_admin_page(
     """
     company_options = list(companies)
     document_options = list(doc_types)
+    intro = "문서를 등록할 회사를 선택해 주세요. 파일별 문서 유형은 AI가 자동 분류합니다." if auto_classify else "문서를 등록할 회사와 문서 유형을 선택해 주세요."
+    type_note = "선택한 회사에 등록하며, 파일마다 AI가 문서 유형을 자동 분류합니다." if auto_classify else "선택한 회사와 문서 유형이 모든 파일에 적용됩니다."
     with gr.Column(visible=False, elem_id="hd-upload-page", elem_classes=["hd-content"]) as container:
         gr.HTML(
             '<div class="hd-upload-heading"><h1>문서 업로드</h1>'
@@ -171,7 +214,7 @@ def build_admin_page(
         with gr.Column(elem_id="hd-upload-form", elem_classes=["hd-card"]):
             gr.HTML(
                 '<div><h2 class="hd-upload-section-title">문서 정보</h2>'
-                '<p class="hd-upload-intro">문서를 등록할 회사와 문서 유형을 선택해 주세요.</p></div>'
+                f'<p class="hd-upload-intro">{escape(intro)}</p></div>'
             )
             with gr.Row():
                 company = gr.Dropdown(
@@ -180,7 +223,7 @@ def build_admin_page(
                     elem_classes=["hd-select"],
                 )
                 doc_type = gr.Dropdown(
-                    document_options, value=None, label="문서 유형", interactive=True,
+                    document_options, value=None, label="문서 유형", interactive=True, visible=not auto_classify,
                     elem_classes=["hd-select"],
                 )
             file = gr.File(
@@ -190,7 +233,7 @@ def build_admin_page(
                 elem_id="hd-upload-file",
             )
             gr.HTML(
-                '<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 여러 개 선택할 수 있어요. 선택한 회사와 문서 유형이 모든 파일에 적용됩니다.<br>'
+                f'<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 여러 개 선택할 수 있어요. {escape(type_note)}<br>'
                 '파일당 최대 100MiB(104,857,600바이트)이며, 빈 파일은 등록할 수 없어요.<br>'
                 '파일별로 순서대로 처리합니다. 실패한 파일은 결과를 확인하고 다시 선택해 주세요.<br>'
                 '처리 중 입력을 바꾸면 현재 파일은 등록될 수 있고 나머지 파일은 중단됩니다.<br>'
@@ -200,6 +243,8 @@ def build_admin_page(
                 gr.HTML(
                     '<div class="hd-upload-demo">화면 확인용 모드입니다. 선택한 파일로 입력 검증과 예시 결과를 확인할 수 있으며, 실제 문서로 등록되지는 않아요.</div>'
                 )
+            if demo_mode and auto_classify:
+                gr.HTML('<div class="hd-upload-demo">분류 예시: 파일명에 ‘규정·매뉴얼·안내·기타’가 있으면 해당 유형, ‘실패’가 있으면 분류 실패, 그 외에는 확신도 부족 안내를 확인할 수 있어요. 파일명으로 만든 예시이며 실제 AI 분류가 아닙니다.</div>')
             submit = gr.Button(
                 "문서 등록", variant="primary", interactive=False, elem_id="hd-upload-submit",
                 elem_classes=["hd-button"],

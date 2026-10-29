@@ -71,6 +71,7 @@ class UIServices(Protocol):
     """화면이 의존하는 규격. 실제 제공 함수 이름은 BackendBindings에서 연결."""
 
     demo: bool
+    auto_classify: bool
 
     async def login(self, username: str, password: str) -> dict: ...
     async def logout(self, session: dict) -> None: ...
@@ -80,7 +81,7 @@ class UIServices(Protocol):
     async def ask(self, session: dict, question: str, company_ids=None, doc_types=None, document_ids=None) -> dict: ...
     async def summarize(self, session: dict, document_id: str, version_id=None) -> dict: ...
     def summarize_stream(self, session: dict, document_id: str, version_id=None) -> AsyncIterator[dict]: ...
-    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict: ...
+    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict: ...
     async def download(self, session: dict, document_id: str, version_id=None) -> str | dict: ...
 
 
@@ -105,6 +106,21 @@ async def call_function(function: Callable, *args, **kwargs) -> Any:
         return await function(*args, **kwargs)
     result = await asyncio.to_thread(function, *args, **kwargs)
     return await result if inspect.isawaitable(result) else result
+
+
+def validate_upload_metadata(company_id, doc_type=None, *, auto_classify=False):
+    """#261: 자동 요청과 수동 유형을 구분하며 유형을 임의로 other로 채우지 않는다."""
+    if type(auto_classify) is not bool:
+        raise UIServiceError("INVALID_INPUT", "업로드 방식이 올바르지 않습니다.", "input_error")
+    if not company_id:
+        raise UIServiceError("METADATA_REQUIRED", "문서를 등록할 회사를 선택해 주세요.", "input_error")
+    if auto_classify:
+        if doc_type is not None:
+            raise UIServiceError("INVALID_INPUT", "자동 분류 요청에는 문서 유형을 함께 지정할 수 없습니다.", "input_error")
+    elif not doc_type:
+        raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+    elif not isinstance(doc_type, str) or doc_type not in {code for _, code in DOC_TYPES}:
+        raise UIServiceError("INVALID_DOC_TYPE", "문서 유형을 다시 선택해 주세요.", "input_error")
 
 
 def validate_upload_file(file_path: str | Path) -> Path:
@@ -137,7 +153,7 @@ class BackendBindings:
 
     login(username=, password=), logout(session=), validate_session(session=)
     detail(user=, document_id=, version_id=)
-    upload(user=, file_path=, company_id=, doc_type=)
+    upload(user=, file_path=, company_id=, doc_type=) 또는 자동 분류 시 auto_classify=True
     download(user=, document_id=, version_id=) -> 실제 로컬 파일 경로
 
     search(user=, query=, company_ids=, doc_types=, limit=)는 통합 명세 5장을 따른다.
@@ -164,6 +180,7 @@ class BackendBindings:
     temporary_auth: bool = False
     company_names: Callable | None = None
     summarize_document_stream: Callable | None = None
+    auto_classify_enabled: Callable[[], bool] | None = None
 
 
 class BackendServices:
@@ -174,6 +191,9 @@ class BackendServices:
     def __init__(self, bindings: BackendBindings | None = None):
         self.bindings = bindings or BackendBindings()
         self.temporary_auth = self.bindings.temporary_auth
+        # 앱을 만들 때의 서버 설정을 폼과 요청에 동일하게 적용한다.
+        enabled = self.bindings.auto_classify_enabled
+        self.auto_classify = enabled is not None and enabled() is True
 
     async def _call(self, name: str, **kwargs) -> Any:
         function = getattr(self.bindings, name, None)
@@ -369,13 +389,14 @@ class BackendServices:
             if events is not None and callable(getattr(events, "close", None)):
                 await asyncio.to_thread(events.close)
 
-    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
+    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict:
         checked = await self.validate_session(session)
         user = await self._actor(checked)
-        if not company_id or not doc_type:
-            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+        automatic = self.auto_classify and doc_type is None
+        validate_upload_metadata(company_id, doc_type, auto_classify=automatic)
         path = validate_upload_file(file_path)
-        result = self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, doc_type=doc_type), "업로드")
+        mode = {"auto_classify": True} if automatic else {"doc_type": doc_type}
+        result = self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, **mode), "업로드")
         return {**result, "company_name": _company_names(checked, demo=self.temporary_auth).get(company_id, "회사명 확인 필요")}
 
     async def download(self, session: dict, document_id: str, version_id=None) -> str | dict:
