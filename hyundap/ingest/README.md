@@ -19,6 +19,8 @@
 | ③ 글자 정리 | 한글 결합, 보이지 않는 글자 제거, 공백 정리 | `normalizer.py` |
 | ④ 청킹 | 약 1,000자씩 자름. 쪽·슬라이드 경계는 넘지 않음 | `chunker.py` |
 
+PDF는 글자를 꺼낸 직후(②) 3쪽 이상 맨 위에 반복되는 머리말·쪽 번호를 모든 쪽에서 빼고, 줄 끝에서 끊긴 한글 단어(줄 끝 공백 없음)는 이어 붙입니다(`loaders/pdf_loader.py`). 수식 폰트 등으로 깨진 글자는 지우지 않고 그대로 둡니다.
+
 각 청크에는 **회사 · 파일명 · 위치(p.3, 슬라이드 5 등)** 가 붙어서, 검색 결과의 출처 표시에 그대로 쓰입니다.
 
 이 폴더가 하지 **않는** 일: 파일 저장·DB 기록(`db/`), 임베딩·벡터 저장(`embedding/`), 화면(`ui/`), 로그인·권한(`auth/`).
@@ -76,6 +78,8 @@ else:
 | 출력 | `IngestResult` — `status`, `chunks`, `report`, `error_code`, `error_message` |
 | 청크 1개 | `chunk_id, document_id, version_id, company_id, company_name, doc_type, file_name, section_no, location_label, chunk_index, text` |
 
+자동 분류 업로드(`apply_classification=True`)에서는 분류로 정한 최종 유형이 모든 청크의 `doc_type`이 되고, 보고서(`report`)에 `doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`이 함께 담깁니다. 이 인자를 쓰지 않으면 지금까지와 같습니다.
+
 ## 오류 코드
 
 | 코드 | 뜻 |
@@ -90,7 +94,7 @@ else:
 | `INVALID_DOC_TYPE` | 지원하지 않는 문서 유형 |
 | `FILE_UNAVAILABLE` | 파일을 찾을 수 없거나 읽을 권한이 없음 |
 
-DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다. 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수이며 임시 진단값입니다.
+DB 업로드의 후보 생성 전 오류는 작업 원장 없이 반환됩니다. 수집 보고서의 `short_chunk_count`는 앞뒤 공백을 제외하고 20자 미만인 청크의 수이며 임시 진단값입니다. 보고서에는 OCR 상태(`ocr_status`)와 읽은 수·읽지 못한 수(`ocr_read_count`·`ocr_unread_count`)도 남으며, OCR이 꺼져 이미지·스캔 쪽을 읽지 못하면 이유가 담긴 경고가 붙습니다(`docs/spec.md`의 "OCR 상태 보고").
 
 
 ## 스캔·그림·차트 읽기

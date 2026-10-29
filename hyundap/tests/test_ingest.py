@@ -18,6 +18,7 @@ import time
 import zlib
 from importlib.util import find_spec
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
 import numpy
@@ -325,7 +326,7 @@ class OcrTests(IngestTestCase):
             doc = load_pdf(self.path('scan.pdf'), dict(INFO))
         read.assert_not_called()
         self.assertEqual([s.section_no for s in doc.sections], [2])
-        self.assertEqual(doc.warnings, ['p.1: 글자가 없어 건너뜀'])
+        self.assertEqual(doc.warnings, ['p.1: 글자가 없어 건너뜀', 'OCR이 설치되어 있지 않아 이미지·스캔 쪽 1개의 글자를 읽지 않음'])
 
 
 class FigureOcrTests(IngestTestCase):
@@ -554,7 +555,7 @@ class DocxFigureOcrTests(IngestTestCase):
         document.add_picture(io.BytesIO(png_bytes()), width=Inches(3))
         doc, read = self.read(document, available=False)
         read.assert_not_called()
-        self.assertEqual(doc.warnings, ['그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음'])
+        self.assertEqual(doc.warnings, ['그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음', 'OCR이 설치되어 있지 않아 이미지·스캔 쪽 1개의 글자를 읽지 않음'])
 
     def test_figure_count_is_capped_per_document(self):
         """문서당 그림 OCR 수 상한을 넘으면 읽지 않고 경고하는지 확인한다."""
@@ -629,7 +630,7 @@ class PptxFigureOcrTests(IngestTestCase):
         slide.shapes.add_picture(io.BytesIO(png_bytes()), Inches(1), Inches(2), width=Inches(3))
         doc, read = self.read(presentation, available=False)
         read.assert_not_called()
-        self.assertEqual(doc.warnings, ['이미지·차트 1개는 글자를 읽지 않음 (슬라이드 1)'])
+        self.assertEqual(doc.warnings, ['이미지·차트 1개는 글자를 읽지 않음 (슬라이드 1)', 'OCR이 설치되어 있지 않아 이미지·스캔 쪽 1개의 글자를 읽지 않음'])
 
 
 class OcrLimitTests(IngestTestCase):
@@ -1149,6 +1150,70 @@ class ReviewFixTests(IngestTestCase):
         reader.count = reader.max_count
         self.assertEqual(pdf_loader.figure_crops([Page()], 0, reader), [])
         self.assertTrue(reader.capped)
+
+
+class PdfTextCleanupTests(IngestTestCase):
+    """PDF 쪽 글자에서 반복 머리말을 빼고 끊긴 단어를 잇는지 확인한다."""
+
+    def load(self, texts):
+        """쪽별 글자 목록을 가짜 PyPDFLoader 결과로 넣고 load_pdf의 문서를 돌려준다. OCR용 쪽 그리기는 끈다."""
+        pages = []
+        for number, text in enumerate(texts):
+            pages.append(SimpleNamespace(page_content=text, metadata={'page': number}))
+        with patch('hyundap.ingest.loaders.pdf_loader.PyPDFLoader') as loader, \
+                patch('hyundap.ingest.loaders.pdf_loader.pdfium_available', return_value=False):
+            loader.return_value.load.return_value = pages
+            return load_pdf(self.path('a.pdf'), dict(INFO))
+
+    def test_repeated_header_and_page_number_are_removed_from_every_page(self):
+        """3쪽 이상 반복되는 머리말과 그 옆 쪽 번호가 모든 쪽에서 빠지는지 확인한다."""
+        texts = [f'보고서 제목\n{n}\n{n}쪽 본문입니다' for n in range(1, 5)]
+        doc = self.load(texts)
+        for number, section in enumerate(doc.sections, start=1):
+            self.assertEqual(section.text, f'{number}쪽 본문입니다')
+        self.assertIn('반복 머리말 1줄 제거', doc.warnings)
+
+    def test_two_pages_are_not_enough_to_be_a_header(self):
+        """2쪽에만 같은 첫 줄이 있으면 머리말로 보지 않고 그대로 두는지 확인한다."""
+        doc = self.load(['같은 제목\n첫 쪽 본문', '같은 제목\n둘째 쪽 본문'])
+        self.assertIn('같은 제목', doc.sections[0].text)
+        self.assertEqual(doc.warnings, [])
+
+    def test_repeated_line_below_the_top_is_kept(self):
+        """맨 위 3줄 밖에서 반복되는 줄(그래프 출처 등)은 지우지 않는지 확인한다."""
+        texts = [f'내용 {n}\n설명 {n}\n보충 {n}\n자료: 통계청.' for n in range(4)]
+        doc = self.load(texts)
+        for section in doc.sections:
+            self.assertIn('자료: 통계청.', section.text)
+
+    def test_page_number_alone_is_kept_without_a_header(self):
+        """머리말이 없는 쪽의 숫자 줄은 쪽 번호로 보고 지우지 않는지 확인한다."""
+        doc = self.load(['1\n본문 하나', '2\n본문 둘'])
+        self.assertTrue(doc.sections[0].text.startswith('1\n'))
+
+    def test_header_only_page_is_skipped_like_an_empty_page(self):
+        """머리말뿐인 쪽은 빈 쪽처럼 섹션을 만들지 않고, 다른 쪽 번호는 그대로인지 확인한다."""
+        texts = ['보고서 제목\n1\n첫 쪽 본문', '보고서 제목\n2', '보고서 제목\n3\n셋째 쪽 본문', '보고서 제목\n4\n넷째 쪽 본문']
+        doc = self.load(texts)
+        self.assertEqual([section.location_label for section in doc.sections], ['p.1', 'p.3', 'p.4'])
+        self.assertIn('p.2: 글자가 없어 건너뜀', doc.warnings)
+
+    def test_word_split_at_line_end_is_joined(self):
+        """줄 끝에서 단어 중간이 끊긴 곳(수 + 준에)이 이어 붙는지 확인한다."""
+        doc = self.load(['한국 경제가 평균적인 수\n준에 도달하지 못했다.'])
+        self.assertEqual(doc.sections[0].text, '한국 경제가 평균적인 수준에 도달하지 못했다.')
+
+    def test_line_break_between_words_is_kept(self):
+        """줄 끝에 공백이 있는(단어 사이에서 바뀐) 줄바꿈은 그대로 두는지 확인한다."""
+        text = '한국 경제가 평균적인 \n수준에 도달하지 못했다.'
+        doc = self.load([text])
+        self.assertEqual(doc.sections[0].text, text)
+
+    def test_short_heading_is_not_joined_to_next_line(self):
+        """짧은 제목 줄이 다음 줄과 붙어 '시사점첫째'가 되지 않는지 확인한다."""
+        text = '4. 시사점\n첫째, 경기 국면 전환기에 필연적으로 나타나는 혼란을 완화시킬 수 있는 정책 운용이 필요하다.'
+        doc = self.load([text])
+        self.assertEqual(doc.sections[0].text, text)
 
 
 class FormatTests(IngestTestCase):

@@ -28,7 +28,7 @@ DEFAULT_OCR_MAX_FIGURES = 100
 class Settings:
     """여러 모듈이 함께 읽는 변경 불가능한 설정 묶음.
 
-    모델명·저장 경로·검색 제한값·청크 크기·OCR 설정(상한·스레드 수·예열)을 보관한다. API 키는 없을 수 있으며,
+    모델명·저장 경로·검색 제한값·청크 크기·OCR 설정(상한·스레드 수·예열)·문서 자동 분류 사용 여부를 보관한다. API 키는 없을 수 있으며,
     실제 API를 호출하는 모듈이 필요 여부를 검사한다. 필드 값을 직접 수정할 수 없다."""
     openai_api_key: str | None
     openai_embedding_model: str
@@ -44,6 +44,7 @@ class Settings:
     ocr_max_figures: int = DEFAULT_OCR_MAX_FIGURES  # 0이면 쪽·슬라이드 안의 그림 OCR을 하지 않는다
     ocr_threads: int = field(default_factory=lambda: default_ocr_threads())   # OCR이 쓰는 CPU 스레드 수(get_settings와 같은 기본값)
     ocr_warmup: bool = True                         # 서버 시작 때 OCR 엔진을 미리 불러올지
+    doc_classify: bool = False                      # 업로드 중 문서 유형·회사 일치 자동 분류(OpenAI)를 할지
 
 
 def _read(name: str) -> str | None:
@@ -131,4 +132,6 @@ def get_settings() -> Settings:
         ocr_max_figures=_read_number('OCR_MAX_FIGURES', DEFAULT_OCR_MAX_FIGURES, int, lambda v: 0 <= v <= 100000),
         ocr_threads=_read_number('OCR_THREADS', default_ocr_threads(), int, lambda v: 1 <= v <= 256),
         ocr_warmup=_read_bool('OCR_WARMUP', True),
+        # 업로드마다 외부 API를 한 번 더 부르므로 기본은 끄고, 1·true 등으로 명시할 때만 켠다.
+        doc_classify=_read_bool('DOC_CLASSIFY', False),
     )

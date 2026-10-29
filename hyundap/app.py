@@ -27,6 +27,7 @@ from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page
 from hyundap.ui.chat_page import CHAT_CSS
 from hyundap.ui.components import apply_common_style, brand_html, get_theme
 from hyundap.ui.controller import UIController
+from hyundap.ui.component_contract import validate_component_contract
 from hyundap.ui.login_page import build_login_page
 from hyundap.ui.search_page import SEARCH_CSS, build_search_page
 from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices, UIServices
@@ -34,11 +35,12 @@ from hyundap.ui.services import COMPANIES, DOC_TYPES, BackendServices, UIService
 
 APP_CSS = """
 #hd-shell {--hd-page-accent:#032b5c;--hd-row-hover:#f0f5fc;--hd-row-selected:#eaf1fb;}
-#hd-shell:has(#hd-nav-user [data-role="company_admin"]),#hd-shell:has(#hd-nav-user [data-role="platform_admin"]) {--hd-page-accent:var(--hd-green);--hd-row-hover:#f1f8f3;--hd-row-selected:#e7f3ec;}
+#hd-shell.hd-role-admin {--hd-page-accent:var(--hd-green);--hd-row-hover:#f1f8f3;--hd-row-selected:#e7f3ec;}
 #hd-shell .html-container {padding:0!important;}
-#hd-topnav {flex:0 0 60px!important;height:60px;}
-#hd-topnav:has([data-role="company_admin"]),#hd-topnav:has([data-role="platform_admin"]) {background:var(--hd-green)!important;}
+#hd-topnav {flex:0 0 60px!important;height:60px;background:var(--hd-page-accent,#032b5c)!important;}
+#hd-shell.hd-role-admin #hd-topnav {background:var(--hd-green)!important;}
 #hd-topnav-row {flex-wrap:nowrap;}
+#hd-topnav #hd-nav-search,#hd-topnav #hd-nav-upload,#hd-topnav #hd-nav-logout {color:#fff!important;}
 #hd-nav-brand {flex:0 0 160px;min-width:150px;}
 #hd-nav-search,#hd-nav-upload {flex:0 0 96px;min-width:90px;max-width:110px;}
 #hd-topnav-row .hd-nav-button.primary {border-bottom-color:white!important;color:white!important;font-weight:700!important;}
@@ -53,8 +55,8 @@ APP_CSS = """
 #hd-type {padding:0!important;border:0!important;border-radius:10px!important;margin:0!important;}
 #hd-shell .hd-notice span {color:inherit;}
 #hd-search-submit {background:var(--hd-page-accent)!important;border-color:var(--hd-page-accent)!important;color:white!important;}
-#hd-shell:has(#hd-nav-user [data-role="company_admin"]) #hd-search-submit:hover,#hd-shell:has(#hd-nav-user [data-role="platform_admin"]) #hd-search-submit:hover {background:#176b43!important;border-color:#176b43!important;}
-#hd-shell:has(#hd-nav-user [data-role="company_admin"]) #hd-document-actions button.primary,#hd-shell:has(#hd-nav-user [data-role="platform_admin"]) #hd-document-actions button.primary {background:var(--hd-green)!important;border-color:var(--hd-green)!important;color:#fff!important;}
+#hd-shell.hd-role-admin #hd-search-submit:hover {background:#176b43!important;border-color:#176b43!important;}
+#hd-shell.hd-role-admin #hd-document-actions button.primary {background:var(--hd-green)!important;border-color:var(--hd-green)!important;color:#fff!important;}
 #hd-results-card.hd-card {padding:0!important;}
 #hd-modal {position:fixed!important;z-index:1000;inset:0;width:100%;height:100dvh;background:rgb(8 20 35 / 42%);display:flex;align-items:center;justify-content:center;padding:24px!important;box-sizing:border-box;}
 #hd-modal-card {flex:0 0 auto!important;width:600px;max-width:100%;min-height:0;max-height:85dvh;overflow:auto;padding:24px!important;background:white;border:1px solid #dfe4ed;border-radius:18px;box-shadow:0 16px 60px #09213b30;gap:18px;}
@@ -152,6 +154,10 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
         key.delete_callback = controller.discard
         # 반환 dict의 일부 항목만 갱신한다. 다른 화면/입력은 그대로 유지한다.
         outputs = list(dict.fromkeys(component for refs in [login, search, admin, shell] for component in refs.values() if isinstance(component, (gr.components.Component, gr.layouts.Column, gr.layouts.Row))))
+        validate_component_contract(
+            {"login": login, "search": search, "admin": admin, "shell": shell},
+            registered=demo.blocks, outputs=outputs,
+        )
 
         def handler(action):
             async def callback(session_key, *values):

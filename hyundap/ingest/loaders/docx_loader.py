@@ -7,6 +7,7 @@
     FUN-209 load_docx — DOCX 문단·표를 공통 문서로 읽는다. 그림은 PaddleOCR(있으면)로, Office 차트는 차트 XML에서 읽는다."""
 
 
+import re
 import zlib
 from zipfile import BadZipFile
 
@@ -25,6 +26,43 @@ from ..models import CORRUPTED_FILE, IngestError
 # 글자를 읽지 않는 그림·도형·차트·텍스트 상자(w:drawing, 구형 w:pict). mc:Fallback 안의 중복 표현은 뺀다.
 UNREAD_OBJECTS_XPATH = ".//w:drawing | .//w:pict[not(ancestor::*[local-name()='Fallback'])]"
 EMU_PER_PT = 12700
+
+# 제목 스타일(Heading)이 문서에 하나도 없을 때만 쓰는 보조 제목 규칙. 한국 사무 문서는 제목을 Normal 스타일에 번호만 붙여 쓰는 경우가 많다.
+# 큰 번호 제목만 새 섹션으로 본다: '제1장', '1.', 'Ⅰ.', 'I.'. '1)'·'가.' 같은 작은 번호는 본문으로 둔다(작은 섹션이 많아지는 것을 막는다).
+NUMBERED_HEADING = re.compile(r"^(?:제\s*\d+\s*[장절편]|\d{1,2}\.(?!\d)|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.|[IVX]+\.)\s*\S")
+HEADING_MAX_CHARS = 40   # 이보다 긴 문단은 제목이 아니라 번호가 붙은 문장으로 본다
+SENTENCE_ENDINGS = (".", "!", "?", "다")   # 이 끝말이면 제목이 아니라 문장이다('개요'처럼 '요'로 끝나는 제목은 통과)
+
+
+def style_name_of(block, style_names):
+    """문단의 스타일 이름. 같은 스타일 번호는 한 번만 읽어 style_names에 저장한다(이름을 읽는 것이 느리다)."""
+    style_id = block._p.style
+    if style_id not in style_names:
+        style_names[style_id] = block.style.name
+    return style_names[style_id]
+
+
+def has_heading_style(docx_file, style_names):
+    """본문에 제목 스타일(Heading) 문단이 하나라도 있으면 True."""
+    for block in iter_blocks(docx_file.element.body, docx_file._body):
+        if isinstance(block, Paragraph) and style_name_of(block, style_names).startswith("Heading"):
+            return True
+    return False
+
+
+def looks_like_heading(text, style_name, paragraph):
+    """제목 스타일이 없는 문서에서 이 문단을 제목으로 볼지 정한다.
+
+    아웃라인 수준(w:outlineLvl)이 있으면 제목이다. 아니면 짧고(HEADING_MAX_CHARS) 문장으로 끝나지 않고
+    큰 번호(NUMBERED_HEADING)로 시작하는 문단만 제목이다. 목록 문단은 제외한다."""
+    if text == "":
+        return False
+    properties = paragraph._p.pPr
+    if properties is not None and properties.find(qn("w:outlineLvl")) is not None:
+        return True
+    if style_name.startswith("List"):
+        return False
+    return len(text) <= HEADING_MAX_CHARS and not text.endswith(SENTENCE_ENDINGS) and NUMBERED_HEADING.match(text) is not None
 
 
 def add_docx_section(doc, title, lines):
@@ -91,9 +129,7 @@ def read_charts(docx_file, chart_reader, element):
 
 def read_pictures(docx_file, reader, element, lines):
     """요소 안 그림들에서 OCR로 읽은 글자 목록을 돌려준다. 같은 구간에 이미 모은 글(lines)과 겹치는 줄은 뺀다."""
-    texts = []
-    if not reader.enabled:
-        return texts
+    texts = []   # OCR이 꺼져 있어도 그림을 훑어 읽지 못한 그림 수를 센다(read_picture가 센다)
     for group in picture_groups(element):
         read_any = False
         for rid, width, height in group:
@@ -175,6 +211,9 @@ def load_docx(file_path, upload_info):
     lines = []
     table_no = 0
     style_names = {}
+    # 제목 스타일이 하나도 없는 문서는 번호 제목(제1장·1.)이나 아웃라인 수준으로 섹션을 나눈다. 제목 스타일이 있으면 지금처럼 그것만 쓴다.
+    fallback_headings = not has_heading_style(docx_file, style_names)
+    fallback_count = 0
 
     for block in iter_blocks(docx_file.element.body, docx_file._body):
         if isinstance(block, Paragraph):
@@ -182,10 +221,10 @@ def load_docx(file_path, upload_info):
             # [병목 해결을 위해, 수업에서 다루지 않은 block._p.style 사용]
             # block.style.name은 스타일을 직접 지정하지 않은 문단마다 기본 스타일을 처음부터 다시 찾아서 느리다.
             # 그래서 스타일 번호(block._p.style)만 먼저 읽고, 처음 보는 번호일 때만 이름을 읽어 style_names에 저장해 둔다.
-            style_id = block._p.style
-            if style_id not in style_names:
-                style_names[style_id] = block.style.name
-            if style_names[style_id].startswith("Heading"):
+            style_name = style_name_of(block, style_names)
+            if style_name.startswith("Heading") or (fallback_headings and looks_like_heading(text, style_name, block)):
+                if not style_name.startswith("Heading"):
+                    fallback_count += 1
                 add_docx_section(doc, title, lines)
                 title = text
                 lines = []
@@ -205,9 +244,12 @@ def load_docx(file_path, upload_info):
             lines.extend(read_charts(docx_file, chart_reader, block._tbl))
 
     add_docx_section(doc, title, lines)
+    if fallback_count > 0:
+        doc.warnings.append(f"제목 스타일이 없어 번호·아웃라인 제목 {fallback_count}개로 섹션을 나눔")
     unread = len(docx_file.element.body.xpath(UNREAD_OBJECTS_XPATH)) - reader.objects_read - chart_reader.appended
     if unread > 0:
         doc.warnings.append(f"그림·도형·차트·텍스트 상자 {unread}개는 글자를 읽지 않음")
     doc.warnings.extend(chart_reader.warnings())
     doc.warnings.extend(reader.warnings())
+    figures.set_ocr_stats(doc, figures.ocr_status(), reader.appended, reader.unread)
     return doc

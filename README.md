@@ -162,12 +162,16 @@
 모든 명령은 **저장소 맨 위 폴더**에서 실행합니다(`cd hyundap` 하지 않음). Python 3.11 이상이 필요합니다.
 
 ```bash
-python -m pip install -r requirements.txt           # 패키지 설치
+python -X utf8 -m pip install -r requirements.txt   # 패키지 설치
 python -m hyundap.app                               # 앱 실행 (http://127.0.0.1:7860)
 python -m hyundap.app --mode demo                   # 예시 데이터로 화면 확인 (DB·OpenAI 호출 없음)
 python -m hyundap.app --check-backend               # 함수·패키지·설정 준비 상태만 점검
 python -m unittest discover -s hyundap/tests -t .   # 전체 테스트
 ```
+
+`-X utf8`는 파이썬을 UTF-8 모드로 켜는 옵션입니다. requirements.txt에 한글 주석이 있어서, Windows 기본 인코딩(cp949)으로 요구 사항 파일을 읽는 구버전 pip(예: Python 3.11.9에 포함된 pip 24.0)에서는 설치가 `UnicodeDecodeError`로 실패합니다. 이 옵션을 붙이면 운영체제나 pip 버전에 상관없이 같은 명령으로 설치됩니다.
+
+패키지 설치 성공은 백엔드 서비스 준비 완료와 다릅니다. 설치 후 `python -m hyundap.app --check-backend`로 준비 상태를 점검하고, 실제 서비스 동작에는 아래 `.env` 설정과 인증 연동이 추가로 필요합니다.
 
 포트를 바꾸려면 `--port 7861`처럼 지정합니다. 예시 모드의 체험 계정과 화면별 동작은 [UI 안내](hyundap/ui/README.md)를 참고합니다.
 
@@ -186,6 +190,7 @@ python -m unittest discover -s hyundap/tests -t .   # 전체 테스트
 | `CHUNK_SIZE`, `CHUNK_OVERLAP` | 선택 | 청크 길이와 겹침(글자 수) | `1000`, `150` |
 | `SEARCH_MIN_SCORE`, `SEARCH_TOP_K_MAX` | 선택 | 검색 최소 유사도와 최대 조회 수 | `0.3`, `80` |
 | `SESSION_TTL_MINUTES` | 선택 | 로그인 세션 유지 시간(분) | `480` |
+| `DOC_CLASSIFY` | 선택 | 업로드 중 문서 유형·회사 일치 자동 분류(OpenAI Decisions API, `OPENAI_API_KEY` 사용). `1`이면 켬 | `0` (끔) |
 
 ### 계정 만들기
 

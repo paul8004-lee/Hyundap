@@ -37,6 +37,35 @@ MAX_PICTURE_PX = 4000       # 긴 변이 이보다 크면 줄여서 읽는다(�
 MAX_PICTURE_PIXELS = 40_000_000   # 화소 수가 이보다 많은 그림은 열기 전에 건너뛴다(압축된 파일이 작아도 풀면 수 GB가 된다)
 
 
+OCR_OFF_REASONS = {"unavailable": "OCR이 설치되어 있지 않아", "disabled": "OCR이 설정으로 꺼져 있어"}
+
+
+def ocr_status(can_render=True, uses_pages=False):
+    """이 문서에서 OCR을 쓸 수 있는 상태. 'enabled'(켜짐), 'unavailable'(PaddleOCR 미설치·PDF 쪽을 그릴 수 없음), 'disabled'(설정 상한이 모두 0).
+
+    uses_pages가 True(PDF)이면 쪽 OCR 상한(OCR_MAX_PAGES)도 본다. can_render는 PDF 쪽을 그리는 pypdfium2가 있는지다."""
+    settings = get_settings()
+    if not ocr.is_available() or not can_render:
+        return "unavailable"
+    limits = (settings.ocr_max_pages, settings.ocr_max_figures) if uses_pages else (settings.ocr_max_figures,)
+    return "disabled" if not any(limits) else "enabled"
+
+
+def set_ocr_stats(doc, status, read, unread):
+    """문서에 OCR 상태·읽은 수·읽지 못한 수를 붙이고, OCR이 꺼져 못 읽은 것이 있으면 이유가 담긴 경고를 더한다.
+
+    CommonDocument(common)에 필드를 더하지 않으려고 속성으로 붙인다. 정규화가 normalize_document에서 이어 준다."""
+    doc.ocr = {"status": status, "read": read, "unread": unread}
+    reason = OCR_OFF_REASONS.get(status)
+    if reason and unread > 0:
+        doc.warnings.append(f"{reason} 이미지·스캔 쪽 {unread}개의 글자를 읽지 않음")
+
+
+def get_ocr_stats(doc):
+    """문서에 붙은 OCR 통계(dict). 없으면 빈 dict."""
+    return dict(getattr(doc, "ocr", None) or {})
+
+
 class UnreadablePicture(Exception):
     """그림 파일을 읽지 못함(EMF 같은 벡터 형식, 손상, 너무 큰 그림 등)."""
 
@@ -116,6 +145,7 @@ class FigureReader:
         self.unreadable = 0     # 형식을 읽지 못해 건너뛴 그림 수(EMF 등)
         self.capped = False     # 상한 때문에 읽지 않은 그림이 있는지
         self.failed = 0         # OCR 엔진 오류로 읽지 못한 그림 수(오류가 나면 이 문서의 그림 OCR을 멈춘다)
+        self.unread = 0         # 읽지 못한 그림 수(OCR 꺼짐·상한 초과·읽을 수 없는 형식·엔진 오류를 모두 합친다)
         self.objects_read = 0   # 글자를 읽은 개체 수. 그림이 여러 장 든 개체(DOCX의 w:drawing)도 1로 센다
 
     @property
@@ -129,6 +159,7 @@ class FigureReader:
             return ""
         if self.count >= self.max_count:
             self.capped = True
+            self.unread += 1
             return ""
         self.count += 1
         try:
@@ -136,6 +167,7 @@ class FigureReader:
         except Exception:   # 모델 내려받기 실패 등 엔진 오류: 업로드 전체가 실패하지 않고 그림 OCR만 끈다
             logger.exception("그림 OCR 중 오류가 났습니다. 이 문서의 나머지 그림은 읽지 않습니다")
             self.failed += 1
+            self.unread += 1
             self.enabled = False
             return ""
         text = drop_duplicate_lines(text, page_text() if callable(page_text) else page_text).strip()
@@ -147,14 +179,18 @@ class FigureReader:
         """문서에 들어 있는 그림 파일 한 장에서 읽은 글자를 돌려준다. 너무 작거나 읽지 못하면 빈 문자열.
 
         width_pt·height_pt(문서에 표시된 크기)를 모르면 크기 검사는 그림 픽셀 수로만 한다."""
+        too_small = width_pt is not None and height_pt is not None and not is_figure_size(width_pt, height_pt, page_area_pt)
         if not self.enabled:
+            if not too_small:
+                self.unread += 1   # OCR이 꺼져 있어 읽지 못한 그림(로고처럼 읽을 크기가 아닌 그림은 세지 않는다)
             return ""
-        if width_pt is not None and height_pt is not None and not is_figure_size(width_pt, height_pt, page_area_pt):
+        if too_small:
             return ""
         try:
             array = picture_to_array(blob)
         except UnreadablePicture:
             self.unreadable += 1
+            self.unread += 1
             return ""
         if array is None:
             return ""
