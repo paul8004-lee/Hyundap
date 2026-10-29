@@ -150,7 +150,9 @@ def upsert_chunks(chunks: list, vectors: list[list[float]], metadatas: list[dict
             )
             stored += len(part)
     except Exception as exc:
-        raise VectorStoreError("UPSERT_FAILED", f"벡터 저장에 실패했습니다({stored}개 저장 후): {type(exc).__name__}") from None
+        raise VectorStoreError(
+            "UPSERT_FAILED", f"벡터 저장에 실패했습니다({stored}개 저장 후): {type(exc).__name__}", stored=stored,
+        ) from None
     return stored
 
 

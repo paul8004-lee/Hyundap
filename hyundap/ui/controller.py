@@ -6,6 +6,7 @@ Gradio별 세션 키로 화면 상태를 분리한다. 회사/문서/로그인�
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import aclosing
 from copy import deepcopy
@@ -35,7 +36,9 @@ class ViewState:
     # 문서를 선택해도 현재 검색 질문의 답변은 유지한다.
     inline_generation: int = 0
     answer_citations: list[dict] = field(default_factory=list)
+    evidence_index: int = 0
     upload_ready: bool = False
+    summaries: dict = field(default_factory=dict)
 
 
 class StaleResponse(Exception):
@@ -49,6 +52,7 @@ class UIController:
         self.service = services
         self.login, self.search, self.admin, self.shell = login, search, admin, shell
         self.states: dict[str, ViewState] = {}
+        self.summary_lock = asyncio.Lock()
 
     def state(self, key: str) -> ViewState:
         return self.states.setdefault(key, ViewState())
@@ -58,6 +62,14 @@ class UIController:
         if ctx is not None:
             ctx.epoch += 1
             self.invalidate_inline(ctx)
+            self.clear_summaries(ctx)
+
+    @staticmethod
+    def clear_summaries(ctx):
+        for job in ctx.summaries.values():
+            if job.get("task") and not job["task"].done():
+                job["task"].cancel()
+        ctx.summaries.clear()
 
     @staticmethod
     def optional_ref(refs, name):
@@ -90,16 +102,39 @@ class UIController:
                      and source.get("document_id") == document_id
                      and source.get("version_id") == version_id]
 
+    def evidence_sources(self, ctx, doc):
+        return self.answer_sources(ctx, doc) or [doc]
+
     def selected_evidence(self, ctx, doc):
-        sources = self.answer_sources(ctx, doc)
-        if not sources:
-            return render_evidence(doc)
-        heading = f'<p class="hd-citation-empty">선택 문서의 답변 근거 · {len(sources)}개</p>'
-        return '<div class="hd-citation-list">' + heading + "".join(
-            render_evidence({**doc, "number": source.get("number"),
-                             "location_label": source.get("location_label"),
-                             "excerpt": source.get("excerpt")}) for source in sources
-        ) + '</div>'
+        sources = self.evidence_sources(ctx, doc)
+        ctx.evidence_index = max(0, min(ctx.evidence_index, len(sources) - 1))
+        return render_evidence({**doc, **sources[ctx.evidence_index]})
+
+    def evidence_navigation(self, *, count=0, index=0):
+        changes = {"evidence_nav": gr.update(visible=count > 1),
+                   "evidence_prev": gr.update(interactive=index > 0),
+                   "evidence_next": gr.update(interactive=index + 1 < count),
+                   "evidence_position": f"출처 {index + 1} / {count}" if count else ""}
+        return {ref: value for name, value in changes.items()
+                if (ref := self.optional_ref(self.search, name)) is not None}
+
+    def evidence_patch(self, ctx, doc):
+        html = self.selected_evidence(ctx, doc)
+        return {self.search["evidence"]: html,
+                **self.evidence_navigation(count=len(self.evidence_sources(ctx, doc)), index=ctx.evidence_index)}
+
+    async def do_evidence_prev(self, ctx, ticket):
+        return await self.move_evidence(ctx, ticket, -1)
+
+    async def do_evidence_next(self, ctx, ticket):
+        return await self.move_evidence(ctx, ticket, 1)
+
+    async def move_evidence(self, ctx, ticket, step):
+        if not ctx.selected:
+            raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
+        doc = await self.wait(ctx, ticket, self.service.detail(ctx.user, ctx.selected["document_id"], ctx.selected.get("version_id")))
+        ctx.evidence_index += step
+        return self.evidence_patch(ctx, doc)
 
     @staticmethod
     def current(ctx, ticket):
@@ -117,25 +152,26 @@ class UIController:
 
     def clear_document(self):
         s = self.search
-        return {s["detail"]: render_document(None), s["evidence"]: "", s["summary"]: "선택한 문서를 요약해 주요 내용을 확인하세요.", s["coverage"]: "", s["detail_feedback"]: "", s["summarize"]: gr.update(interactive=False, value="요약하기"), s["source"]: gr.update(interactive=False), s["download"]: gr.update(interactive=False), s["download_file"]: gr.update(value=None, visible=False)}
+        return {**self.evidence_navigation(), s["detail"]: render_document(None), s["evidence"]: "", s["summary"]: "문서를 선택한 뒤 요약하기를 눌러 주세요.", s["coverage"]: "", s["detail_feedback"]: "", s["summarize"]: gr.update(interactive=False, visible=True, value="요약하기"), s["source"]: gr.update(interactive=False), s["download"]: gr.update(interactive=False), s["download_file"]: gr.update(value=None, visible=False)}
 
     def clear_search(self):
         return {**self.clear_modal(), **self.clear_document(), **self.inline_patch(), self.search["table"]: [], self.search["results_area"]: gr.update(visible=False), self.search["empty"]: gr.update(visible=False), self.search["caption"]: "", self.search["feedback"]: "", self.search["intro"]: gr.update(visible=True), self.search["quick"]: gr.update(visible=True), self.search["submit"]: gr.update(interactive=True)}
 
     def signed_out(self, message=""):
-        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False), self.shell["account"]: "", self.admin["file"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
+        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False, elem_classes=["hd-app"]), self.shell["account"]: "", self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
 
     def document_patch(self, ctx, doc):
         ctx.selected = deepcopy(doc)
+        ctx.evidence_index = 0
         s = self.search
-        return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), s["evidence"]: self.selected_evidence(ctx, doc), s["summarize"]: gr.update(interactive=True), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
+        return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), **self.evidence_patch(ctx, doc), **self.summary_view(ctx, doc), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
 
     def feedback_target(self, action):
         if action in {"login", "logout"}:
             return self.login["feedback"]
         if action in {"upload", "upload_input"}:
             return self.admin["feedback"]
-        if action in {"select", "summarize", "download", "source"}:
+        if action in {"select", "summarize", "download", "source", "evidence_prev", "evidence_next"}:
             return self.search["detail_feedback"]
         return self.search["feedback"]
 
@@ -176,8 +212,10 @@ class UIController:
         elif action == "download":
             initial[self.search["download_file"]] = gr.update(value=None, visible=False)
         elif action == "summarize":
-            initial[self.search["summary"]] = ""
+            initial[self.search["summary"]] = "요약 중입니다."
             initial[self.search["coverage"]] = ""
+            initial[self.search["detail_feedback"]] = ""
+            initial[self.search["summarize"]] = gr.update(interactive=False, visible=False)
         if initial:
             yield initial
         try:
@@ -188,12 +226,9 @@ class UIController:
                 async for patch in self.run_batch_upload(ctx, ticket, *args):
                     yield patch
                 return
-            if action == "summarize" and callable(getattr(self.service, "summarize_stream", None)):
-                async with aclosing(self.do_summarize_stream(ctx, ticket)) as patches:
-                    async for patch in patches:
-                        if not self.current(ctx, ticket):
-                            return
-                        yield patch
+            if action == "summarize":
+                async for patch in self.watch_summary(ctx, ticket, start=True):
+                    yield patch
                 return
             result = await getattr(self, f"do_{action}")(ctx, ticket, *args)
             if self.current(ctx, ticket):
@@ -202,6 +237,9 @@ class UIController:
                 # 행 선택은 이 검색 질문의 답변을 취소하지 않는다.
                 if action == "search":
                     async for patch in self.run_inline_answer(ctx, inline_generation):
+                        yield patch
+                elif action in {"select", "nav"} and ctx.selected:
+                    async for patch in self.watch_summary(ctx, ticket):
                         yield patch
         except StaleResponse:
             return
@@ -214,6 +252,7 @@ class UIController:
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
+                self.clear_summaries(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
                 message = "로그인 시간이 만료되었습니다. 다시 로그인해 주세요."
                 if action == "upload":
@@ -222,8 +261,8 @@ class UIController:
             else:
                 feedback = render_login_error(error.message, error.code) if action == "login" else show_feedback(error.message, "error")
                 patch = {**self.busy_patch(action, False), self.feedback_target(action): feedback}
-                if action == "summarize":
-                    patch.update({self.search["summary"]: "", self.search["coverage"]: ""})
+                if action in {"summarize", "select"} and ctx.selected:
+                    patch.update(self.summary_view(ctx, ctx.selected))
                 yield patch
 
     async def run_inline_answer(self, ctx, generation):
@@ -246,7 +285,7 @@ class UIController:
             content = render_compact_answer(response) or show_feedback("답변할 근거를 찾지 못했어요.", "info")
             patch = self.inline_patch(content, visible=True)
             if ctx.selected:
-                patch[self.search["evidence"]] = self.selected_evidence(ctx, ctx.selected)
+                patch.update(self.evidence_patch(ctx, ctx.selected))
             yield patch
         except Exception as error:
             if not self.inline_current(ctx, generation):
@@ -258,12 +297,13 @@ class UIController:
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
                 self.invalidate_inline(ctx)
+                self.clear_summaries(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
                 yield self.signed_out("로그인 시간이 만료되었습니다. 다시 로그인해 주세요.")
             else:
                 patch = self.inline_patch(show_feedback(error.message, "error"), visible=True)
                 if ctx.selected:
-                    patch[self.search["evidence"]] = self.selected_evidence(ctx, ctx.selected)
+                    patch.update(self.evidence_patch(ctx, ctx.selected))
                 yield patch
 
     async def checked(self, ctx, ticket):
@@ -271,28 +311,68 @@ class UIController:
         ctx.user = checked
         return checked
 
-    async def do_login(self, ctx, ticket, username, password, role):
-        user = await self.wait(ctx, ticket, self.service.login(username, password))
+    def shell_patch(self, user, *, upload=False):
+        """검증된 역할로 상단바 색상·메뉴·계정 표시를 함께 동기화한다."""
+        admin = user.get("role") in {"company_admin", "platform_admin"}
+        classes = ["hd-app", "hd-role-admin" if admin else "hd-role-employee"]
+        return {
+            self.shell["container"]: gr.update(visible=True, elem_classes=classes),
+            self.shell["account"]: render_header(user),
+            self.shell["nav_search"]: gr.update(value="문서 검색", visible=True, interactive=True, variant="secondary" if upload else "primary", elem_classes=["hd-nav-button"]),
+            self.shell["upload_nav"]: gr.update(value="문서 업로드", visible=admin, interactive=admin, variant="primary" if upload else "secondary", elem_classes=["hd-nav-button"]),
+            self.shell["logout"]: gr.update(value="로그아웃", visible=True, interactive=True, elem_classes=["hd-account"]),
+        }
+
+    def login_patch(self, user):
+        """화면 갱신값을 완성하기 전에는 로그인 상태를 바꾸지 않는다."""
         is_admin = user.get("role") in {"company_admin", "platform_admin"}
-        # 선택 탭은 표시용이며, 실제 권한과 로그인 후 이동은 인증 결과를 따른다.
-        if user.get("must_change_password"):
-            await self.service.logout(user)
-            raise UIServiceError("PASSWORD_CHANGE_REQUIRED", "비밀번호 변경이 필요한 계정입니다. 인증 담당에게 변경 절차를 요청해 주세요.")
-        ctx.user = user
-        ctx.upload_ready = False
-        ctx.results, ctx.selected = [], None
-        ctx.query, ctx.doc_type = "", "__all__"
         companies = company_choices(user, demo=self.service.demo or getattr(self.service, "temporary_auth", False))
-        ctx.company = "__all__" if user.get("role") == "platform_admin" else user.get("company_id")
+        company = "__all__" if user.get("role") == "platform_admin" else user.get("company_id")
         upload_company = user.get("company_id") or (companies[0][1] if companies else None)
         choices = [("전체 회사", "__all__"), *companies] if user.get("role") == "platform_admin" else companies
         platform_admin = user.get("role") == "platform_admin"
         company_name = next((name for name, company_id in companies if company_id == user.get("company_id")), "회사명 확인 필요")
         footer_name = "© Hyundap" if platform_admin else company_name
-        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", self.shell["container"]: gr.update(visible=True), self.shell["account"]: render_header(user), self.shell["footer_company"]: escape(footer_name), self.shell["upload_nav"]: gr.update(visible=is_admin), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.shell["nav_search"]: gr.update(variant="primary"), self.shell["upload_nav"]: gr.update(visible=is_admin, variant="secondary")}
+        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", **self.shell_patch(user), self.shell["footer_company"]: escape(footer_name), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: ""}, company
+
+    async def revoke_uncommitted_login(self, user):
+        """화면에 반영하지 못한 인증 세션만 폐기한다. 오류 원문은 남기지 않는다."""
+        try:
+            await asyncio.shield(self.service.logout(user))
+        except (Exception, asyncio.CancelledError) as error:
+            logging.getLogger(__name__).warning("Uncommitted login cleanup failed (%s)", type(error).__name__)
+
+    async def do_login(self, ctx, ticket, username, password, role):
+        user = None
+        # UI 요청이 취소되어도 발급 중인 서버 세션을 받아 정리할 수 있게 한다.
+        authentication = asyncio.create_task(self.service.login(username, password))
+        try:
+            user = await asyncio.shield(authentication)
+            if not self.current(ctx, ticket):
+                raise StaleResponse()
+            if user.get("must_change_password"):
+                raise UIServiceError("PASSWORD_CHANGE_REQUIRED", "비밀번호 변경이 필요한 계정입니다. 인증 담당의 비밀번호 변경 절차를 요청해 주세요.")
+            patch, company = self.login_patch(user)
+        except (Exception, asyncio.CancelledError):
+            if user is None and not authentication.cancelled():
+                try:
+                    user = await authentication
+                except (Exception, asyncio.CancelledError):
+                    pass
+            if user is not None:
+                await self.revoke_uncommitted_login(user)
+            raise
+        self.clear_summaries(ctx)
+        ctx.user = user
+        ctx.upload_ready = False
+        ctx.results, ctx.selected = [], None
+        ctx.query, ctx.doc_type = "", "__all__"
+        ctx.company = company
+        return patch
 
     async def do_logout(self, ctx, ticket):
         previous = ctx.user
+        self.clear_summaries(ctx)
         ctx.user, ctx.results, ctx.selected = None, [], None
         message = ""
         if previous:
@@ -344,11 +424,119 @@ class UIController:
         doc = await self.wait(ctx, ticket, self.service.detail(ctx.user, entry["document_id"], entry.get("version_id")))
         return {**self.document_patch(ctx, doc), self.search["feedback"]: ""}
 
+    @staticmethod
+    def summary_snapshot(job):
+        return {name: job.get(name) for name in ("text", "status", "done", "response", "error")}
+
+    def publish_summary(self, job, **changes):
+        """최신 상태를 보관하고 표시 중인 화면에는 이벤트 순서대로 전달한다."""
+        job.update(changes)
+        snapshot = self.summary_snapshot(job)
+        for queue in tuple(job.get("subscribers", ())):
+            queue.put_nowait(snapshot)
+
+    async def _summary_worker(self, ctx, job, user, doc):
+        """선택이 바뀌어도 요약을 계속하고 세션별 결과만 보관한다."""
+        try:
+            async with self.summary_lock:
+                self.publish_summary(job, status="요약을 준비하고 있어요.")
+                stream_fn = getattr(self.service, "summarize_stream", None)
+                if not callable(stream_fn):
+                    response = await self.service.summarize(user, doc["document_id"], doc.get("version_id"))
+                    self.publish_summary(job, response=response, text=str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), done=True)
+                    return
+                async with aclosing(stream_fn(user, doc["document_id"], doc.get("version_id"))) as events:
+                    async for event in events:
+                        if not isinstance(event, dict):
+                            raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+                        kind = event.get("type")
+                        if kind == "status" and isinstance(event.get("message"), str):
+                            self.publish_summary(job, status=event["message"])
+                        elif kind == "delta" and isinstance(event.get("text"), str):
+                            self.publish_summary(job, text=job["text"] + event["text"])
+                        elif kind == "reset" and isinstance(event.get("reason"), str):
+                            self.publish_summary(job, text="", status=event["reason"])
+                        elif kind == "done" and isinstance(event.get("response"), dict):
+                            response = event["response"]
+                            self.publish_summary(job, response=response, text=str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), done=True)
+                            return
+                        else:
+                            raise UIServiceError("INVALID_RESPONSE", "요약 이벤트 형식을 확인해 주세요.")
+                raise UIServiceError("INVALID_RESPONSE", "요약이 완료되기 전에 응답이 끝났습니다.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            if not isinstance(error, UIServiceError):
+                logging.getLogger(__name__).exception("Background summary failed")
+                error = UIServiceError("UI_ERROR", "요약을 준비하지 못했어요. 다시 시도해 주세요.")
+            self.publish_summary(job, text="", error=error, done=True)
+
+    def summary_view(self, ctx, doc, *, snapshot=None):
+        job = snapshot if snapshot is not None else ctx.summaries.get((doc.get("document_id"), doc.get("version_id")))
+        running = job is not None and not job.get("done")
+        text = (job.get("text") or ("요약 중입니다." if running else "")) if job else "요약하기를 눌러 주요 내용을 확인하세요."
+        return {self.search["summary"]: text,
+                self.search["coverage"]: render_coverage(job["response"]) if job and job.get("response") and not job.get("error") else "",
+                self.search["summarize"]: gr.update(visible=not running, interactive=not running, value="다시 요약" if job else "요약하기")}
+
+    async def watch_summary(self, ctx, ticket, *, start=False):
+        """버튼만 작업을 시작한다. 활성 화면은 각 변경을 순서대로 받는다."""
+        if not ctx.selected:
+            raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
+        doc = deepcopy(ctx.selected)
+        identifier = (doc.get("document_id"), doc.get("version_id"))
+        if not all(identifier):
+            raise UIServiceError("INVALID_RESPONSE", "문서 버전을 확인할 수 없어 요약할 수 없습니다.")
+        job = ctx.summaries.get(identifier)
+        if not start and job is None:
+            return
+        created = start and (job is None or job.get("done"))
+        if created:
+            job = {"text": "", "status": "요약 순서를 기다리고 있어요.", "done": False}
+            ctx.summaries[identifier] = job
+        updates = asyncio.Queue()
+        subscribers = job.setdefault("subscribers", set())
+        subscribers.add(updates)
+        previous = ("", False) if created else None
+        try:
+            if created:
+                # 첫 이벤트가 빠지지 않게 구독 등록 뒤 작업을 시작한다.
+                job["task"] = asyncio.create_task(self._summary_worker(ctx, job, deepcopy(ctx.user), doc))
+            else:
+                updates.put_nowait(self.summary_snapshot(job))
+            while self.current(ctx, ticket) and ctx.user and ctx.selected and (ctx.selected.get("document_id"), ctx.selected.get("version_id")) == identifier:
+                try:
+                    snapshot = await asyncio.wait_for(updates.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+                if not self.current(ctx, ticket):
+                    return
+                if snapshot.get("error"):
+                    raise snapshot["error"]
+                revision = (snapshot["text"], snapshot["done"])
+                if revision != previous:
+                    patch = self.summary_view(ctx, doc, snapshot=snapshot)
+                    patch[self.search["detail_feedback"]] = ""
+                    yield patch
+                    previous = revision
+                if snapshot["done"]:
+                    return
+        finally:
+            # 문서 전환 시 표시 구독만 종료한다. 이미 시작한 작업은 유지한다.
+            subscribers.discard(updates)
+
+    @staticmethod
+    def store_manual_summary(ctx, doc, response):
+        key = (doc.get("document_id"), doc.get("version_id"))
+        if all(key):
+            ctx.summaries[key] = {"text": str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), "status": "", "done": True, "response": response}
+
     async def do_summarize(self, ctx, ticket):
         if not ctx.selected:
             raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
         doc = deepcopy(ctx.selected)
         response = await self.wait(ctx, ticket, self.service.summarize(ctx.user, doc["document_id"], doc.get("version_id")))
+        self.store_manual_summary(ctx, doc, response)
         return {self.search["summary"]: str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), self.search["coverage"]: render_coverage(response), self.search["detail_feedback"]: "", self.search["summarize"]: gr.update(value="다시 요약", interactive=True)}
 
     async def do_summarize_stream(self, ctx, ticket):
@@ -379,6 +567,7 @@ class UIController:
                     yield {self.search["summary"]: "", self.search["detail_feedback"]: set_loading(event["reason"])}
                 elif kind == "done" and isinstance(event.get("response"), dict):
                     response = event["response"]
+                    self.store_manual_summary(ctx, doc, response)
                     yield {**self.busy_patch("summarize", False), self.search["summary"]: str(response.get("summary") or "요약 내용을 제공받지 못했습니다."), self.search["coverage"]: render_coverage(response), self.search["detail_feedback"]: "", self.search["summarize"]: gr.update(value="다시 요약", interactive=True)}
                     return
                 else:
@@ -391,7 +580,7 @@ class UIController:
         doc = await self.wait(ctx, ticket, self.service.detail(ctx.user, ctx.selected["document_id"], ctx.selected.get("version_id")))
         citations = self.answer_sources(ctx, doc) or doc.get("citations") or [doc]
         body = '<div class="hd-citation-list">' + "".join(render_citation(citation) for citation in citations) + '</div>'
-        return {self.shell["modal"]: gr.update(visible=True), self.shell["modal_body"]: body, self.search["evidence"]: self.selected_evidence(ctx, doc), self.search["detail_feedback"]: ""}
+        return {self.shell["modal"]: gr.update(visible=True), self.shell["modal_body"]: body, **self.evidence_patch(ctx, doc), self.search["detail_feedback"]: ""}
 
 
     async def do_download(self, ctx, ticket):
@@ -405,7 +594,7 @@ class UIController:
         upload = destination == "upload"
         if upload and user.get("role") not in {"company_admin", "platform_admin"}:
             raise UIServiceError("FORBIDDEN", "관리자만 파일을 업로드할 수 있습니다.", "denied")
-        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), self.shell["nav_search"]: gr.update(variant="secondary" if upload else "primary"), self.shell["upload_nav"]: gr.update(variant="primary" if upload else "secondary"), self.search["submit"]: gr.update(interactive=True), self.search["summarize"]: gr.update(interactive=bool(ctx.selected)), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
+        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), **self.shell_patch(user, upload=upload), self.search["submit"]: gr.update(interactive=True), **(self.summary_view(ctx, ctx.selected) if ctx.selected else {}), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
 
     @staticmethod
     def upload_paths(files):
@@ -432,7 +621,13 @@ class UIController:
         ctx.upload_ready = True
         return {self.admin["submit"]: gr.update(interactive=True)}
 
+    @staticmethod
+    def validate_upload_metadata(company, doc_type):
+        if not company or not doc_type:
+            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+
     async def do_upload(self, ctx, ticket, file_path, company, doc_type):
+        self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(file_path)
         file_path = paths[0] if paths else None
         result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
@@ -440,6 +635,7 @@ class UIController:
 
     async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
         """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
+        self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(files)
         # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
         self.validate_upload_paths(paths)

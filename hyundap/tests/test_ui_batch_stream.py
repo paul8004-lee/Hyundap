@@ -100,7 +100,7 @@ class SummaryStreamControllerTests(unittest.IsolatedAsyncioTestCase):
         return patches
 
     async def test_delta_accumulates_and_reset_clears(self):
-        """delta는 이어 붙이고, reset을 받으면 지금까지 표시한 부분 요약을 지운 뒤 done의 요약으로 끝낸다."""
+        """delta는 이어 붙이고, reset을 받으면 부분 요약을 지우고 진행 안내로 바꾼 뒤 done의 요약으로 끝낸다."""
         selected = self.controller.state('one').selected
 
         async def stream(session, document_id, version_id=None):
@@ -114,8 +114,8 @@ class SummaryStreamControllerTests(unittest.IsolatedAsyncioTestCase):
         self.service.summarize_stream = stream
         patches = await self.run_action('summarize')
         shown = [patch['search.summary'] for patch in patches if 'search.summary' in patch]
-        # 첫 항목은 요약 시작 시 이전 요약을 지우는 초기 화면 갱신이다.
-        self.assertEqual(shown, ['', '첫 줄\n', '', '새 줄\n', '최종 요약 [1]'])
+        # 요약 시작과 reset 직후에는 빈 칸 대신 진행 안내를 표시한다(#232 화면 정책).
+        self.assertEqual(shown, ['요약 중입니다.', '첫 줄\n', '요약 중입니다.', '새 줄\n', '최종 요약 [1]'])
         self.assertEqual(self.view['search.summarize']['value'], '다시 요약')
         self.assertEqual(selected['document_id'], self.controller.state('one').selected['document_id'])
 
