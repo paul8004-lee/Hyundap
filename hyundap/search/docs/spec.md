@@ -38,7 +38,9 @@ search(user, query, company_ids, doc_types, limit, chunks_per_document, min_scor
  ├ normalize_doc_types (DOC_TYPE_CODES)                                                     FUN-254
  ├ run_chunk_search                                                                         FUN-245
  │   ├ build_search_filter → embedding.build_where_filter (회사·유형·문서·is_active)          FUN-255
- │   ├ embedding.embed_query → embedding.query_vectors(top_k=)
+ │   ├ embedding.embed_query
+ │   ├ (질문에 문서 코드가 있으면) search_named_documents → 좁힌 결과가 있으면 그것을 반환       명세 외
+ │   ├ embedding.query_vectors(top_k=)
  │   ├ filter_by_min_score                                                                  FUN-246
  │   ├ fetch_document_info → db.get_documents_with_active_version (1회)                     FUN-247
  │   ├ is_visible (8조건)                                                                   FUN-248
@@ -62,7 +64,10 @@ search_chunks(user, query, company_ids, doc_types, document_ids, top_k, min_scor
 | FUN-242 | `get_search_settings()` | → `{min_score, top_k_max}` | `hyundap.common.config.get_settings()`의 `search_min_score`·`search_top_k_max`. 기본값·범위 처리는 config |
 | FUN-243 | `search(user, query, company_ids=None, doc_types=None, limit=10, chunks_per_document=4, min_score=None)` | → `SearchResponse` | limit 1~20, chunks_per_document 1~20. 결과 없음은 빈 목록 |
 | FUN-244 | `search_chunks(user, query, company_ids=None, doc_types=None, document_ids=None, top_k=None, min_score=None)` | → `list[ChunkHit]` 점수 내림차순 | top_k 기본 10, 1~top_k_max. min_score 기본 설정값. `document_ids=None` 제한 없음, 정리 후 빈 목록이면 `[]` 반환(권한 확인 후) |
-| FUN-245 | `run_chunk_search(query, company_ids, doc_types, document_ids, top_k, min_score)` | → `list[ChunkHit]` | 임베딩·벡터 오류는 `to_search_error`. 최소 점수 후 비면 DB 조회 없이 `[]` |
+| FUN-245 | `run_chunk_search(query, company_ids, doc_types, document_ids, top_k, min_score)` | → `list[ChunkHit]` | 임베딩·벡터 오류는 `to_search_error`. 최소 점수 후 비면 DB 조회 없이 `[]`. 질문에 문서 코드가 있으면 `search_named_documents` 결과를 먼저 쓰고, 비면 원래 범위 결과 |
+| (명세 외) | `extract_doc_codes(query)` | → `list[str]` | 영문으로 시작해 하이픈으로 이은 영문·숫자(`HRI-SYN-MAN-001`, `MAN-001`), 숫자 포함. 대문자·중복 제거·나온 순서 |
+| (명세 외) | `match_documents_by_code(hits, codes)` | → `list[str]` 문서 ID | 메타데이터 `file_name`에 코드 포함(대소문자 무시, 앞뒤에 영문·숫자가 이어지면 불일치) |
+| (명세 외) | `search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score)` | → `list[ChunkHit]` | 원래 범위에서 top_k_max개 후보 → 코드가 맞는 문서 → 그 문서만으로 재조회(최소 점수·공개 조건 동일). 맞는 문서 없으면 `[]`. 원래 범위 밖으로 넓히지 않음 |
 | FUN-246 | `filter_by_min_score(hits, min_score)` | → list | 점수 None 또는 기준 미만 제거, 순서 유지 |
 | FUN-247 | `fetch_document_info(document_ids)` | → `dict[str, DocumentInfo]` | 빈 입력 `{}`. DB에 없는 ID는 누락(숨김). `DbError` → `SEARCH_UNAVAILABLE`, 그 외 예외는 그대로 올림 |
 | FUN-248 | `is_visible(info, hit, company_ids)` | → bool | 아래 7절의 8조건 모두 참일 때만 True |
@@ -165,6 +170,7 @@ search_chunks(user, query, company_ids, doc_types, document_ids, top_k, min_scor
 | FUN-243·244·253 인자 `actor` → `user` | 통합 명세 5장 결정, UI·chatbot 호출과 통일 |
 | `chunks_per_document` 범위 검사 | 0·음수로 조회 개수가 깨지지 않게 |
 | `document_ids=[]` → 빈 결과 | 선택이 비었을 때 전체 검색으로 넓어지지 않게 (리뷰 반영) |
+| 문서 코드로 범위 좁히기 (`extract_doc_codes` 등) | P1(S10·S11): 의미 검색은 문서 코드를 글자 그대로 맞추지 못해 정답 문서가 밀리고 챗봇 근거 8개에서 빠짐. 챗봇이 점수로 다시 정렬하므로 순서가 아니라 범위를 좁힌다. 화면 검색 결과도 그 문서만 나온다 |
 
 ## 10. 코드 리뷰 반영 현황
 
