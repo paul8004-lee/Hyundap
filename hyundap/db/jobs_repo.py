@@ -10,6 +10,7 @@ from sqlalchemy import text
 from hyundap.common.schemas import DOC_TYPE_CODES
 
 from .errors import DbError
+from .classification import decision_fields
 from .runtime import require_id, transaction
 from .clock import epoch_now
 
@@ -33,6 +34,10 @@ def normalize_report(report):
     clean.update(_report_metrics(report))
     clean.update(_ingest_metrics(report, clean['stage']))
     clean.update(_classify_fields(report, clean['stage']))
+    decision = decision_fields(report)
+    if decision and clean['stage'] != 'ingest':
+        raise DbError('INVALID_INPUT')
+    clean.update(decision)
     clean.update(_report_failures(report))
 
     # 성공 보고서에 실패 내용이 함께 있으면 서로 모순되므로 저장하지 않는다.

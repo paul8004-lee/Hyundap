@@ -8,6 +8,7 @@ from hyundap.auth.errors import AccessError
 from hyundap.auth.permissions import allowed_companies
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
 from .errors import DbError
+from .classification import validate_auto_request
 from .runtime import require_hash, require_id, transaction
 from .sessions_repo import current_actor
 
@@ -161,7 +162,10 @@ def validate_metadata(metadata):
         raise DbError('INVALID_INPUT')
     # 필요한 필드만 복사하므로 원본 metadata는 변경하지 않는다.
     result = {name: metadata[name] for name in required_fields}
-    result['doc_type'] = metadata.get('doc_type', DEFAULT_DOC_TYPE)
+    automatic = validate_auto_request(metadata)
+    if automatic:
+        result['auto_classify'] = True
+    result['doc_type'] = 'other' if automatic else metadata.get('doc_type', DEFAULT_DOC_TYPE)
     require_id(result['company_id'])
     require_hash(result['sha256'])
     if not isinstance(result['doc_type'], str) or result['doc_type'] not in DOC_TYPE_CODES:
@@ -246,7 +250,7 @@ def _prepare_document(database, data):
             raise AccessError('ACCESS_DENIED')
         if document['deleted_at'] is not None or document['publication_status'] == 'blocked':
             raise DbError('INVALID_STATE')
-        if document['doc_type'] != data['doc_type']:
+        if not data.get('auto_classify') and document['doc_type'] != data['doc_type']:
             raise DbError('INVALID_INPUT')
     else:
         document_id = str(uuid4())

@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
 from .errors import DbError
+from .classification import decision_fields
 from .runtime import require_id, transaction
 from .sessions_repo import current_actor
 from . import jobs_repo
@@ -454,14 +455,18 @@ def store_pending_publication(*, database, document, candidate_id, expected_acti
     """
     publication = {'phase': 'pending_activation', 'candidate_id': candidate_id,
                    'previous_active_id': expected_active_id,
-                   'previous_publication_status': document['publication_status']}
+                   'previous_publication_status': document['publication_status'],
+                   'previous_doc_type': document['doc_type']}
+    next_type = document['doc_type']
+    if reports.get('_auto_classify'):
+        next_type = decision_fields(reports.get('ingest', {}), required=True)['doc_type']
     database.execute(text("UPDATE document_versions SET version_status='ready' WHERE id=:id"), {'id': candidate_id})
     # <=>는 NULL도 비교한다. 이전 활성 버전이 예상과 같은 문서만 갱신한다.
     changed = database.execute(text('''
-        UPDATE documents SET active_version_id=:candidate,publication_status='published'
+        UPDATE documents SET active_version_id=:candidate,publication_status='published',doc_type=:doc_type
         WHERE id=:id AND active_version_id <=> :previous AND deleted_at IS NULL
           AND publication_status IN ('draft','published')
-    '''), {'candidate': candidate_id, 'id': document['id'], 'previous': expected_active_id})
+    '''), {'candidate': candidate_id, 'id': document['id'], 'previous': expected_active_id, 'doc_type': next_type})
     if changed.rowcount != 1:
         raise DbError('CONFLICT')
     write_publication(database, job, reports, publication)
@@ -600,8 +605,9 @@ def restore_database_pointer(*, database, document, version_id, publication, eli
         restore_target_id = None
         restore_status = 'blocked'
     database.execute(text('''
-        UPDATE documents SET active_version_id=:previous,publication_status=:status WHERE id=:id
-    '''), {'previous': restore_target_id, 'status': restore_status, 'id': document['id']})
+        UPDATE documents SET active_version_id=:previous,publication_status=:status,doc_type=:doc_type WHERE id=:id
+    '''), {'previous': restore_target_id, 'status': restore_status, 'id': document['id'],
+           'doc_type': publication.get('previous_doc_type', document['doc_type'])})
     # 호출자가 이 사전을 같은 트랜잭션에서 작업 기록에 저장한다.
     publication['restore_target_id'] = restore_target_id
     return restore_target_id

@@ -231,3 +231,22 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 `test_schema_v4`는 직접 생성·기존 객체 무변경 거부·DDL/검증 실패 시 버전 미확정·동시 초기화·실제 제약·구조 훼손을 검증한다. `test_db_runtime`, `test_upload_workflow`, `test_final_db_contract`는 최종 DDL을 직접 사용해 회사 격리·경쟁·원자성·manifest·게시 CAS·복구·재시도를 검증한다. SQLite 입력/조회 테스트와 실제 MySQL 결과는 구분한다.
 
 수동 API/UI 스크립트는 tests/smoke에 두며 Gradio는 수동 main에서만 import한다. 최종 검증 결과와 인증 PR #167 대조 범위는 [리팩토링 검증 보고서](../../../docs/db-design/V4_REFACTOR_VALIDATION.md)에 기록한다. Railway DB는 변경하지 않았다.
+
+## #261 자동 유형 적용 계약
+
+자동 업로드는 `auto_classify=True`를 전달하며 `doc_type` 동시 입력은 거부한다.
+수동 호출은 유지한다. 설정 꺼짐에서는 자동 후보를 만들지 않는다.
+
+`classification.py`의 일반 보조 함수는 입력 구분과 결정값 검증·이력 재사용을 담당한다.
+`upload_document`/`retry_upload`는 메인 진입점, `ingest_and_save_chunks`는 수집 연결,
+`save_ingest_chunks`는 모든 청크와 최종 유형의 일치 검사, `upload_result`는 현재 시도 반환을 담당한다.
+분류 기준은 DB에서 계산하지 않는다. 수집 인자 `apply_classification`·`classification` 지원이 필요하다.
+
+`doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`은 세 필드가 함께 있어야 한다.
+수집 성공 전 실패하면 반환하지 않는다. 게시 실패 반환 유형은 후보의 결정값이지 공개 문서 유형이 아니다.
+`store_pending_publication`은 활성 버전과 유형을 같은 TX에서 갱신하며
+`restore_database_pointer`는 이전 유형을 함께 복원한다. 스키마 변경은 없다.
+
+재시도는 같은 후보의 가장 최근 성공 수집·성공 분류 결과와 결정값을 재사용한다.
+수집기가 재사용 결정값을 변경하면 CONFLICT로 중단한다. 과거 실패 분류는 재사용하지 않는다.
+수집 담당의 결정값 보존 계약 및 실제 수집·분류·UI 통합 검증 전까지 초안 기능이다.
