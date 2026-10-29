@@ -139,31 +139,25 @@ def _ingest_metrics(report, stage):
 def _classify_fields(report, stage):
     """수집 단계의 문서 분류 결과(유형·확신도·회사 일치·분류 상태)를 검사해 새 dict로 반환한다.
 
-    다른 단계에 섞이거나 허용 목록 밖의 값이면 INVALID_INPUT이다. 분류 실패 원인 문구는 저장하지 않는다.
+    분류는 실패해도 업로드는 성공시키는 부가 기능이므로, 값 하나라도 허용 범위 밖이면 수집 기록 전체를
+    거부하지 않고 분류 값을 모두 빼고 classify_status='failed'만 남긴다. 분류 실패 원인 문구는 저장하지 않는다.
+    수집이 아닌 단계에 분류 값이 섞이면 호출 쪽 계약 오류이므로 INVALID_INPUT이다.
     """
-    if any(field in report for field in CLASSIFY_FIELDS) and stage != 'ingest':
+    if not any(field in report for field in CLASSIFY_FIELDS):
+        return {}
+    if stage != 'ingest':
         raise DbError('INVALID_INPUT')
-    clean = {}
-    if 'auto_doc_type' in report:
-        value = report['auto_doc_type']
-        if not isinstance(value, str) or (value and value not in DOC_TYPE_CODES):
-            raise DbError('INVALID_INPUT')
-        clean['auto_doc_type'] = value
-    if 'doc_type_confidence' in report:
-        value = report['doc_type_confidence']
+    clean = {field: report[field] for field in CLASSIFY_FIELDS if field in report}
+    auto_doc_type = clean.get('auto_doc_type', '')
+    confidence = clean.get('doc_type_confidence', 0.0)
+    valid = (
+        isinstance(auto_doc_type, str) and (auto_doc_type == '' or auto_doc_type in DOC_TYPE_CODES)
         # bool은 숫자로 받지 않고 0~1 사이의 유한한 값만 허용한다.
-        if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
-            raise DbError('INVALID_INPUT')
-        clean['doc_type_confidence'] = value
-    if 'company_match' in report:
-        if report['company_match'] not in ('yes', 'no', ''):
-            raise DbError('INVALID_INPUT')
-        clean['company_match'] = report['company_match']
-    if 'classify_status' in report:
-        if report['classify_status'] not in ('success', 'failed'):
-            raise DbError('INVALID_INPUT')
-        clean['classify_status'] = report['classify_status']
-    return clean
+        and type(confidence) in (int, float) and math.isfinite(confidence) and 0 <= confidence <= 1
+        and clean.get('company_match', '') in ('yes', 'no', '')
+        and clean.get('classify_status') in ('success', 'failed')
+    )
+    return clean if valid else {'classify_status': 'failed'}
 
 
 def _report_failures(report):

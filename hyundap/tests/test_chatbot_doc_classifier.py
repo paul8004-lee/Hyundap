@@ -303,11 +303,21 @@ class UploadPath(Base):
                          {'auto_doc_type': 'policy', 'doc_type_confidence': 0.93, 'company_match': 'yes',
                           'classify_status': 'success'})
         self.assertEqual(jobs_repo.normalize_report(dict(base, classify_status='failed'))['classify_status'], 'failed')
-        bad = [dict(auto_doc_type='contract'), dict(doc_type_confidence=1.5), dict(doc_type_confidence=True),
-               dict(company_match='maybe'), dict(classify_status='skipped')]
+        # 범위 밖 값은 수집 기록을 거부하지 않고 분류 값만 빼고 failed로 남긴다 (업로드는 성공)
+        good = dict(auto_doc_type='policy', doc_type_confidence=0.93, company_match='yes', classify_status='success')
+        bad = [dict(auto_doc_type='contract'), dict(auto_doc_type=None), dict(doc_type_confidence=1.5),
+               dict(doc_type_confidence=True), dict(doc_type_confidence=float('nan')), dict(doc_type_confidence='0.9'),
+               dict(company_match='maybe'), dict(classify_status='skipped'), dict(classify_status=None)]
         for changes in bad:
-            with self.subTest(changes=changes), self.assertRaises(DbError):
-                jobs_repo.normalize_report(dict(base, **changes))
+            with self.subTest(changes=changes):
+                clean = jobs_repo.normalize_report(dict(base, **dict(good, **changes)))
+                self.assertEqual({key: clean[key] for key in jobs_repo.CLASSIFY_FIELDS if key in clean},
+                                 {'classify_status': 'failed'})
+                self.assertEqual((clean['stage'], clean['status'], clean['chunk_count']), ('ingest', 'success', 1))
+        # 상태 없이 값만 오거나 상태만 이상해도 failed
+        self.assertEqual(jobs_repo.normalize_report(dict(base, auto_doc_type='policy'))['classify_status'], 'failed')
+        # 분류 값이 없으면 아무것도 붙이지 않는다
+        self.assertNotIn('classify_status', jobs_repo.normalize_report(base))
         with self.assertRaises(DbError):   # 다른 단계에는 섞일 수 없다
             jobs_repo.normalize_report(dict(stage='embedding', status='success', auto_doc_type='policy'))
 
