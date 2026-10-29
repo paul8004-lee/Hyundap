@@ -20,7 +20,7 @@ from hyundap.embedding import (
     EmbeddingError, VectorStoreError, activate_version, build_chunk_metadata, build_embedding_text,
     build_where_filter, check_embedding_health, check_vector_store_health, collection_name_for_model,
     delete_vectors, embed_and_store, embed_chunks, embed_query, embed_texts, filter_new_chunks,
-    fit_to_char_limit, get_document_chunks, get_version_chunk_ids, query_vectors, validate_embeddings,
+    fit_to_char_limit, get_document_chunks, get_version_chunk_ids, query_vectors, upsert_chunks, validate_embeddings,
 )
 
 # 가짜 벡터의 길이. 실제는 1536이지만 테스트는 8이면 충분하다
@@ -410,6 +410,48 @@ class EdgeCases(Base):
         # 컬렉션은 cosine 거리 설정이어야 점수(1 − 거리)가 맞다
         store = vector_store.get_vector_store()
         self.assertEqual(store._collection.metadata.get("hnsw:space"), "cosine")
+
+    def test_real_cosine_scores(self):
+        # 설정값만이 아니라 실제 거리 계산도 확인한다: 같은 방향 1.0, 직각 0.0, 크기만 달라도 같은 방향이면 1.0
+        chunks = [make_chunk(i) for i in range(3)]
+        vectors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [2.0, 0.0, 0.0]]
+        metas = [{**build_chunk_metadata(c, model_name="fake-model"), "is_active": True} for c in chunks]
+        upsert_chunks(chunks, vectors, metas)
+        hits = {h.chunk_id: h.score for h in query_vectors([1.0, 0.0, 0.0], build_where_filter(["C1"]), top_k=3)}
+        self.assertAlmostEqual(hits["D1:V1:00000"], 1.0, places=4)
+        self.assertAlmostEqual(hits["D1:V1:00002"], 1.0, places=4)
+        self.assertAlmostEqual(hits["D1:V1:00001"], 0.0, places=4)
+
+    def test_partial_upsert_failure_is_counted(self):
+        # 저장 도중(두 번째 묶음에서) 실패해도 이미 저장된 청크는 성공으로, 나머지만 실패로 센다
+        chunks = [make_chunk(i) for i in range(5)]
+        collection = vector_store.get_vector_store()._collection
+        real_upsert = collection.upsert
+        calls = []
+
+        def flaky(**kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("disk full")
+            return real_upsert(**kwargs)
+
+        with patch.object(collection, "upsert", flaky):
+            report = embed_and_store(chunks, batch_size=2)
+        self.assertEqual((report.stored, len(report.failures), report.status), (2, 3, "partial"))
+        self.assertEqual({f.code for f in report.failures}, {"UPSERT_FAILED"})
+        self.assertEqual(len(get_version_chunk_ids("D1", "V1")), 2)
+        # 다시 실행하면 저장된 2개는 건너뛰고 나머지 3개만 저장한다
+        again = embed_and_store(chunks, batch_size=2)
+        self.assertEqual((again.status, again.skipped_existing, again.stored), ("success", 2, 3))
+
+    def test_none_company_id_is_rejected_without_none_text(self):
+        # 회사 ID가 None이면 "None" 글자가 아니라 빈 값으로 보고하고 MISSING_METADATA로 거부한다
+        chunk = make_chunk(0)
+        chunk["company_id"] = None
+        report = embed_and_store([chunk])
+        self.assertEqual(report.company_id, "")
+        self.assertEqual(report.status, "failed")
+        self.assertEqual([f.code for f in report.failures], ["MISSING_METADATA"])
 
     def test_reactivate_is_idempotent(self):
         # 같은 버전을 두 번 공개해도 결과가 같다(재실행 안전)

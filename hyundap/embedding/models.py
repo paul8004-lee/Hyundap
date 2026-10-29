@@ -124,12 +124,13 @@ class EmbeddingError(Exception):
 
 # CLS-107. 벡터 저장소(Chroma) 단계 오류
 class VectorStoreError(Exception):
-    """CLS-107. 벡터 저장소 단계 오류."""
+    """CLS-107. 벡터 저장소 단계 오류. stored는 오류가 나기 전에 이미 저장된 청크 수(저장 중간 실패 때만 0보다 큼)."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, stored: int = 0) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+        self.stored = stored
 
 
 # ---------------------------------------------------------------------------
