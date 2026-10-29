@@ -41,7 +41,7 @@ APP_CSS = """
 #hd-shell.hd-role-admin #hd-topnav {background:var(--hd-green)!important;}
 #hd-topnav-row {flex-wrap:nowrap;}
 #hd-topnav #hd-nav-search,#hd-topnav #hd-nav-upload,#hd-topnav #hd-nav-logout {color:#fff!important;}
-#hd-nav-brand {flex:0 0 160px;min-width:150px;}
+#hd-nav-brand {flex:0 0 auto!important;width:auto!important;min-width:0!important;}
 #hd-nav-search,#hd-nav-upload {flex:0 0 96px;min-width:90px;max-width:110px;}
 #hd-topnav-row .hd-nav-button.primary {border-bottom-color:white!important;color:white!important;font-weight:700!important;}
 #hd-nav-user {margin-left:auto;min-width:80px;max-width:230px;}
@@ -64,7 +64,6 @@ APP_CSS = """
 #hd-modal-close {max-width:100px;margin-left:auto;border:1px solid #dfe4ed;border-radius:10px;min-height:38px;}
 @media(max-width:640px) {
  #hd-topnav-row {width:calc(100% - 24px);gap:4px!important;flex-wrap:wrap;}
- #hd-nav-brand {min-width:130px;flex-basis:130px;}
  #hd-nav-user {max-width:130px;} #hd-nav-search,#hd-nav-upload {min-width:70px;max-width:85px;}
  #hd-nav-logout {min-width:60px;max-width:60px;} .hd-user-summary span:last-child {display:none;}
  #hd-content {width:calc(100% - 28px)!important;}
@@ -139,7 +138,8 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
             with gr.Column(elem_id="hd-content", elem_classes=["hd-content"]):
                 search = build_search_page(companies, DOC_TYPES, demo_mode)
                 # 질문은 검색 입력으로 받으며 답변·출처는 검색 스플릿뷰에 표시한다.
-                admin = build_admin_page(companies, DOC_TYPES, demo_mode)
+                admin = build_admin_page(companies, DOC_TYPES, demo_mode,
+                                         auto_classify=getattr(service, "auto_classify", False) is True)
             # 일반·기업 관리자는 소속 회사를, 전체 관리자는 서비스명을 표시한다.
             with gr.Row(elem_id="hd-shell-footer", elem_classes=["hd-footer"]):
                 footer_company = gr.HTML("© Hyundap", elem_id="hd-footer-company", elem_classes=["hd-plain-html"])

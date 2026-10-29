@@ -6,11 +6,12 @@ SQL이나 원본 저장소를 직접 다루지 않는다. 실제 권한 검사�
 from __future__ import annotations
 
 import importlib
+import math
 import re
 from collections.abc import Mapping
 from pathlib import Path
 
-from .services import UIServiceError, to_plain, validate_upload_file
+from .services import DOC_TYPES, UIServiceError, to_plain, validate_upload_file, validate_upload_metadata
 
 
 MAX_DETAIL_CITATIONS = 4
@@ -131,15 +132,57 @@ def get_document(*, user, document_id, version_id=None):
     }
 
 
-def upload_document(*, user, file_path, company_id, doc_type):
+def auto_classify_enabled() -> bool:
+    """서버 공통 설정만 읽는다. 아직 설정 필드가 없는 이전 백엔드는 수동 모드다."""
+    from hyundap.common.config import get_settings
+
+    return getattr(get_settings(), "doc_classify", False) is True
+
+
+def _classification_fields(result, *, required=False):
+    """#261: 공개 반환 필드만 복사한다. 최종 유형을 입력값/AI 추정값으로 대체하지 않는다."""
+    final_keys = {"doc_type", "doc_type_fallback", "doc_type_fallback_reason"}
+    ai_keys = {"auto_doc_type", "doc_type_confidence", "company_match", "classify_status"}
+    fields = {key: result[key] for key in final_keys | ai_keys if key in result}
+    types = {code for _, code in DOC_TYPES}
+
+    def invalid():
+        raise UIServiceError("INVALID_RESPONSE", "업로드의 문서 유형 결과를 확인할 수 없습니다. 처리 결과를 확인해 주세요.")
+
+    if required and not (final_keys | ai_keys) <= fields.keys():
+        invalid()
+    if final_keys & fields.keys():
+        if not final_keys <= fields.keys():
+            invalid()
+        kind, fallback, reason = (fields[key] for key in ("doc_type", "doc_type_fallback", "doc_type_fallback_reason"))
+        if not isinstance(kind, str) or kind not in types or type(fallback) is not bool:
+            invalid()
+        if (fallback and reason not in ("LOW_CONFIDENCE", "CLASSIFY_FAILED")) or (not fallback and reason is not None):
+            invalid()
+    if ai_keys & fields.keys():
+        if not (final_keys | ai_keys) <= fields.keys():
+            invalid()
+        kind, confidence = fields["auto_doc_type"], fields["doc_type_confidence"]
+        if not isinstance(kind, str) or kind not in types | {""}:
+            invalid()
+        if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            invalid()
+        if fields["company_match"] not in ("yes", "no", "") or fields["classify_status"] not in ("success", "failed"):
+            invalid()
+    return fields
+
+
+def upload_document(*, user, file_path, company_id, doc_type=None, auto_classify=False):
     """DB 담당의 업로드 전체 흐름을 호출하고 게시 결과를 UI 상태로 변환한다."""
     from .backend_feedback import safe_upload_message
 
     submit = _function("hyundap.db.upload_service", "upload_document")
     path = validate_upload_file(file_path)
-    if not company_id or not doc_type:
-        raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
-    metadata = {"company_id": company_id, "doc_type": doc_type, "data_category": "operational"}
+    validate_upload_metadata(company_id, doc_type, auto_classify=auto_classify)
+    if auto_classify and not auto_classify_enabled():
+        raise UIServiceError("INVALID_INPUT", "자동 분류를 사용할 수 없습니다. 화면을 다시 열고 문서 유형을 선택해 주세요.", "input_error")
+    mode = {"auto_classify": True} if auto_classify else {"doc_type": doc_type}
+    metadata = {"company_id": company_id, "data_category": "operational", **mode}
     result = to_plain(submit(
         actor=user,
         source_path=str(path),
@@ -166,7 +209,7 @@ def upload_document(*, user, file_path, company_id, doc_type):
         "searchable": succeeded,
         "file_name": Path(path).name,
         "company_id": company_id,
-        "doc_type": doc_type,
+        **_classification_fields(result, required=auto_classify and succeeded),
         "error_code": error_code if succeeded else error_code or "PROCESSING_FAILED",
         "recovery_required": recovery,
         "message": "문서 등록과 검색 공개가 완료되었습니다." if succeeded else safe_upload_message(error_code or "PROCESSING_FAILED", recovery_required=recovery),

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-from .backend_documents import get_document, upload_document
+from .backend_documents import auto_classify_enabled, get_document, upload_document
 from .backend_companies import list_company_names
 from .backend_feedback import to_feedback
 from .services import BackendBindings, UIServiceError
@@ -107,6 +107,7 @@ def create_bindings(authentication=None) -> BackendBindings:
         summarize_document=summarize_document,
         summarize_document_stream=summarize_document_stream,
         upload=upload_document,
+        auto_classify_enabled=auto_classify_enabled,
         download=download_original,
         user_factory=validated_session_to_actor,
         to_feedback=to_feedback,

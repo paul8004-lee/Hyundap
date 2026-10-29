@@ -2,9 +2,9 @@
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | 0.6 — #207 미사용 코드 정리·공통 함수 연결·인라인 답변 및 로그인 회귀 검사 |
+| 문서 버전 | 0.7 — #261 자동/수동 업로드 분기·최종 문서 유형 및 대체 사유 표시 |
 | 작성일 | 2026-10-26 |
-| UI 수정일 | 2026-10-28 |
+| UI 수정일 | 2026-10-29 |
 | UI 담당 | 박경환 |
 | 대상 | `hyundap/app.py`, `hyundap/ui/` |
 | 실행 환경 | Python 3.11 이상, Gradio 6.30.0 |
@@ -177,7 +177,12 @@ hyundap/
 
 ### 4.6 관리자 수동 업로드 — `admin_page.py`
 
-- 회사·문서 유형과 파일을 하나 이상 선택하여 `문서 등록`으로 제출한다. 선택한 유형을 각 파일의 업로드 메타데이터에 그대로 전달한다. AI 분류 결과가 기존 `doc_type`에 연결되기 전까지 유형 선택을 유지한다.
+- 자동 분류 가능 여부는 서버 공통 설정 `doc_classify`에서 읽고 앱 구성·컨트롤러·서비스가 같은 모드를 사용한다. 데모는 기본 자동, 이전 설정 필드가 없거나 꺼진 실제 모드는 수동이다.
+- 자동 모드는 회사와 파일만 선택한다. 유형 컨트롤은 이벤트 참조를 위해 등록하되 숨기며, 이전 값/클라이언트 입력은 무시한다. `auto_classify=True`로 요청하고 `doc_type`은 생략한다.
+- 수동 모드는 회사·문서 유형·파일을 선택하고 선택 유형을 모든 파일에 전달한다. 자동·수동 메타데이터를 함께 보내거나 미등록 유형을 보내는 요청은 거부한다.
+- 응답 최종 `doc_type`과 `doc_type_fallback`·`doc_type_fallback_reason`을 읽는다. `LOW_CONFIDENCE`는 확신도 부족, `CLASSIFY_FAILED`는 분류 실패 안내다. 반환 유형으로 안내하여 기존 버전 유형 유지를 표현한다. 정상 `other`는 대체 저장으로 보지 않는다.
+- `company_match=no`만 회사 확인 안내를 표시하며 저장 회사·권한은 바꾸지 않는다. `classify_status=success`와 유효한 `auto_doc_type`이 있을 때만 확신도를 표시하고, UI에서 기준값이나 유형을 재판정하지 않는다.
+- 업로드 성공 시에만 저장 완료로 표현한다. 수집 후 게시 실패의 분류 결과는 `처리 중 판단 유형`이며 최종 저장 확인 전임을 알린다. 실패 전 분류 값이 없으면 만들지 않는다. 다중 결과는 대체 처리된 파일 수를 `유형 확인 필요 N건`으로 표시한다.
 - 모든 파일의 빠른 입력 검증이 통과해야 등록을 시작한다. 기존 단일 파일 백엔드 함수를 파일별로 순서대로 호출하고 진행 건수와 각 파일의 완료·실패·상태 확인 필요 결과를 표시한다. 일반 파일 오류는 나머지 파일을 계속 처리하며, 세션 만료·인증 준비·권한 오류는 나머지 호출을 중단한다. 전체 파일을 하나의 트랜잭션으로 묶거나 이미 완료된 파일을 되돌리지 않는다.
 - 허용 확장자는 `.pdf`, `.docx`, `.pptx`이며 대소문자를 구분하지 않는다. `gr.File(file_types=None)`으로 확장자 오류를 Gradio 영문 알림이 먼저 처리하지 않게 하고, 선택 직후 `do_upload_input`과 제출 시 서비스의 `validate_upload_file()`에서 공통 한국어 안내로 검사한다(#189). 유효하지 않은 파일은 문서 등록 버튼을 비활성화하고 직접 제출 시에도 거부한다. Gradio 임시 파일 전송과 업무 문서 등록은 별도 단계다.
 - 허용 크기는 **1~104,857,600바이트(100MiB)**다. 공통 검증에서 빈 파일, 접근할 수 없는 파일, 허용 외 확장자, 제한 초과 파일을 안내한다. 앱의 `max_file_size=100MiB` 전송 제한도 유지하므로 초과 파일은 입력 이벤트에 도달하기 전에 Gradio 전송 단계에서 차단될 수 있다.
@@ -188,7 +193,7 @@ hyundap/
 - 현재 제출의 상태·단계·메시지 등을 표시하며, 별도 전체 작업 목록이나 자동 상태 갱신은 없다. 문서 유형은 공통 `DOC_TYPES`의 한국어 이름, 진행 단계는 `complete` → `처리 완료` 등 한국어 이름으로 표시한다. 알 수 없는 코드는 `문서 유형 확인 필요`·`진행 상태 확인 필요`로 표시하며 원시 코드를 표시명으로 사용하지 않는다(#190).
 - `job_status=succeeded`만으로 검색 가능한 문서라고 표시하지 않는다. `searchable` 값을 별도로 사용한다.
 - 예시 성공은 `입력 확인 완료`이며 `searchable=False`다.
-- 실제 업로드는 파일마다 `db.upload_service.upload_document(actor=, source_path=, metadata=)` 한 번씩 순서대로 위임한다. metadata에는 `company_id`, `doc_type`, `data_category="operational"`을 전달한다. 저장·추출·청킹·임베딩·발행 순서는 백엔드가 담당한다.
+- 실제 업로드는 파일마다 `db.upload_service.upload_document(actor=, source_path=, metadata=)` 한 번씩 순서대로 위임한다. metadata에는 `company_id`, `data_category="operational"`과 자동 모드의 `auto_classify=True` 또는 수동 모드의 `doc_type` 중 하나를 전달한다. 저장·추출·청킹·임베딩·발행 순서는 백엔드가 담당한다.
 - 백엔드의 `status=success`는 `succeeded`·`searchable=True`로, `failed`는 실패·`searchable=False`로 변환한다. `recovery_required`와 오류 코드를 유지하고 화면 메시지는 허용된 코드별 안내로 제한한다. 백엔드 예외 원문을 표시하지 않는다.
 
 ## 5. 백엔드 연결 규격
@@ -210,7 +215,7 @@ hyundap/
 | `detail(session, document_id, version_id)` | `backend_documents.get_document(user=검증 사용자, document_id=, version_id=)` | 문서 dict |
 | `ask(session, question, company_ids, doc_types, document_ids)` | `hyundap.chatbot.ask.ask(question=, filters=, user=검증 사용자)` | 답변 응답 |
 | `summarize(session, document_id, version_id)` | `hyundap.chatbot.summary.summarize_document(document_id=, user=검증 사용자)` | 요약 응답; 결과 버전 비교 |
-| `upload(session, file_path, company_id, doc_type)` | `backend_documents.upload_document(user=검증 사용자, file_path=, company_id=, doc_type=)` → DB 업로드 함수 | 현재 업로드 결과 dict |
+| `upload(session, file_path, company_id, doc_type=None)` | 자동 가능 + 유형 생략 시 `backend_documents.upload_document(..., auto_classify=True)`, 명시 유형은 기존 수동 호출 → DB 업로드 함수 | 현재 업로드 결과 dict; 최종 유형은 응답값 사용 |
 | `download(session, document_id, version_id)` | `download_original(user=검증 사용자, document_id=, version_id=)` | 현재 `DOWNLOAD_NOT_CONNECTED`; 후속 계약은 준비된 로컬 파일의 `str` 또는 `Path` |
 
 - 전체 필터의 UI 값은 `__all__`이며 호출 시 `None`으로 변환한다. 개별 회사·유형은 길이 1의 목록으로 전달한다.
@@ -234,9 +239,27 @@ hyundap/
 | 문서 출처 | `document_id`, `version_id`, `file_name`, `company_name`, `location_label`, `excerpt`; 선택 필드 `number`, `chunk_id`, `company_id`, `doc_type`, `version_no`, `score`. 이동 가능한 출처에는 문서 식별자가 필요하다. |
 | 답변 | PR #134의 `ChatResponse`: `status` (`ANSWERED`/`NO_EVIDENCE`), `answer`, `citations`, `citations_by_company`, `document_ids`, `message`, `error_code`. UI가 읽는 필드명과 일치하며 회사별 묶음 등 추가 정보도 변환 과정에서 보존한다. |
 | 요약 | `document_id`, `version_id`, `summary`, `is_full`, `included_range`, `excluded_range`, `total_chunks`, `used_chunks`; `citations`가 올 수 있으나 요약 전용 출처 목록 UI는 없다. |
-| 업로드 결과 | `status` 또는 `job_status`, `file_name`, `company_name`, `doc_type`, `stage` 또는 `step`, `message`, `error_code`, `searchable`; 선택 필드 `document_id`, `job_id`, `recovery_required`. 예시 결과에는 `demo`, `simulated`를 사용한다. |
+| 업로드 결과 | `status` 또는 `job_status`, `file_name`, `company_name`, `stage` 또는 `step`, `message`, `error_code`, `searchable`; 선택 필드 `document_id`, `job_id`, `recovery_required`. #261 분류 결과는 아래 계약을 따른다. 예시 결과에는 `demo`, `simulated`를 사용한다. |
 
 위 필드 중 일부는 화면 사용 조건이며 모든 필드를 어댑터가 엄격하게 검사하는 것은 아니다. 실제 연결 시 정상·빈 결과·오류 응답 예시를 함께 받아 누락과 자료형을 검수한다. 파일 크기나 점수처럼 응답에 있어도 현재 상세 UI에 표시하지 않는 필드가 있다.
+
+### 5.3 자동 업로드의 분류 반환 계약 (#261)
+
+DB `upload_document` 결과 dict의 최상위 필드를 읽는다. 성공한 자동 업로드는 아래 7개가 필수다. 수동 응답은 최종 필드 3개만 있으면 된다. 수집 성공 전 실패는 7개 모두 없을 수 있다. 이전 수동 백엔드가 필드를 전혀 반환하지 않는 경우에도 업로드 결과를 표시하되 최종 유형을 입력값으로 추측하지 않는다.
+
+| 필드 | 허용값·사용 |
+|---|---|
+| `doc_type` | 공통 유형 4종, 최종 유형 표시; AI 추정 유형과 별개 |
+| `doc_type_fallback` | 정확한 bool, true인 파일 수를 배치 요약에 표시 |
+| `doc_type_fallback_reason` | false이면 null, true이면 `LOW_CONFIDENCE` 또는 `CLASSIFY_FAILED` |
+| `auto_doc_type` | 공통 유형 또는 빈 문자열; 빈 값을 null로 바꾸지 않음 |
+| `doc_type_confidence` | 0~1의 유한한 숫자; bool 제외; UI 판정 기준으로 사용하지 않음 |
+| `company_match` | `yes`/`no`/빈 문자열; no만 확인 안내 |
+| `classify_status` | `success`/`failed`; 확신도 노출 조건 |
+
+분류 필드는 허용 목록으로 복사하고 잘못된 값이나 일부만 있는 필드 묶음은 `INVALID_RESPONSE`로 처리한다. 오류 원문·내부 경로는 전달하지 않는다. 기존 응답의 식별자·오류·복구 여부 검사도 유지한다. 타입 확정·청크 반영·게시 트랜잭션·재시도 분류 재사용은 각 백엔드 담당 범위이며 UI는 별도 분류 함수를 호출하지 않는다.
+
+나사로프로의 [#261 코멘트](https://github.com/paul8004-lee/Hyundap/issues/261#issuecomment-6489076920)를 연결 목표로 구현했다. 자동 입력 구분값·설정 꺼짐 정책·게시 시점은 해당 댓글에서 담당자 확인 대상이다. 실제 DB 저장 및 유형 필터 일치는 백엔드 반영 후 별도 통합 검수한다.
 
 ## 6. 상태·오류 처리
 
