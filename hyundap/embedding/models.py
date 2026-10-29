@@ -51,6 +51,8 @@ class EmbeddingFailure:
     message: str
     # True면 나중에 다시 시도해 볼 만한 실패
     retryable: bool = False
+    # 어느 단계에서 실패했는지: prepare(입력 점검) / embed(임베딩 호출) / validate(벡터 검증) / store(저장)
+    stage: str = ""
 
 
 @dataclass
@@ -91,6 +93,12 @@ class EmbedStoreReport:
     status: str = "failed"
     # 걸린 시간(초)
     elapsed_sec: float = 0.0
+    # 시작·종료 시각(epoch 초). 로그에 "언제"를 남기기 위한 값
+    started_at: int = 0
+    finished_at: int = 0
+    # 한 번에 보낸 청크 수와 묶음 개수(무엇을 시도했는지 남기기 위한 값)
+    batch_size: int = 0
+    batch_count: int = 0
 
 
 @dataclass
