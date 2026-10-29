@@ -325,7 +325,7 @@ class OcrTests(IngestTestCase):
             doc = load_pdf(self.path('scan.pdf'), dict(INFO))
         read.assert_not_called()
         self.assertEqual([s.section_no for s in doc.sections], [2])
-        self.assertEqual(doc.warnings, ['p.1: 글자가 없어 건너뜀'])
+        self.assertEqual(doc.warnings, ['p.1: 글자가 없어 건너뜀', 'OCR이 설치되어 있지 않아 이미지·스캔 쪽 1개의 글자를 읽지 않음'])
 
 
 class FigureOcrTests(IngestTestCase):
@@ -554,7 +554,7 @@ class DocxFigureOcrTests(IngestTestCase):
         document.add_picture(io.BytesIO(png_bytes()), width=Inches(3))
         doc, read = self.read(document, available=False)
         read.assert_not_called()
-        self.assertEqual(doc.warnings, ['그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음'])
+        self.assertEqual(doc.warnings, ['그림·도형·차트·텍스트 상자 1개는 글자를 읽지 않음', 'OCR이 설치되어 있지 않아 이미지·스캔 쪽 1개의 글자를 읽지 않음'])
 
     def test_figure_count_is_capped_per_document(self):
         """문서당 그림 OCR 수 상한을 넘으면 읽지 않고 경고하는지 확인한다."""
@@ -629,7 +629,7 @@ class PptxFigureOcrTests(IngestTestCase):
         slide.shapes.add_picture(io.BytesIO(png_bytes()), Inches(1), Inches(2), width=Inches(3))
         doc, read = self.read(presentation, available=False)
         read.assert_not_called()
-        self.assertEqual(doc.warnings, ['이미지·차트 1개는 글자를 읽지 않음 (슬라이드 1)'])
+        self.assertEqual(doc.warnings, ['이미지·차트 1개는 글자를 읽지 않음 (슬라이드 1)', 'OCR이 설치되어 있지 않아 이미지·스캔 쪽 1개의 글자를 읽지 않음'])
 
 
 class OcrLimitTests(IngestTestCase):

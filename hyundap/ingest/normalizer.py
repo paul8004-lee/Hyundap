@@ -54,8 +54,12 @@ def normalize_document(doc):
                 text=text,
             )
         )
-    return CommonDocument(
+    normalized = CommonDocument(
         header=doc.header,
         sections=new_sections,
         warnings=list(doc.warnings),
     )
+    ocr_stats = getattr(doc, "ocr", None)
+    if ocr_stats is not None:   # 로더가 붙인 OCR 통계(상태·읽은 수·읽지 못한 수)를 정규화 뒤에도 이어 준다
+        normalized.ocr = dict(ocr_stats)
+    return normalized

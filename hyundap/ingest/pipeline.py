@@ -98,7 +98,7 @@ def build_ingest_report(file_path, doc, chunks):
     extension = os.path.splitext(file_path)[1].lower()
     parser = PARSERS[extension]
     settings = get_settings()
-    return {
+    report = {
         "parser": parser,
         "parser_version": version(parser),
         "chunk_size": settings.chunk_size,
@@ -108,3 +108,9 @@ def build_ingest_report(file_path, doc, chunks):
         "chunk_count": len(chunks),
         "short_chunk_count": sum(len(chunk.text.strip()) < SHORT_CHUNK_CHARS for chunk in chunks),
     }
+    ocr_stats = getattr(doc, "ocr", None)
+    if ocr_stats:   # OCR 상태와, 이미지·스캔 쪽 중 글자를 읽은 수·읽지 못한 수
+        report["ocr_status"] = ocr_stats["status"]
+        report["ocr_read_count"] = ocr_stats["read"]
+        report["ocr_unread_count"] = ocr_stats["unread"]
+    return report

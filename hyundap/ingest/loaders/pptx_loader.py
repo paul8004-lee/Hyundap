@@ -118,7 +118,10 @@ def load_pptx(file_path, upload_info):
     def read_slide_picture(shape, texts):
         """그림 도형 하나에서 OCR로 읽은 글자를 돌려준다. 슬라이드에 이미 모은 글과 겹치는 줄은 뺀다."""
         nonlocal read_in_slide, pictures_in_slide
-        if not reader.enabled:   # OCR이 꺼져 있으면 그림 파일을 꺼내지도 않는다
+        width = shape.width / EMU_PER_PT if shape.width is not None else None
+        height = shape.height / EMU_PER_PT if shape.height is not None else None
+        if not reader.enabled:   # OCR이 꺼져 있으면 그림 파일은 꺼내지 않고 읽지 못한 그림 수만 센다
+            reader.read_picture(None, width, height, slide_area_pt)
             return ""
         try:
             blob = shape.image.blob
@@ -126,9 +129,8 @@ def load_pptx(file_path, upload_info):
             return ""
         except Exception:   # 그림 관계가 이미지가 아닌 부분을 가리키는 등: 업로드 전체가 실패하지 않게 건너뛴 그림으로 센다
             reader.unreadable += 1
+            reader.unread += 1
             return ""
-        width = shape.width / EMU_PER_PT if shape.width is not None else None
-        height = shape.height / EMU_PER_PT if shape.height is not None else None
         text = reader.read_picture(blob, width, height, slide_area_pt, page_text=lambda: "\n".join(texts))
         if text != "":
             read_in_slide += 1
@@ -187,4 +189,5 @@ def load_pptx(file_path, upload_info):
         doc.warnings.append(f"이미지·차트 {total}개는 글자를 읽지 않음 (슬라이드 {listed}{more})")
     doc.warnings.extend(chart_reader.warnings())
     doc.warnings.extend(reader.warnings(f"슬라이드 {figure_slides}장, "))
+    figures.set_ocr_stats(doc, figures.ocr_status(), reader.appended, reader.unread)
     return doc
