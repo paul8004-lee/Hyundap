@@ -79,11 +79,9 @@ def validated_session_to_actor(session: dict) -> dict:
 
 
 def download_original(**kwargs):
-    """권한 검증을 포함한 원문 다운로드 공개 함수는 DB팀 제공 대기."""
-    raise UIServiceError(
-        "DOWNLOAD_NOT_CONNECTED",
-        "원문 다운로드는 백엔드 다운로드 함수 연결 후 사용할 수 있습니다.",
-    )
+    """실제 전송 시 호출한다. 반환된 임시 사본은 HTTP 전송자가 정리한다."""
+    from hyundap.db.download_service import prepare_original_download
+    return prepare_original_download(kwargs['user'], kwargs['document_id'], kwargs.get('version_id'))
 
 
 def create_bindings(authentication=None) -> BackendBindings:
