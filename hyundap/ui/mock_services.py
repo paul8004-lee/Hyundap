@@ -254,13 +254,13 @@ class MockServices:
             yield {"type": "delta", "text": line}
         yield {"type": "done", "response": response}
 
-    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict:
+    async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
         record = self._checked(session)
         if record.public["role"] not in {"company_admin", "platform_admin"}:
             raise UIServiceError("ACCESS_DENIED", "문서 업로드는 관리자만 사용할 수 있습니다.", "denied")
-        if not company_id:
-            raise UIServiceError("METADATA_REQUIRED", "회사를 선택해 주세요.", "input_error")
-        self._scope(session, [company_id], [doc_type] if doc_type is not None else None)
+        if not company_id or not doc_type:
+            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+        self._scope(session, [company_id], [doc_type])
         path = validate_upload_file(file_path)
 
         def file_hash():

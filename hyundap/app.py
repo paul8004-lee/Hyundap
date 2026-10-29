@@ -185,10 +185,11 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
             async for patch in controller.run("select", session_key, index):
                 yield patch
         search["table"].select(on_document_select, inputs=[key], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
-        bind(search["summarize"].click, "summarize", [])
         bind(search["source"].click, "source", [])
+        bind(search["evidence_prev"].click, "evidence_prev", [])
+        bind(search["evidence_next"].click, "evidence_next", [])
         bind(search["download"].click, "download", [])
-        bind(admin["submit"].click, "upload", [admin["file"], admin["company"]])
+        bind(admin["submit"].click, "upload", [admin["file"], admin["company"], admin["doc_type"]])
         async def on_upload_input(session_key, file_path):
             # 큐를 거치지 않는 입력 검사는 스트리밍 대신 최종 변경을 한 번에 반환한다.
             result = {}
@@ -197,7 +198,7 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
             return result
 
         # 파일 교체·제거와 메타정보 변경은 이전 처리 결과를 즉시 지운다.
-        for event in (admin["file"].change, admin["company"].input):
+        for event in (admin["file"].change, admin["company"].input, admin["doc_type"].input):
             event(on_upload_input, inputs=[key, admin["file"]], outputs=outputs,
                   trigger_mode="always_last", queue=False, api_visibility="private", show_progress="hidden")
         bind(modal_close.click, "close", [])

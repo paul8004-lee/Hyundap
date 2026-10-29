@@ -36,6 +36,7 @@ class ViewState:
     # 문서를 선택해도 현재 검색 질문의 답변은 유지한다.
     inline_generation: int = 0
     answer_citations: list[dict] = field(default_factory=list)
+    evidence_index: int = 0
     upload_ready: bool = False
     summaries: dict = field(default_factory=dict)
 
@@ -101,16 +102,39 @@ class UIController:
                      and source.get("document_id") == document_id
                      and source.get("version_id") == version_id]
 
+    def evidence_sources(self, ctx, doc):
+        return self.answer_sources(ctx, doc) or [doc]
+
     def selected_evidence(self, ctx, doc):
-        sources = self.answer_sources(ctx, doc)
-        if not sources:
-            return render_evidence(doc)
-        heading = f'<p class="hd-citation-empty">선택 문서의 답변 근거 · {len(sources)}개</p>'
-        return '<div class="hd-citation-list">' + heading + "".join(
-            render_evidence({**doc, "number": source.get("number"),
-                             "location_label": source.get("location_label"),
-                             "excerpt": source.get("excerpt")}) for source in sources
-        ) + '</div>'
+        sources = self.evidence_sources(ctx, doc)
+        ctx.evidence_index = max(0, min(ctx.evidence_index, len(sources) - 1))
+        return render_evidence({**doc, **sources[ctx.evidence_index]})
+
+    def evidence_navigation(self, *, count=0, index=0):
+        changes = {"evidence_nav": gr.update(visible=count > 1),
+                   "evidence_prev": gr.update(interactive=index > 0),
+                   "evidence_next": gr.update(interactive=index + 1 < count),
+                   "evidence_position": f"출처 {index + 1} / {count}" if count else ""}
+        return {ref: value for name, value in changes.items()
+                if (ref := self.optional_ref(self.search, name)) is not None}
+
+    def evidence_patch(self, ctx, doc):
+        html = self.selected_evidence(ctx, doc)
+        return {self.search["evidence"]: html,
+                **self.evidence_navigation(count=len(self.evidence_sources(ctx, doc)), index=ctx.evidence_index)}
+
+    async def do_evidence_prev(self, ctx, ticket):
+        return await self.move_evidence(ctx, ticket, -1)
+
+    async def do_evidence_next(self, ctx, ticket):
+        return await self.move_evidence(ctx, ticket, 1)
+
+    async def move_evidence(self, ctx, ticket, step):
+        if not ctx.selected:
+            raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
+        doc = await self.wait(ctx, ticket, self.service.detail(ctx.user, ctx.selected["document_id"], ctx.selected.get("version_id")))
+        ctx.evidence_index += step
+        return self.evidence_patch(ctx, doc)
 
     @staticmethod
     def current(ctx, ticket):
@@ -128,25 +152,26 @@ class UIController:
 
     def clear_document(self):
         s = self.search
-        return {s["detail"]: render_document(None), s["evidence"]: "", s["summary"]: "선택한 문서를 요약해 주요 내용을 확인하세요.", s["coverage"]: "", s["detail_feedback"]: "", s["summarize"]: gr.update(interactive=False, value="요약하기"), s["source"]: gr.update(interactive=False), s["download"]: gr.update(interactive=False), s["download_file"]: gr.update(value=None, visible=False)}
+        return {**self.evidence_navigation(), s["detail"]: render_document(None), s["evidence"]: "", s["summary"]: "선택한 문서를 요약해 주요 내용을 확인하세요.", s["coverage"]: "", s["detail_feedback"]: "", s["summarize"]: gr.update(interactive=False, value="요약하기"), s["source"]: gr.update(interactive=False), s["download"]: gr.update(interactive=False), s["download_file"]: gr.update(value=None, visible=False)}
 
     def clear_search(self):
         return {**self.clear_modal(), **self.clear_document(), **self.inline_patch(), self.search["table"]: [], self.search["results_area"]: gr.update(visible=False), self.search["empty"]: gr.update(visible=False), self.search["caption"]: "", self.search["feedback"]: "", self.search["intro"]: gr.update(visible=True), self.search["quick"]: gr.update(visible=True), self.search["submit"]: gr.update(interactive=True)}
 
     def signed_out(self, message=""):
-        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False), self.shell["account"]: "", self.admin["file"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
+        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False), self.shell["account"]: "", self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
 
     def document_patch(self, ctx, doc):
         ctx.selected = deepcopy(doc)
+        ctx.evidence_index = 0
         s = self.search
-        return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), s["evidence"]: self.selected_evidence(ctx, doc), s["summarize"]: gr.update(interactive=True), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
+        return {**self.clear_modal(), **self.clear_document(), s["table"]: document_rows(ctx.results, doc.get("document_id")), s["detail"]: render_document(doc), **self.evidence_patch(ctx, doc), s["summarize"]: gr.update(interactive=True), s["source"]: gr.update(interactive=True), s["download"]: gr.update(interactive=True)}
 
     def feedback_target(self, action):
         if action in {"login", "logout"}:
             return self.login["feedback"]
         if action in {"upload", "upload_input"}:
             return self.admin["feedback"]
-        if action in {"select", "summarize", "download", "source"}:
+        if action in {"select", "summarize", "download", "source", "evidence_prev", "evidence_next"}:
             return self.search["detail_feedback"]
         return self.search["feedback"]
 
@@ -261,7 +286,7 @@ class UIController:
             content = render_compact_answer(response) or show_feedback("답변할 근거를 찾지 못했어요.", "info")
             patch = self.inline_patch(content, visible=True)
             if ctx.selected:
-                patch[self.search["evidence"]] = self.selected_evidence(ctx, ctx.selected)
+                patch.update(self.evidence_patch(ctx, ctx.selected))
             yield patch
         except Exception as error:
             if not self.inline_current(ctx, generation):
@@ -279,7 +304,7 @@ class UIController:
             else:
                 patch = self.inline_patch(show_feedback(error.message, "error"), visible=True)
                 if ctx.selected:
-                    patch[self.search["evidence"]] = self.selected_evidence(ctx, ctx.selected)
+                    patch.update(self.evidence_patch(ctx, ctx.selected))
                 yield patch
 
     async def checked(self, ctx, ticket):
@@ -306,7 +331,7 @@ class UIController:
         platform_admin = user.get("role") == "platform_admin"
         company_name = next((name for name, company_id in companies if company_id == user.get("company_id")), "회사명 확인 필요")
         footer_name = "© Hyundap" if platform_admin else company_name
-        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", self.shell["container"]: gr.update(visible=True), self.shell["account"]: render_header(user), self.shell["footer_company"]: escape(footer_name), self.shell["upload_nav"]: gr.update(visible=is_admin), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.shell["nav_search"]: gr.update(variant="primary"), self.shell["upload_nav"]: gr.update(visible=is_admin, variant="secondary")}
+        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", self.shell["container"]: gr.update(visible=True), self.shell["account"]: render_header(user), self.shell["footer_company"]: escape(footer_name), self.shell["upload_nav"]: gr.update(visible=is_admin), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=ctx.company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.shell["nav_search"]: gr.update(variant="primary"), self.shell["upload_nav"]: gr.update(visible=is_admin, variant="secondary")}
 
     async def do_logout(self, ctx, ticket):
         previous = ctx.user
@@ -416,12 +441,12 @@ class UIController:
                 raise error
             snapshot = (job["text"], job["status"], job["done"])
             if snapshot != previous:
-                patch = {self.search["summary"]: job["text"], self.search["coverage"]: "", self.search["summarize"]: gr.update(interactive=job["done"], value="다시 요약" if job["done"] else "요약 중")}
+                patch = {self.search["summary"]: job["text"] or ("요약 중입니다." if not job["done"] else ""), self.search["coverage"]: ""}
                 if job["done"]:
                     patch[self.search["coverage"]] = render_coverage(job["response"])
                     patch[self.search["detail_feedback"]] = ""
                 else:
-                    patch[self.search["detail_feedback"]] = set_loading(job["status"])
+                    patch[self.search["detail_feedback"]] = ""
                 yield patch
                 previous = snapshot
             if job["done"]:
@@ -483,7 +508,7 @@ class UIController:
         doc = await self.wait(ctx, ticket, self.service.detail(ctx.user, ctx.selected["document_id"], ctx.selected.get("version_id")))
         citations = self.answer_sources(ctx, doc) or doc.get("citations") or [doc]
         body = '<div class="hd-citation-list">' + "".join(render_citation(citation) for citation in citations) + '</div>'
-        return {self.shell["modal"]: gr.update(visible=True), self.shell["modal_body"]: body, self.search["evidence"]: self.selected_evidence(ctx, doc), self.search["detail_feedback"]: ""}
+        return {self.shell["modal"]: gr.update(visible=True), self.shell["modal_body"]: body, **self.evidence_patch(ctx, doc), self.search["detail_feedback"]: ""}
 
 
     async def do_download(self, ctx, ticket):
@@ -524,14 +549,21 @@ class UIController:
         ctx.upload_ready = True
         return {self.admin["submit"]: gr.update(interactive=True)}
 
-    async def do_upload(self, ctx, ticket, file_path, company, doc_type=None):
+    @staticmethod
+    def validate_upload_metadata(company, doc_type):
+        if not company or not doc_type:
+            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+
+    async def do_upload(self, ctx, ticket, file_path, company, doc_type):
+        self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(file_path)
         file_path = paths[0] if paths else None
-        result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company))
+        result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
         return {self.admin["result"]: render_upload_result({**result, "demo": self.service.demo}), self.admin["feedback"]: show_feedback("입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다." if self.service.demo else result.get("message") or "업로드 요청 결과를 확인해 주세요.", "info")}
 
-    async def run_batch_upload(self, ctx, ticket, files, company, doc_type=None):
+    async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
         """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
+        self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(files)
         # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
         self.validate_upload_paths(paths)
@@ -544,7 +576,7 @@ class UIController:
             if not self.current(ctx, ticket):
                 return
             try:
-                result = await self.wait(ctx, ticket, self.service.upload(ctx.user, path, company))
+                result = await self.wait(ctx, ticket, self.service.upload(ctx.user, path, company, doc_type))
             except StaleResponse:
                 return
             except UIServiceError as error:
