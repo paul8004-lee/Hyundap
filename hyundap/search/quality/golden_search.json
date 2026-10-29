@@ -1,0 +1,1326 @@
+{
+  "version": 1,
+  "description": "검색 순위 평가 정답셋 (이슈 #237). 공개·승인된 가상 자료(SYN)와 공개 제품자료(PUB)만 사용. status=seed는 기존 QA·이슈에서 온 질문, draft는 코드로 정답을 정한 초안.",
+  "cases": [
+    {
+      "id": "Q001",
+      "type": "natural",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "무벡스 신입인데요. WMS에 입고 자료를 처음 접수하고 등록하는 순서가 나온 매뉴얼 찾아주세요.",
+      "gold_docs": [
+        "MVX-SYN-MAN-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q001",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q011",
+      "type": "natural",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "무벡스 WMS 입고 데이터를 등록한 뒤 수정 요청이 들어왔어요. 변경 전후 내용과 승인 절차를 확인할 매뉴얼 찾아줘.",
+      "gold_docs": [
+        "MVX-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q011",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q031",
+      "type": "natural",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "무벡스 WMS 입고 데이터 등록을 연습할 수 있는 신규 담당자용 교육 슬라이드 찾아주세요.",
+      "gold_docs": [
+        "MVX-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q031",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q085",
+      "type": "exclusion",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "무벡스 WMS 제품 특징을 소개하는 공개 자료 찾아주세요. 입고 등록 실습자료와 구분해서 찾고 있어요.",
+      "gold_docs": [
+        "MVX-PUB-026"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q085",
+      "status": "seed",
+      "regression": [
+        "N3"
+      ]
+    },
+    {
+      "id": "Q004",
+      "type": "natural",
+      "company": "hel",
+      "asker": "hel",
+      "query": "엘리베이터 유지관리 요청을 접수하는 업무를 맡았어요. 요청을 분류하고 등록하는 매뉴얼 있나요?",
+      "gold_docs": [
+        "HEL-SYN-MAN-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q004",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q014",
+      "type": "natural",
+      "company": "hel",
+      "asker": "hel",
+      "query": "엘리베이터 유지관리 요청의 분류를 바꿔야 해요. 변경 요청부터 승인까지 다룬 매뉴얼 찾아주세요.",
+      "gold_docs": [
+        "HEL-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q014",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q034",
+      "type": "natural",
+      "company": "hel",
+      "asker": "hel",
+      "query": "엘리베이터 유지관리 요청을 분류하는 신규 담당자 실습 슬라이드 찾아주세요.",
+      "gold_docs": [
+        "HEL-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q034",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q007",
+      "type": "natural",
+      "company": "hri",
+      "asker": "hri",
+      "query": "경제연구원 신입입니다. 경제지표 원본과 출처를 처음 등록하는 매뉴얼 찾아주세요.",
+      "gold_docs": [
+        "HRI-SYN-MAN-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q007",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q017",
+      "type": "natural",
+      "company": "hri",
+      "asker": "hri",
+      "query": "경제연구원에 등록한 경제지표 출처 정보를 바꾸려는데 변경 승인 절차가 나온 매뉴얼 찾아줘.",
+      "gold_docs": [
+        "HRI-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q017",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "Q037",
+      "type": "natural",
+      "company": "hri",
+      "asker": "hri",
+      "query": "경제연구원에서 지표 출처를 등록하는 연습을 하려고 해요. 발표일과 단위도 확인하는 신규 담당자 실습자료 찾아줘.",
+      "gold_docs": [
+        "HRI-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "tests/qa/corpus.json Q037",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": "6 업무시간",
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "HRI-SYN-MAN-001"
+      ],
+      "id": "P1-S8",
+      "type": "keyword",
+      "company": "hri",
+      "query": "경제지표 원천 등록 검토 기한",
+      "source": "p1_search_diagnose.py S8 (이슈 P1)",
+      "status": "seed"
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 6 업무시간",
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "HRI-SYN-MAN-001"
+      ],
+      "id": "P1-S10",
+      "type": "code",
+      "company": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-001의 첫 검토 기한은?",
+      "source": "p1_search_diagnose.py S10 (이슈 P1); 검색테스트_정답300.csv HRI-SYN-MAN-001-Q1",
+      "status": "seed"
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": "slide 4",
+      "expected_answer": "지표 출처 등록표",
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "HRI-SYN-EDU-001"
+      ],
+      "id": "P1-S11",
+      "type": "code",
+      "company": "hri",
+      "query": "가상 교육자료 HRI-SYN-EDU-001의 최종 실습 산출물은?",
+      "source": "p1_search_diagnose.py S11 (이슈 P1); 검색테스트_정답300.csv HRI-SYN-EDU-001-Q1",
+      "status": "seed"
+    },
+    {
+      "asker": "mvx",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "MVX-SYN-MAN-001"
+      ],
+      "id": "C-MVX-01",
+      "type": "code",
+      "company": "mvx",
+      "query": "가상 문서 MVX-SYN-MAN-001에 대해 알려 주세요.",
+      "source": "문서 코드 = 정답 문서 (초안)",
+      "status": "draft"
+    },
+    {
+      "asker": "hel",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "HEL-SYN-EDU-001"
+      ],
+      "id": "C-HEL-01",
+      "type": "code",
+      "company": "hel",
+      "query": "가상 교육자료 HEL-SYN-EDU-001의 내용이 궁금해요.",
+      "source": "문서 코드 = 정답 문서 (초안)",
+      "status": "draft"
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "HRI-SYN-MAN-002"
+      ],
+      "id": "C-HRI-01",
+      "type": "code",
+      "company": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-002는 어떤 문서인가요?",
+      "source": "문서 코드 = 정답 문서 (초안)",
+      "status": "draft"
+    },
+    {
+      "asker": "hel",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [
+        "HEL-SYN-MAN-002"
+      ],
+      "id": "C-HEL-02",
+      "type": "code",
+      "company": "hel",
+      "query": "MAN-002 문서의 승인 절차를 알려 주세요.",
+      "source": "짧은 코드(회사 접두사 없음) = 정답 문서 (초안)",
+      "status": "draft"
+    },
+    {
+      "asker": "mvx",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "hri"
+      ],
+      "regression": [],
+      "gold_docs": [],
+      "id": "X-MVX-HRI",
+      "type": "cross_company",
+      "company": "hri",
+      "query": "경제연구원 신입입니다. 경제지표 원본과 출처를 처음 등록하는 매뉴얼 찾아주세요.",
+      "source": "tests/qa/corpus.json Q007를 mvx 직원이 질문 (기존 P3와 같은 방식)",
+      "status": "seed"
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "hel"
+      ],
+      "regression": [],
+      "gold_docs": [],
+      "id": "X-HRI-HEL",
+      "type": "cross_company",
+      "company": "hel",
+      "query": "엘리베이터 유지관리 요청을 접수하는 업무를 맡았어요. 요청을 분류하고 등록하는 매뉴얼 있나요?",
+      "source": "tests/qa/corpus.json Q004를 hri 직원이 질문",
+      "status": "seed"
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "regression": [],
+      "gold_docs": [],
+      "id": "N-WEATHER",
+      "type": "no_evidence",
+      "company": "hri",
+      "query": "오늘 서울 날씨는?",
+      "source": "시연 대본의 근거 없는 질문",
+      "status": "seed"
+    },
+    {
+      "asker": "hri",
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "regression": [
+        "P1"
+      ],
+      "gold_docs": [],
+      "id": "N-UNKNOWN-CODE",
+      "type": "no_evidence",
+      "company": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-999의 검토 기한은?",
+      "source": "코퍼스에 없는 문서 코드 (원래 검색으로 되돌아가는지 확인, 초안)",
+      "status": "draft"
+    },
+    {
+      "id": "MVX-SYN-MAN-001-Q1",
+      "type": "code",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 문서 MVX-SYN-MAN-001의 첫 검토 기한은?",
+      "gold_docs": [
+        "MVX-SYN-MAN-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 4 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv MVX-SYN-MAN-001-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "MVX-SYN-MAN-002-Q1",
+      "type": "code",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 문서 MVX-SYN-MAN-002의 첫 검토 기한은?",
+      "gold_docs": [
+        "MVX-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 4 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv MVX-SYN-MAN-002-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "MVX-SYN-EDU-001-Q1",
+      "type": "code",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 교육자료 MVX-SYN-EDU-001의 최종 실습 산출물은?",
+      "gold_docs": [
+        "MVX-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": "slide 4",
+      "expected_answer": "입고 대사표",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv MVX-SYN-EDU-001-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "MVX-SYN-MAN-005-Q1",
+      "type": "code",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 문서 MVX-SYN-MAN-005의 첫 검토 기한은?",
+      "gold_docs": [
+        "MVX-SYN-MAN-005"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 6 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv MVX-SYN-MAN-005-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "MVX-SYN-EDU-004-Q1",
+      "type": "code",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 교육자료 MVX-SYN-EDU-004의 최종 실습 산출물은?",
+      "gold_docs": [
+        "MVX-SYN-EDU-004"
+      ],
+      "relevant_docs": null,
+      "gold_location": "slide 4",
+      "expected_answer": "작업 이력 대조표",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv MVX-SYN-EDU-004-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "MVX-SYN-MAN-009-Q1",
+      "type": "code",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 문서 MVX-SYN-MAN-009의 첫 검토 기한은?",
+      "gold_docs": [
+        "MVX-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 8 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv MVX-SYN-MAN-009-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HEL-SYN-MAN-001-Q1",
+      "type": "code",
+      "company": "hel",
+      "asker": "hel",
+      "query": "가상 문서 HEL-SYN-MAN-001의 첫 검토 기한은?",
+      "gold_docs": [
+        "HEL-SYN-MAN-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 5 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HEL-SYN-MAN-001-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HEL-SYN-MAN-002-Q1",
+      "type": "code",
+      "company": "hel",
+      "asker": "hel",
+      "query": "가상 문서 HEL-SYN-MAN-002의 첫 검토 기한은?",
+      "gold_docs": [
+        "HEL-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 5 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HEL-SYN-MAN-002-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HEL-SYN-EDU-001-Q1",
+      "type": "code",
+      "company": "hel",
+      "asker": "hel",
+      "query": "가상 교육자료 HEL-SYN-EDU-001의 최종 실습 산출물은?",
+      "gold_docs": [
+        "HEL-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": "slide 4",
+      "expected_answer": "서비스 분류 대장",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HEL-SYN-EDU-001-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HEL-SYN-MAN-005-Q1",
+      "type": "code",
+      "company": "hel",
+      "asker": "hel",
+      "query": "가상 문서 HEL-SYN-MAN-005의 첫 검토 기한은?",
+      "gold_docs": [
+        "HEL-SYN-MAN-005"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 7 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HEL-SYN-MAN-005-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HEL-SYN-EDU-004-Q1",
+      "type": "code",
+      "company": "hel",
+      "asker": "hel",
+      "query": "가상 교육자료 HEL-SYN-EDU-004의 최종 실습 산출물은?",
+      "gold_docs": [
+        "HEL-SYN-EDU-004"
+      ],
+      "relevant_docs": null,
+      "gold_location": "slide 4",
+      "expected_answer": "일정 조정 기록",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HEL-SYN-EDU-004-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HEL-SYN-MAN-009-Q1",
+      "type": "code",
+      "company": "hel",
+      "asker": "hel",
+      "query": "가상 문서 HEL-SYN-MAN-009의 첫 검토 기한은?",
+      "gold_docs": [
+        "HEL-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 9 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HEL-SYN-MAN-009-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HRI-SYN-MAN-002-Q1",
+      "type": "code",
+      "company": "hri",
+      "asker": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-002의 첫 검토 기한은?",
+      "gold_docs": [
+        "HRI-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 6 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HRI-SYN-MAN-002-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HRI-SYN-MAN-005-Q1",
+      "type": "code",
+      "company": "hri",
+      "asker": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-005의 첫 검토 기한은?",
+      "gold_docs": [
+        "HRI-SYN-MAN-005"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 8 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HRI-SYN-MAN-005-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HRI-SYN-EDU-004-Q1",
+      "type": "code",
+      "company": "hri",
+      "asker": "hri",
+      "query": "가상 교육자료 HRI-SYN-EDU-004의 최종 실습 산출물은?",
+      "gold_docs": [
+        "HRI-SYN-EDU-004"
+      ],
+      "relevant_docs": null,
+      "gold_location": "slide 4",
+      "expected_answer": "시계열 검증 보고서",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HRI-SYN-EDU-004-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HRI-SYN-MAN-009-Q1",
+      "type": "code",
+      "company": "hri",
+      "asker": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-009의 첫 검토 기한은?",
+      "gold_docs": [
+        "HRI-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 10 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HRI-SYN-MAN-009-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HRI-SYN-MAN-013-Q1",
+      "type": "code",
+      "company": "hri",
+      "asker": "hri",
+      "query": "가상 문서 HRI-SYN-MAN-013의 첫 검토 기한은?",
+      "gold_docs": [
+        "HRI-SYN-MAN-013"
+      ],
+      "relevant_docs": null,
+      "gold_location": "완료와 보존",
+      "expected_answer": "접수 후 12 업무시간",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HRI-SYN-MAN-013-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "HRI-SYN-BIZ-001-Q1",
+      "type": "code",
+      "company": "hri",
+      "asker": "hri",
+      "query": "가상 신사업 HRI-SYN-BIZ-001의 90일 실증 총예산은?",
+      "gold_docs": [
+        "HRI-SYN-BIZ-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": "예산과 계산 가정",
+      "expected_answer": "2,000만원",
+      "forbidden_companies": null,
+      "source": "검색테스트_정답300.csv HRI-SYN-BIZ-001-Q1",
+      "status": "seed",
+      "regression": []
+    },
+    {
+      "id": "T-MVX-WMS",
+      "type": "natural",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "WMS 입고 데이터 업무를 새로 맡았어요. 접수, 변경 승인, 실습까지 관련 자료를 전부 보고 싶어요.",
+      "gold_docs": [
+        "MVX-SYN-MAN-001",
+        "MVX-SYN-MAN-002",
+        "MVX-SYN-EDU-001"
+      ],
+      "relevant_docs": [
+        "MVX-SYN-MAN-001",
+        "MVX-SYN-MAN-002",
+        "MVX-SYN-EDU-001"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "T-MVX-WCS",
+      "type": "natural",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "WCS 작업 이력 관련해서 참고할 매뉴얼이랑 교육자료 다 찾아줘.",
+      "gold_docs": [
+        "MVX-SYN-MAN-005",
+        "MVX-SYN-EDU-004"
+      ],
+      "relevant_docs": [
+        "MVX-SYN-MAN-005",
+        "MVX-SYN-EDU-004"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "T-HEL-REQ",
+      "type": "natural",
+      "company": "hel",
+      "asker": "hel",
+      "query": "엘리베이터 유지관리 요청 분류 업무 관련 문서를 모두 알려 주세요.",
+      "gold_docs": [
+        "HEL-SYN-MAN-001",
+        "HEL-SYN-MAN-002",
+        "HEL-SYN-EDU-001"
+      ],
+      "relevant_docs": [
+        "HEL-SYN-MAN-001",
+        "HEL-SYN-MAN-002",
+        "HEL-SYN-EDU-001"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "T-HEL-SCH",
+      "type": "natural",
+      "company": "hel",
+      "asker": "hel",
+      "query": "정기점검 일정 조정 업무에 필요한 자료를 전부 찾아주세요.",
+      "gold_docs": [
+        "HEL-SYN-MAN-005",
+        "HEL-SYN-EDU-004"
+      ],
+      "relevant_docs": [
+        "HEL-SYN-MAN-005",
+        "HEL-SYN-EDU-004"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "T-HRI-SRC",
+      "type": "natural",
+      "company": "hri",
+      "asker": "hri",
+      "query": "경제지표 원천 등록 업무 전반을 익히려고 해요. 관련 매뉴얼과 실습자료 모두 보여줘.",
+      "gold_docs": [
+        "HRI-SYN-MAN-001",
+        "HRI-SYN-MAN-002",
+        "HRI-SYN-EDU-001"
+      ],
+      "relevant_docs": [
+        "HRI-SYN-MAN-001",
+        "HRI-SYN-MAN-002",
+        "HRI-SYN-EDU-001"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "T-HRI-TS",
+      "type": "natural",
+      "company": "hri",
+      "asker": "hri",
+      "query": "통계 시계열 정합성 업무 자료를 한꺼번에 보고 싶어요.",
+      "gold_docs": [
+        "HRI-SYN-MAN-005",
+        "HRI-SYN-EDU-004"
+      ],
+      "relevant_docs": [
+        "HRI-SYN-MAN-005",
+        "HRI-SYN-EDU-004"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-MVX-AGV",
+      "type": "synonym",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "무인운반차 배차 신청을 처음 받아서 등록하는 절차가 궁금해요.",
+      "gold_docs": [
+        "MVX-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-MVX-WCS",
+      "type": "synonym",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "WCS 작업 기록을 처음 접수하고 등록하는 방법 알려줘.",
+      "gold_docs": [
+        "MVX-SYN-MAN-005"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-MVX-WMS",
+      "type": "synonym",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "창고 관리 시스템 입고 자료를 수정하려면 어떤 승인을 받아야 하나요?",
+      "gold_docs": [
+        "MVX-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HEL-PART",
+      "type": "synonym",
+      "company": "hel",
+      "asker": "hel",
+      "query": "승강기 부품 내역 서류를 대조하는 요청은 어떻게 접수하나요?",
+      "gold_docs": [
+        "HEL-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HEL-SCH",
+      "type": "synonym",
+      "company": "hel",
+      "asker": "hel",
+      "query": "승강기 정기 검사 날짜를 바꿔 달라는 요청을 처음 받으면 어떻게 등록하나요?",
+      "gold_docs": [
+        "HEL-SYN-MAN-005"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HEL-REQ",
+      "type": "synonym",
+      "company": "hel",
+      "asker": "hel",
+      "query": "엘리베이터 유지보수 요청 분류를 수정할 때 승인 절차가 궁금해요.",
+      "gold_docs": [
+        "HEL-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HRI-INT",
+      "type": "synonym",
+      "company": "hri",
+      "asker": "hri",
+      "query": "산업 면담 기록을 정리해서 접수하는 절차 알려 주세요.",
+      "gold_docs": [
+        "HRI-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HRI-CITE",
+      "type": "synonym",
+      "company": "hri",
+      "asker": "hri",
+      "query": "보고서 출처 표기를 검토하는 업무는 어떻게 접수하나요?",
+      "gold_docs": [
+        "HRI-SYN-MAN-013"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HRI-TS",
+      "type": "synonym",
+      "company": "hri",
+      "asker": "hri",
+      "query": "통계 시계열 일관성을 확인하는 신규 담당자 연습 슬라이드 있나요?",
+      "gold_docs": [
+        "HRI-SYN-EDU-004"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "S-HRI-SRC",
+      "type": "synonym",
+      "company": "hri",
+      "asker": "hri",
+      "query": "경제 지표 원자료 출처를 등록하는 연습용 교육 자료 찾아줘.",
+      "gold_docs": [
+        "HRI-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-MVX-AGV",
+      "type": "keyword",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "AGV 배차 요청 접수",
+      "gold_docs": [
+        "MVX-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-MVX-WCS",
+      "type": "keyword",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "WCS 작업 이력",
+      "gold_docs": [
+        "MVX-SYN-MAN-005",
+        "MVX-SYN-EDU-004"
+      ],
+      "relevant_docs": [
+        "MVX-SYN-MAN-005",
+        "MVX-SYN-EDU-004"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-MVX-WMS",
+      "type": "keyword",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "WMS 입고 데이터 변경 승인",
+      "gold_docs": [
+        "MVX-SYN-MAN-002"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-HEL-PART",
+      "type": "keyword",
+      "company": "hel",
+      "asker": "hel",
+      "query": "부품 이력 문서 대조",
+      "gold_docs": [
+        "HEL-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-HEL-SCH",
+      "type": "keyword",
+      "company": "hel",
+      "asker": "hel",
+      "query": "정기점검 일정 조정",
+      "gold_docs": [
+        "HEL-SYN-MAN-005",
+        "HEL-SYN-EDU-004"
+      ],
+      "relevant_docs": [
+        "HEL-SYN-MAN-005",
+        "HEL-SYN-EDU-004"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-HEL-EDU",
+      "type": "keyword",
+      "company": "hel",
+      "asker": "hel",
+      "query": "유지관리 요청 분류 실습",
+      "gold_docs": [
+        "HEL-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-HRI-CITE",
+      "type": "keyword",
+      "company": "hri",
+      "asker": "hri",
+      "query": "보고서 인용 검수",
+      "gold_docs": [
+        "HRI-SYN-MAN-013"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-HRI-INT",
+      "type": "keyword",
+      "company": "hri",
+      "asker": "hri",
+      "query": "산업 인터뷰 자료 정리",
+      "gold_docs": [
+        "HRI-SYN-MAN-009"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "K-HRI-BIZ",
+      "type": "keyword",
+      "company": "hri",
+      "asker": "hri",
+      "query": "중소기업 경기 대시보드 예산",
+      "gold_docs": [
+        "HRI-SYN-BIZ-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "E-MVX-WMS",
+      "type": "exclusion",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "WMS 입고 데이터 신규 담당자 실습 자료 말고, 업무 매뉴얼을 찾아주세요.",
+      "gold_docs": [
+        "MVX-SYN-MAN-001",
+        "MVX-SYN-MAN-002"
+      ],
+      "relevant_docs": [
+        "MVX-SYN-MAN-001",
+        "MVX-SYN-MAN-002"
+      ],
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": [
+        "N3"
+      ]
+    },
+    {
+      "id": "E-HEL-REQ",
+      "type": "exclusion",
+      "company": "hel",
+      "asker": "hel",
+      "query": "유지관리 요청 분류 매뉴얼 말고 신규 담당자 실습 슬라이드를 찾아주세요.",
+      "gold_docs": [
+        "HEL-SYN-EDU-001"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": [
+        "N3"
+      ]
+    },
+    {
+      "id": "E-HRI-TS",
+      "type": "exclusion",
+      "company": "hri",
+      "asker": "hri",
+      "query": "통계 시계열 정합성 관련해서 실습자료는 빼고 업무 매뉴얼만 찾아줘.",
+      "gold_docs": [
+        "HRI-SYN-MAN-005"
+      ],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "전체파일목록.csv 문서 제목 기반 (초안)",
+      "status": "draft",
+      "regression": [
+        "N3"
+      ]
+    },
+    {
+      "id": "X-MVX-HEL",
+      "type": "cross_company",
+      "company": "hel",
+      "asker": "mvx",
+      "query": "엘리베이터 유지관리 요청을 접수하는 업무를 맡았어요. 요청을 분류하고 등록하는 매뉴얼 있나요?",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "hel"
+      ],
+      "source": "tests/qa/corpus.json Q004를 mvx 직원이 질문",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "X-HEL-MVX",
+      "type": "cross_company",
+      "company": "mvx",
+      "asker": "hel",
+      "query": "무벡스 신입인데요. WMS에 입고 자료를 처음 접수하고 등록하는 순서가 나온 매뉴얼 찾아주세요.",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "mvx"
+      ],
+      "source": "tests/qa/corpus.json Q001를 hel 직원이 질문",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "X-HRI-MVX",
+      "type": "cross_company",
+      "company": "mvx",
+      "asker": "hri",
+      "query": "무벡스 신입인데요. WMS에 입고 자료를 처음 접수하고 등록하는 순서가 나온 매뉴얼 찾아주세요.",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "mvx"
+      ],
+      "source": "tests/qa/corpus.json Q001를 hri 직원이 질문",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "X-HEL-HRI",
+      "type": "cross_company",
+      "company": "hri",
+      "asker": "hel",
+      "query": "경제연구원 신입입니다. 경제지표 원본과 출처를 처음 등록하는 매뉴얼 찾아주세요.",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "hri"
+      ],
+      "source": "tests/qa/corpus.json Q007를 hel 직원이 질문",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "X-MVX-HRI-CODE",
+      "type": "cross_company",
+      "company": "hri",
+      "asker": "mvx",
+      "query": "가상 문서 HRI-SYN-MAN-001의 첫 검토 기한은?",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": [
+        "hri"
+      ],
+      "source": "P1-S10 문서 코드 질문을 mvx 직원이 질문 (코드로 범위를 좁혀도 타사 문서가 나오지 않는지)",
+      "status": "draft",
+      "regression": [
+        "P1"
+      ]
+    },
+    {
+      "id": "N-CAFETERIA",
+      "type": "no_evidence",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "이번 주 구내식당 메뉴 알려줘.",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "문서에 없는 질문 (초안)",
+      "status": "draft",
+      "regression": []
+    },
+    {
+      "id": "N-MVX-UNKNOWN-CODE",
+      "type": "no_evidence",
+      "company": "mvx",
+      "asker": "mvx",
+      "query": "가상 문서 MVX-SYN-MAN-999의 첫 검토 기한은?",
+      "gold_docs": [],
+      "relevant_docs": null,
+      "gold_location": null,
+      "expected_answer": null,
+      "forbidden_companies": null,
+      "source": "코퍼스에 없는 문서 코드 (초안)",
+      "status": "draft",
+      "regression": [
+        "P1"
+      ]
+    }
+  ]
+}
