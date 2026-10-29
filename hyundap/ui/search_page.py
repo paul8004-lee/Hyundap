@@ -32,7 +32,7 @@ SEARCH_CSS = """
 #hd-inline-answer {max-width:760px;margin:0 auto;width:100%;}
 #hd-inline-answer .hd-inline-answer {display:flex;align-items:baseline;gap:10px;min-height:40px;box-sizing:border-box;padding:10px 14px;border-radius:10px;background:#edf0f4;color:#344256;font-size:13px;line-height:20px;}
 #hd-inline-answer .hd-inline-answer-label {flex:none;white-space:nowrap;color:var(--hd-page-accent,#032b5c);font-weight:650;}
-#hd-inline-answer .hd-inline-answer-text {display:-webkit-box;min-width:0;overflow:hidden;-webkit-line-clamp:1;-webkit-box-orient:vertical;word-break:keep-all;overflow-wrap:anywhere;}
+#hd-inline-answer .hd-inline-answer-text {display:-webkit-box;min-width:0;overflow:hidden;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:keep-all;overflow-wrap:anywhere;}
 #hd-search-feedback {max-width:760px;margin:0 auto;width:100%;}
 #hd-search-feedback:not(:has(.hd-notice)) {display:none;}
 #hd-search-feedback .hd-notice {min-height:40px;padding:10px 16px;box-sizing:border-box;align-items:center;font-size:13px;line-height:1.5;}
@@ -78,6 +78,9 @@ SEARCH_CSS = """
 #hd-summary-body .prose {font-size:13px;line-height:1.8;color:#334156;}
 #hd-summary-coverage {color:#657184;font-size:12px;}
 #hd-summary-request {align-self:flex-start;max-width:120px;min-width:110px;min-height:34px;font-size:12px;border:1px solid #cad6e6;background:white;color:var(--hd-page-accent,#032b5c);}
+#hd-evidence-nav {align-items:center;justify-content:space-between;gap:10px;flex-wrap:nowrap;}
+#hd-evidence-nav button {flex:0 0 80px!important;min-width:80px!important;max-width:80px;min-height:34px;border:1px solid #dfe4ed;border-radius:9px;background:white;color:var(--hd-page-accent,#032b5c);font-size:12px;}
+#hd-evidence-position {flex:1;min-width:0!important;text-align:center;color:#657184;font-size:12px;}
 .hd-evidence-box {border:1px solid #dfe4ed;border-radius:12px;padding:16px;font-size:13px;}
 .hd-evidence-label {font-size:12px;color:#657184;margin-bottom:12px;}
 .hd-evidence-box blockquote {margin:0;border-left:3px solid var(--hd-page-accent,#032b5c);padding-left:12px;color:#263448;line-height:1.75;white-space:pre-wrap;}
@@ -182,7 +185,11 @@ def build_search_page(companies: list, doc_types: list, demo_mode: bool = True) 
                     gr.HTML('<div class="hd-summary-title">AI 파일 요약</div>')
                     summary = gr.Markdown("선택한 문서를 요약해 주요 내용을 확인하세요.", sanitize_html=True, elem_id="hd-summary-body")
                     coverage = gr.HTML("", elem_id="hd-summary-coverage")
-                    summarize = gr.Button("요약하기", interactive=False, elem_id="hd-summary-request")
+                    summarize = gr.Button("요약하기", interactive=False, visible=False, elem_id="hd-summary-request")
+                with gr.Row(visible=False, elem_id="hd-evidence-nav") as evidence_nav:
+                    evidence_prev = gr.Button("← 이전", interactive=False, min_width=80)
+                    evidence_position = gr.HTML("")
+                    evidence_next = gr.Button("다음 →", interactive=False, min_width=80)
                 evidence = gr.HTML("")
                 gr.HTML('<p class="hd-ai-note">AI가 생성한 요약과 답변은 정확하지 않을 수 있습니다. 중요한 내용은 출처를 함께 확인하세요.</p>')
                 detail_feedback = gr.HTML("")
@@ -190,4 +197,4 @@ def build_search_page(companies: list, doc_types: list, demo_mode: bool = True) 
                     source = gr.Button("출처 확인", interactive=False, variant="primary")
                     download = gr.Button("예시 파일 받기" if demo_mode else "다운로드", interactive=False, variant="secondary")
                 download_file = gr.File(label="예시 파일 · 실제 원문이 아닙니다" if demo_mode else "다운로드 파일", interactive=False, visible=False, elem_id="hd-download-file")
-    return dict(container=container, intro=intro, company=company, keyword=keyword, submit=submit, answer=answer, feedback=feedback, quick=quick, quick_buttons=quick_buttons, doc_type=doc_type, reset=reset, empty=empty, results_area=results_area, table=table, caption=caption, detail=detail, summary=summary, coverage=coverage, summarize=summarize, evidence=evidence, detail_feedback=detail_feedback, source=source, download=download, download_file=download_file)
+    return dict(container=container, intro=intro, company=company, keyword=keyword, submit=submit, answer=answer, feedback=feedback, quick=quick, quick_buttons=quick_buttons, doc_type=doc_type, reset=reset, empty=empty, results_area=results_area, table=table, caption=caption, detail=detail, summary=summary, coverage=coverage, summarize=summarize, evidence=evidence, evidence_nav=evidence_nav, evidence_prev=evidence_prev, evidence_next=evidence_next, evidence_position=evidence_position, detail_feedback=detail_feedback, source=source, download=download, download_file=download_file)

@@ -185,8 +185,9 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
             async for patch in controller.run("select", session_key, index):
                 yield patch
         search["table"].select(on_document_select, inputs=[key], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
-        bind(search["summarize"].click, "summarize", [])
         bind(search["source"].click, "source", [])
+        bind(search["evidence_prev"].click, "evidence_prev", [])
+        bind(search["evidence_next"].click, "evidence_next", [])
         bind(search["download"].click, "download", [])
         bind(admin["submit"].click, "upload", [admin["file"], admin["company"], admin["doc_type"]])
         async def on_upload_input(session_key, file_path):

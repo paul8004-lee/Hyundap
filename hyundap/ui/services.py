@@ -362,6 +362,8 @@ class BackendServices:
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str) -> dict:
         checked = await self.validate_session(session)
         user = await self._actor(checked)
+        if not company_id or not doc_type:
+            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
         path = validate_upload_file(file_path)
         result = self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, doc_type=doc_type), "업로드")
         return {**result, "company_name": _company_names(checked, demo=self.temporary_auth).get(company_id, "회사명 확인 필요")}

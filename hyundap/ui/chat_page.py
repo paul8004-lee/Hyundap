@@ -94,10 +94,9 @@ def checked_answer_citations(response: Any) -> list[dict]:
 
 
 def render_compact_answer(response: Any) -> str:
-    """B13: 검색창 아래에는 첫 문장만 표시하고 출처는 상세 패널에 둔다.
+    """B13: 백엔드 답변을 보존하고 화면에서 최대 두 줄을 표시한다.
 
-    백엔드 응답과 검색 질문은 바꾸지 않는다. 긴 첫 문장은 80자 이내의
-    발췌로 표시하며, 원문 출처 정보는 controller가 별도로 보관한다.
+    출처 번호는 표시하지 않으며 원문 출처 정보는 controller가 별도로 보관한다.
     """
     data = _mapping(response)
     if str(data.get("status", "")).upper() == "NO_EVIDENCE":
@@ -111,9 +110,6 @@ def render_compact_answer(response: Any) -> str:
         text = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*•]\s+|\d+[.)]\s+)", "", text)
         text = text.replace("**", "").replace("__", "").replace("`", "")
         text = re.sub(r"\s+", " ", text).strip()
-        text = re.split(r"(?<=[.!?。])\s+", text, maxsplit=1)[0]
-        if len(text) > 80:
-            text = text[:79].rstrip() + "…"
         text = text or "답변을 제공받지 못했어요."
     return (
         '<div class="hd-inline-answer" role="status" aria-live="polite">'
