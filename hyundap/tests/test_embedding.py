@@ -20,7 +20,8 @@ from hyundap.embedding import (
     EmbeddingError, VectorStoreError, activate_version, build_chunk_metadata, build_embedding_text,
     build_where_filter, check_embedding_health, check_vector_store_health, collection_name_for_model,
     delete_vectors, embed_and_store, embed_chunks, embed_query, embed_texts, filter_new_chunks,
-    fit_to_char_limit, get_document_chunks, get_version_chunk_ids, query_vectors, upsert_chunks, validate_embeddings,
+    fit_to_char_limit, format_report_log, get_document_chunks, get_version_chunk_ids, query_vectors, upsert_chunks,
+    validate_embeddings,
 )
 
 # 가짜 벡터의 길이. 실제는 1536이지만 테스트는 8이면 충분하다
@@ -452,6 +453,47 @@ class EdgeCases(Base):
         self.assertEqual(report.company_id, "")
         self.assertEqual(report.status, "failed")
         self.assertEqual([f.code for f in report.failures], ["MISSING_METADATA"])
+
+    def test_report_has_times_and_batch_info(self):
+        # 로그에 쓸 값: 시작·종료 시각, 묶음 크기와 개수(5개를 2개씩 → 3묶음)
+        report = embed_and_store([make_chunk(i) for i in range(5)], batch_size=2)
+        self.assertEqual((report.batch_size, report.batch_count), (2, 3))
+        self.assertGreater(report.started_at, 0)
+        self.assertGreaterEqual(report.finished_at, report.started_at)
+
+    def test_failure_stage_is_recorded(self):
+        # 실패가 어느 단계에서 났는지 남는다: 입력 점검 / 임베딩 / 벡터 검증 / 저장
+        report = embed_and_store([make_chunk(0, text=" "), make_chunk(1)])
+        self.assertEqual([(f.code, f.stage) for f in report.failures], [("EMPTY_TEXT", "prepare")])
+        self.model.fail = True
+        report = embed_and_store([make_chunk(2)])
+        self.assertEqual([f.stage for f in report.failures], ["embed"])
+        self.model.fail = False
+        self.model.override = lambda vs: [[0.0] * DIM] + vs[1:]
+        report = embed_and_store([make_chunk(3), make_chunk(4)])
+        self.assertEqual([f.stage for f in report.failures], ["validate"])
+        self.model.override = None
+        collection = vector_store.get_vector_store()._collection
+        with patch.object(collection, "upsert", side_effect=RuntimeError("disk full")):
+            report = embed_and_store([make_chunk(5)])
+        self.assertEqual([f.stage for f in report.failures], ["store"])
+
+    def test_format_report_log(self):
+        # 로그: 언제·누가·무엇을 시도했고·결과·실패 원인이 줄로 나오고, API 키는 보이지 않는다
+        self.model.fail = True
+        report = embed_and_store([make_chunk(0), make_chunk(1)], batch_size=2)
+        lines = format_report_log(report, requested_by="admin01")
+        text = "\n".join(lines)
+        self.assertEqual(len(lines), 4)  # 시도 줄 1 + 결과 줄 1 + 실패한 청크 2개의 줄
+        self.assertIn("요청 계정 admin01", lines[0])
+        self.assertIn("청크 2개 중 새로 처리 2개, 묶음 1개(묶음당 최대 2개)", lines[0])
+        self.assertIn("결과 failed", lines[1])
+        self.assertIn("[임베딩]", text)
+        self.assertIn("재시도 불가", text)
+        self.assertNotIn("sk-test-key-123456", text)
+        # 계정을 안 넘기면 그 부분이 빠지고, dict 보고서도 읽는다
+        self.assertNotIn("요청 계정", format_report_log(report)[0])
+        self.assertEqual(len(format_report_log({"document_id": "D1", "status": "success"})), 2)
 
     def test_reactivate_is_idempotent(self):
         # 같은 버전을 두 번 공개해도 결과가 같다(재실행 안전)
