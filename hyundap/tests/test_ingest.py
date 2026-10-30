@@ -35,17 +35,19 @@ from PIL import Image
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData, XyChartData
 from pptx.enum.chart import XL_CHART_TYPE
+from openpyxl import Workbook
 from pptx.util import Inches
 
 from hyundap.common.config import get_settings
 from hyundap.ingest import ocr
-from hyundap.ingest.loaders import charts, figures, pdf_loader
-from hyundap.ingest.loaders.base import table_to_text
+from hyundap.ingest.loaders import charts, figures, pdf_loader, xlsx_loader
+from hyundap.ingest.loaders.base import build_location_label, table_to_text
 from hyundap.ingest.loaders.docx_loader import load_docx
 from hyundap.ingest.loaders.pdf_loader import load_pdf
 from hyundap.ingest.loaders.pptx_loader import load_pptx
 from hyundap.ingest import validator
-from hyundap.ingest.models import (CORRUPTED_FILE, ENCRYPTED_FILE, LEGACY_FORMAT, UNSUPPORTED_FORMAT, IngestError)
+from hyundap.ingest.models import (CORRUPTED_FILE, EMPTY_DOCUMENT, ENCRYPTED_FILE, LEGACY_FORMAT, UNSUPPORTED_FORMAT,
+                                   IngestError)
 from hyundap.ingest.normalizer import normalize_text
 from hyundap.ingest.pipeline import ingest_document
 
@@ -1475,6 +1477,281 @@ class UnreadObjectTests(IngestTestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn('13개', warnings[0])
         self.assertTrue(warnings[0].endswith('외)'))
+
+
+class XlsxTests(IngestTestCase):
+    """XLSX 읽기: 시트 = 섹션, 표 조각마다 시트 이름 머리글, 숨김·빈 시트·상한·깨진 파일 처리."""
+
+    def make_xlsx(self, name, sheets, hidden=()):
+        """sheets는 {시트 이름: 줄 목록}. hidden에 든 시트는 숨긴다."""
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        for title, rows in sheets.items():
+            sheet = workbook.create_sheet(title)
+            for row in rows:
+                sheet.append(row)
+            if title in hidden:
+                sheet.sheet_state = 'hidden'
+        workbook.save(self.path(name))
+
+    def test_each_sheet_becomes_a_section_with_sheet_label(self):
+        """시트마다 섹션 1개, 위치 문구는 '시트 N (이름)', 표 조각마다 시트 이름 머리글이 붙는지 확인한다."""
+        self.make_xlsx('a.xlsx', {'1월': [['항목', '값'], ['가', 1], ['나', 2]], '2월': [['항목', '값'], ['다', 3]]})
+        result = self.ingest('a.xlsx')
+        self.assertEqual(result.status, 'success')
+        self.assertEqual([c.location_label for c in result.chunks], ['시트 1 (1월)', '시트 2 (2월)'])
+        self.assertEqual(result.chunks[0].text, '[시트] 1월\n| 항목 | 값 |\n| --- | --- |\n| 가 | 1 |\n| 나 | 2 |')
+        self.assertIn('[시트] 2월', result.chunks[1].text)   # 머리글이 같은 월별 시트도 청크만 보고 구분된다
+        self.assertEqual(result.report['parser'], 'openpyxl')
+        self.assertEqual(result.report['section_count'], 2)
+
+    def test_sheet_position_keeps_hidden_sheet_numbers(self):
+        """숨긴 시트도 번호를 차지해, 엑셀 탭 순서와 위치 문구가 맞는지 확인한다."""
+        self.make_xlsx('a.xlsx', {'앞': [['a', 'b'], [1, 2]], '숨김': [['비밀', '값'], [1, 2]], '뒤': [['c', 'd'], [3, 4]]},
+                       hidden=('숨김',))
+        result = self.ingest('a.xlsx')
+        self.assertEqual([c.location_label for c in result.chunks], ['시트 1 (앞)', '시트 3 (뒤)'])
+        self.assertNotIn('비밀', ''.join(c.text for c in result.chunks))
+        self.assertIn("숨겨진 시트 1개는 읽지 않음 ('숨김')", result.report['warnings'])
+
+    def test_values_are_written_as_they_look(self):
+        """실수 오차·정수형 실수·날짜·시각·참거짓이 보이는 모양에 가깝게 나오는지 확인한다."""
+        self.assertEqual(xlsx_loader.cell_to_text(0.1 + 0.2), '0.3')
+        self.assertEqual(xlsx_loader.cell_to_text(1500000.0), '1500000')
+        self.assertEqual(xlsx_loader.cell_to_text(7), '7')
+        self.assertEqual(xlsx_loader.cell_to_text(True), 'TRUE')
+        self.assertEqual(xlsx_loader.cell_to_text(None), '')
+        import datetime
+        self.assertEqual(xlsx_loader.cell_to_text(datetime.datetime(2026, 10, 1)), '2026-10-01')
+        self.assertEqual(xlsx_loader.cell_to_text(datetime.datetime(2026, 10, 2, 13, 30)), '2026-10-02 13:30:00')
+        self.assertEqual(xlsx_loader.cell_to_text(datetime.time(9, 5)), '09:05:00')
+
+    def test_simple_number_formats_follow_the_screen(self):
+        """퍼센트·천 단위 쉼표·소수 자릿수·통화 기호를 엑셀 화면처럼 쓰고, 복잡한 서식은 원래 값을 쓰는지 확인한다."""
+        text = xlsx_loader.cell_to_text
+        cases = (
+            (1, '0%', '100%'), (0.23, '0%', '23%'), (0.2345, '0.0%', '23.5%'),
+            (85100, '"$"#,##0', '$85,100'), (9.99, '"$"#,##0.00', '$9.99'), (-85100, '"$"#,##0', '-$85,100'),
+            (1091, '#,##0', '1,091'), (1971, '0', '1971'), (30000, '#,##0"원"', '30,000원'), (1234.5, '"₩"#,##0', '₩1,235'),
+            (2.675, '0.00', '2.68'),                       # 엑셀처럼 0.5에서 올린다(이진 반올림이면 2.67)
+            (5, '[$₩-412]#,##0', '5'), (5, '0;[Red]-0', '5'),   # 해석하지 않는 서식은 원래 값
+            (0.25, 'General', '0.25'), (7, '@', '7'), (True, '0%', 'TRUE'),
+        )
+        for value, number_format, expected in cases:
+            with self.subTest(value=value, number_format=number_format):
+                self.assertEqual(text(value, number_format), expected)
+        self.assertEqual(text('글자', '0%'), '글자')   # 글자 칸에는 서식을 적용하지 않는다
+
+    def test_number_formats_are_applied_to_the_sheet_values(self):
+        """파일에서 읽을 때 칸의 서식이 반영되는지 확인한다(진행률 1 → 100%, 금액 → $)."""
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = '프로젝트'
+        sheet.append(['이름', '진행률', '예산', '연도'])
+        sheet.append(['가', 1, 40000, 2024])
+        sheet.append(['나', 0.23, 1800.5, 2025])
+        for row in (2, 3):
+            sheet.cell(row, 2).number_format = '0%'
+            sheet.cell(row, 3).number_format = '"$"#,##0'
+            sheet.cell(row, 4).number_format = '0'
+        workbook.save(self.path('a.xlsx'))
+        text = self.ingest('a.xlsx').chunks[0].text
+        self.assertIn('| 가 | 100% | $40,000 | 2024 |', text)
+        self.assertIn('| 나 | 23% | $1,801 | 2025 |', text)
+
+    def test_title_rows_above_the_table_are_not_the_header(self):
+        """칸이 하나뿐인 제목 줄이 표 머리글이 되지 않고, 조각마다 시트 이름과 함께 붙는지 확인한다."""
+        rows = [['2026년 10월 점검표'], [], ['번호', '설비']] + [[i, f'설비{i}'] for i in range(1, 80)]
+        self.make_xlsx('a.xlsx', {'점검': rows})
+        result = self.ingest('a.xlsx')
+        self.assertGreater(len(result.chunks), 1)   # 긴 표는 여러 조각으로 나뉜다
+        for chunk in result.chunks:
+            with self.subTest(chunk=chunk.chunk_index):
+                self.assertTrue(chunk.text.startswith('[시트] 점검 / 2026년 10월 점검표\n| 번호 | 설비 |\n| --- | --- |'))
+
+    def test_single_column_sheet_keeps_its_first_row(self):
+        """한 열짜리 시트는 제목이 아니라 표이므로 첫 줄을 떼지 않는지 확인한다."""
+        self.make_xlsx('a.xlsx', {'목록': [['이름'], ['가'], ['나']]})
+        text = self.ingest('a.xlsx').chunks[0].text
+        self.assertEqual(text, '[시트] 목록\n| 이름 |\n| --- |\n| 가 |\n| 나 |')
+
+    def test_blank_rows_and_trailing_columns_are_dropped(self):
+        """빈 줄과 오른쪽 끝의 빈 열이 표에 남지 않는지 확인한다."""
+        self.make_xlsx('a.xlsx', {'s': [['a', 'b', None, None], [None, None, None, None], [1, 2, None, None]]})
+        self.assertEqual(self.ingest('a.xlsx').chunks[0].text, '[시트] s\n| a | b |\n| --- | --- |\n| 1 | 2 |')
+
+    def test_empty_sheets_are_skipped_and_all_empty_is_empty_document(self):
+        """값이 없는 시트는 경고와 함께 건너뛰고, 읽을 시트가 하나도 없으면 EMPTY_DOCUMENT인지 확인한다."""
+        self.make_xlsx('a.xlsx', {'값': [['a', 'b'], [1, 2]], '빈1': [], '빈2': [[None, None]]})
+        result = self.ingest('a.xlsx')
+        self.assertEqual(result.status, 'success')
+        self.assertIn("값이 없는 시트 2개는 건너뜀 ('빈1', '빈2')", result.report['warnings'])
+        self.make_xlsx('b.xlsx', {'빈': []})
+        failed = self.ingest('b.xlsx')
+        self.assertEqual((failed.status, failed.error_code), ('failed', EMPTY_DOCUMENT))
+
+    def test_row_limits_cut_and_warn(self):
+        """시트당·문서당 행 상한에 걸리면 앞부분만 읽고 경고를 남기는지 확인한다."""
+        rows = [['번호', '값']] + [[i, i] for i in range(1, 30)]
+        self.make_xlsx('a.xlsx', {'긴': rows, '다음': [['a', 'b'], [1, 2]]})
+        with patch.object(xlsx_loader, 'MAX_ROWS_PER_SHEET', 10):
+            result = self.ingest('a.xlsx')
+        text = ''.join(c.text for c in result.chunks if c.location_label.startswith('시트 1'))
+        self.assertIn('| 9 | 9 |', text)
+        self.assertNotIn('| 10 | 10 |', text)   # 표 머리글 1줄 + 9줄 = 10행
+        self.assertTrue(any("시트 '긴': 앞쪽 10행까지만 읽음" in w for w in result.report['warnings']))
+        with patch.object(xlsx_loader, 'MAX_TOTAL_ROWS', 12):
+            result = self.ingest('a.xlsx')
+        self.assertTrue(any('에 걸려 시트 1개는 읽지 않음' in w for w in result.report['warnings']))
+        self.assertEqual([c.location_label for c in result.chunks], ['시트 1 (긴)'])
+
+    def test_column_limit_cuts_and_warns(self):
+        """열 상한을 넘는 시트는 왼쪽 열만 읽고 경고를 남기는지 확인한다."""
+        self.make_xlsx('a.xlsx', {'넓은': [['c1', 'c2', 'c3', 'c4', 'c5'], [1, 2, 3, 4, 5]]})
+        with patch.object(xlsx_loader, 'MAX_COLUMNS', 3):
+            result = self.ingest('a.xlsx')
+        self.assertIn('| c1 | c2 | c3 |', result.chunks[0].text)
+        self.assertNotIn('c4', result.chunks[0].text)
+        self.assertTrue(any('3열 오른쪽에 값이 있는 시트 1개' in w for w in result.report['warnings']))
+
+    def test_cell_limit_stops_wide_sheets(self):
+        """행이 적어도 열이 넓으면 칸 수 상한에 걸려 읽는 양이 제한되는지 확인한다(행만 제한하면 칸 500만 개·159초가 된다)."""
+        wide_rows = [[f'c{i}' for i in range(10)]] + [[r] * 10 for r in range(1, 30)]
+        self.make_xlsx('a.xlsx', {'넓음': wide_rows, '다음': [['a', 'b'], [1, 2]]})
+        with patch.object(xlsx_loader, 'MAX_TOTAL_CELLS', 40):   # 열 10개 × 4행
+            result = self.ingest('a.xlsx')
+        text = ''.join(c.text for c in result.chunks)
+        self.assertIn('| 2 | 2 |', text)
+        self.assertNotIn('| 4 | 4 |', text)   # 머리글 1줄 + 3줄까지
+        self.assertTrue(any("시트 '넓음': 앞쪽 4행까지만 읽음" in w for w in result.report['warnings']))
+        self.assertTrue(any('시트 1개는 읽지 않음' in w and "'다음'" in w for w in result.report['warnings']))
+
+    def test_column_warning_only_when_values_exist_to_the_right(self):
+        """서식만 칠해진 오른쪽 열(범위만 큼)은 경고 없이, 값이 있으면 경고하는지 확인한다."""
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(['a', 'b'])
+        sheet.append([1, 2])
+        sheet['ZZ1'].number_format = '0%'   # 값 없이 범위만 넓힌다
+        workbook.save(self.path('a.xlsx'))
+        self.assertFalse(any('열 오른쪽' in w for w in self.ingest('a.xlsx').report['warnings']))
+        with patch.object(xlsx_loader, 'MAX_COLUMNS', 2):
+            sheet['C2'] = 'x'
+            workbook.save(self.path('b.xlsx'))
+            self.assertTrue(any('2열 오른쪽에 값이 있는 시트' in w for w in self.ingest('b.xlsx').report['warnings']))
+
+    def test_pictures_and_charts_are_counted_not_read(self):
+        """그림·차트는 글자를 읽지 않고 개수만 경고에 남기는지 확인한다."""
+        self.make_xlsx('src.xlsx', {'s': [['a', 'b'], [1, 2]]})
+        with zipfile.ZipFile(self.path('src.xlsx')) as source, zipfile.ZipFile(self.path('a.xlsx'), 'w') as target:
+            for name in source.namelist():
+                target.writestr(name, source.read(name))
+            target.writestr('xl/media/image1.png', b'x')
+            target.writestr('xl/media/image2.png', b'x')
+            target.writestr('xl/charts/chart1.xml', b'<c/>')
+            target.writestr('xl/charts/style1.xml', b'<c/>')   # 차트 서식 파일은 차트로 세지 않는다
+        self.assertIn('그림 2개·차트 1개는 글자를 읽지 않음', self.ingest('a.xlsx').report['warnings'])
+
+    def test_broken_sheet_xml_is_corrupted_file(self):
+        """압축은 정상이지만 시트 XML이 깨진 파일이 예외가 아니라 CORRUPTED_FILE이 되는지 확인한다."""
+        self.make_xlsx('src.xlsx', {'s': [['a', 'b'], [1, 2]]})
+        with zipfile.ZipFile(self.path('src.xlsx')) as source, zipfile.ZipFile(self.path('a.xlsx'), 'w') as target:
+            for name in source.namelist():
+                target.writestr(name, b'<worksheet><sheetData><row' if name == 'xl/worksheets/sheet1.xml' else source.read(name))
+        result = self.ingest('a.xlsx')
+        self.assertEqual((result.status, result.error_code), ('failed', CORRUPTED_FILE))
+
+    def test_extreme_numbers_do_not_break_the_upload(self):
+        """1e30·1e300·큰 정수에 서식이 걸려도 예외 없이 쓰이는지 확인한다(예전에는 InvalidOperation으로 업로드가 실패했다)."""
+        text = xlsx_loader.cell_to_text
+        self.assertEqual(text(1e30, '#,##0'), '1,000,000,000,000,000,000,000,000,000,000')
+        self.assertEqual(text(10 ** 40, '#,##0'), '10,000,000,000,000,000,000,000,000,000,000,000,000,000')
+        self.assertEqual(text(1e30, '0%'), '100,000,000,000,000,000,000,000,000,000,000%'.replace(',', ''))
+        self.assertEqual(text(1e300, '0.00'), '1e+300')   # 80자리를 넘으면 서식 없이 원래 값
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(['값', '비고'])
+        sheet.append([1e30, '매우 큰 수'])
+        sheet['A2'].number_format = '#,##0'
+        workbook.save(self.path('huge.xlsx'))
+        result = self.ingest('huge.xlsx')
+        self.assertEqual(result.status, 'success')
+        self.assertIn('1,000,000,000,000,000,000,000,000,000,000', result.chunks[0].text)
+
+    def test_elapsed_time_is_written_as_hours(self):
+        """[h]:mm 서식의 경과 시간이 '1 day, 2:00:00'이 아니라 시:분:초로 나오는지 확인한다."""
+        import datetime
+        self.assertEqual(xlsx_loader.cell_to_text(datetime.timedelta(hours=26)), '26:00:00')
+        self.assertEqual(xlsx_loader.cell_to_text(datetime.timedelta(minutes=-90)), '-1:30:00')
+
+    def test_other_container_formats_are_unsupported_not_corrupted(self):
+        """.xlsb·OpenDocument를 확장자만 바꾼 파일은 '손상'이 아니라 형식 오류로 안내되는지 확인한다."""
+        cases = (('xlsb.xlsx', 'xl/workbook.bin'), ('ods.xlsx', 'content.xml'), ('odt.docx', 'content.xml'))
+        for name, member in cases:
+            with self.subTest(name=name):
+                with zipfile.ZipFile(self.path(name), 'w') as z:
+                    z.writestr(member, b'x')
+                self.assertEqual(self.ingest(name).error_code, UNSUPPORTED_FORMAT)
+
+    def test_zip_read_oserror_is_corrupted_but_missing_file_is_not(self):
+        """압축 구조가 깨져 OSError(Errno 22)가 나면 CORRUPTED_FILE, 파일을 못 여는 오류는 손상으로 바꾸지 않는지 확인한다."""
+        self.make_xlsx('a.xlsx', {'s': [['a', 'b'], [1, 2]]})
+        with patch.object(zipfile.ZipFile, 'testzip', side_effect=OSError(22, 'Invalid argument')):
+            self.assertEqual(self.ingest('a.xlsx').error_code, CORRUPTED_FILE)
+        with patch.object(zipfile.ZipFile, 'testzip', side_effect=FileNotFoundError()):
+            self.assertEqual(self.ingest('a.xlsx').error_code, 'FILE_UNAVAILABLE')
+
+    def test_location_label_for_sheet(self):
+        self.assertEqual(build_location_label('sheet', 2, '매출'), '시트 2 (매출)')
+        self.assertEqual(build_location_label('sheet', 2), '시트 2')
+
+    def test_unsupported_neighbours_stay_unsupported(self):
+        """.xls·.xlsm은 확장자로 거부되고, 확장자만 .xlsx로 바꾼 다른 형식은 형식 오류로 안내되는지 확인한다."""
+        self.make_xlsx('src.xlsx', {'s': [['a', 'b'], [1, 2]]})
+        for name in ('old.xls', 'macro.xlsm'):
+            Path(self.path(name)).write_bytes(Path(self.path('src.xlsx')).read_bytes())
+            with self.subTest(name=name):
+                self.assertEqual(self.ingest(name).error_code, UNSUPPORTED_FORMAT)
+        DocxDocument().save(self.path('src.docx'))
+        Presentation().save(self.path('src.pptx'))
+        Path(self.path('docx_as.xlsx')).write_bytes(Path(self.path('src.docx')).read_bytes())
+        Path(self.path('pptx_as.xlsx')).write_bytes(Path(self.path('src.pptx')).read_bytes())
+        Path(self.path('pdf_as.xlsx')).write_bytes(minimal_pdf('hello'))
+        for name in ('docx_as.xlsx', 'pptx_as.xlsx', 'pdf_as.xlsx'):
+            with self.subTest(name=name):
+                self.assertEqual(self.ingest(name).error_code, UNSUPPORTED_FORMAT)
+
+    def test_macro_and_truncated_xlsx(self):
+        """매크로가 든 xlsx는 형식 오류, 절단된 xlsx는 CORRUPTED_FILE인지 확인한다."""
+        self.make_xlsx('src.xlsx', {'s': [['a', 'b'], [1, 2]]})
+        with zipfile.ZipFile(self.path('src.xlsx')) as source, zipfile.ZipFile(self.path('macro.xlsx'), 'w') as target:
+            for name in source.namelist():
+                target.writestr(name, source.read(name))
+            target.writestr('xl/vbaProject.bin', b'macro')
+        self.assertEqual(self.ingest('macro.xlsx').error_code, UNSUPPORTED_FORMAT)
+        data = Path(self.path('src.xlsx')).read_bytes()
+        Path(self.path('cut.xlsx')).write_bytes(data[:len(data) // 2])
+        self.assertEqual(self.ingest('cut.xlsx').error_code, CORRUPTED_FILE)
+
+    def test_ole2_xlsx_is_told_apart(self):
+        """암호 xlsx(EncryptedPackage)는 암호 오류, 구형 .xls를 이름만 바꾼 파일(Workbook)은 구형 형식 오류인지 확인한다."""
+        def ole2(name, *streams):
+            body = bytes.fromhex('D0CF11E0A1B11AE1') + bytes(4096)
+            for stream in streams:
+                body += stream.encode('utf-16-le') + bytes(64)
+            Path(self.path(name)).write_bytes(body)
+        cases = (
+            ('enc.xlsx', ('EncryptionInfo', 'EncryptedPackage'), ENCRYPTED_FILE),
+            ('old.xlsx', ('Workbook',), LEGACY_FORMAT),
+            ('worddoc.xlsx', ('WordDocument',), LEGACY_FORMAT),
+            ('blank.xlsx', (), UNSUPPORTED_FORMAT),
+        )
+        for name, streams, code in cases:
+            with self.subTest(name=name):
+                ole2(name, *streams)
+                self.assertEqual(self.ingest(name).error_code, code)
+        ole2('xls_as.docx', 'Workbook')   # 기존 동작: .docx에 든 Workbook은 구형 Word가 아닌 그 밖의 형식이다
+        self.assertEqual(self.ingest('xls_as.docx').error_code, UNSUPPORTED_FORMAT)
 
 
 class NormalizerTests(unittest.TestCase):

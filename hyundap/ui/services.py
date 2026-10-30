@@ -29,7 +29,7 @@ COMPANIES = [
 # common은 (코드, 표시명), Gradio 선택지는 (표시명, 코드)를 사용한다.
 DOC_TYPES = [(label, code) for code, label in COMMON_DOC_TYPES]
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx"}
 
 
 def _company_names(user: dict, *, demo: bool = False) -> dict[str, str]:
@@ -131,7 +131,7 @@ def validate_upload_file(file_path: str | Path) -> Path:
     if not path.is_file():
         raise UIServiceError("FILE_UNAVAILABLE", "선택한 파일을 읽을 수 없습니다. 다시 선택해 주세요.", "input_error")
     if path.suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise UIServiceError("UNSUPPORTED_FORMAT", "PDF, DOCX, PPTX 파일만 업로드할 수 있습니다.", "input_error")
+        raise UIServiceError("UNSUPPORTED_FORMAT", "PDF, DOCX, PPTX, XLSX 파일만 업로드할 수 있습니다.", "input_error")
     try:
         size = path.stat().st_size
     except OSError as error:

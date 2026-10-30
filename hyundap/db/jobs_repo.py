@@ -118,7 +118,7 @@ def _ingest_metrics(report, stage):
     clean = {}
     if 'parser' in report:
         parser = report['parser']
-        if not isinstance(parser, str) or parser not in ('pypdf', 'python-docx', 'python-pptx'):
+        if not isinstance(parser, str) or parser not in ('pypdf', 'python-docx', 'python-pptx', 'openpyxl'):
             raise DbError('INVALID_INPUT')
         clean['parser'] = parser
     if 'parser_version' in report:

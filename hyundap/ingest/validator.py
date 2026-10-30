@@ -31,7 +31,7 @@ from .models import (
     IngestError,
 )
 
-SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx")
+SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
 MAX_FILE_BYTES = 104857600
 OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
@@ -39,10 +39,13 @@ OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 # 구형 .doc·.ppt는 각각 WordDocument·PowerPoint Document를 가진다 (#145).
 OLE2_ENCRYPTED_NAMES = ("EncryptedPackage", "EncryptionInfo")
 OLE2_LEGACY_NAMES = ("WordDocument", "PowerPoint Document")
+# 구형 엑셀(.xls)의 본문 스트림 이름. 확장자가 .xlsx일 때만 구형으로 본다(.docx·.pptx에 든 Workbook은 기존처럼 그 밖의 형식이다).
+OLE2_LEGACY_XLS_NAME = "Workbook"
 
 # 확장자별 필수 파일과, 다른 형식임을 알려 주는 파일 (확장자만 바꾼 파일을 UNSUPPORTED_FORMAT으로 구분)
-ZIP_REQUIRED = {".docx": "word/document.xml", ".pptx": "ppt/presentation.xml"}
-ZIP_OTHER_FORMAT_MARKERS = ("word/document.xml", "ppt/presentation.xml", "xl/workbook.xml")
+ZIP_REQUIRED = {".docx": "word/document.xml", ".pptx": "ppt/presentation.xml", ".xlsx": "xl/workbook.xml"}
+# xl/workbook.bin은 .xlsb, content.xml은 OpenDocument(.ods/.odt) — 손상이 아니라 지원하지 않는 형식이다
+ZIP_OTHER_FORMAT_MARKERS = ("word/document.xml", "ppt/presentation.xml", "xl/workbook.xml", "xl/workbook.bin", "content.xml")
 ZIP_MACRO_MARKER = "vbaProject.bin"
 # zip을 읽다가 파일이 깨졌을 때 라이브러리가 내는 예외 (BadZipFile만 잡으면 zlib.error 등이 그대로 올라온다)
 ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError)
@@ -122,10 +125,11 @@ def check_not_encrypted(file_path, extension, reader=None):
     with open(file_path, "rb") as f:
         head = f.read(8)
     if head == OLE2_SIGNATURE:
-        found = find_ole2_stream_names(file_path, OLE2_ENCRYPTED_NAMES + OLE2_LEGACY_NAMES)
+        legacy_names = OLE2_LEGACY_NAMES + ((OLE2_LEGACY_XLS_NAME,) if extension == ".xlsx" else ())
+        found = find_ole2_stream_names(file_path, OLE2_ENCRYPTED_NAMES + legacy_names)
         if any(name in found for name in OLE2_ENCRYPTED_NAMES):
             raise IngestError(ENCRYPTED_FILE)
-        if any(name in found for name in OLE2_LEGACY_NAMES):
+        if any(name in found for name in legacy_names):
             raise IngestError(LEGACY_FORMAT)
         raise IngestError(UNSUPPORTED_FORMAT)   # 암호도 구형 Word·PowerPoint도 아닌 OLE2 (xls 등)
 
@@ -151,6 +155,10 @@ def check_not_corrupted(file_path, extension, reader=None):
             bad = z.testzip()
             names = z.namelist()
     except ZIP_READ_ERRORS:
+        raise IngestError(CORRUPTED_FILE)
+    except (FileNotFoundError, PermissionError):
+        raise   # 파일을 못 여는 문제는 손상이 아니다(pipeline이 FILE_UNAVAILABLE로 처리한다)
+    except OSError:   # 중앙 디렉터리 값이 깨져 seek가 실패하는 등 (Errno 22). testzip이 압축 파일을 끝까지 읽을 때 난다
         raise IngestError(CORRUPTED_FILE)
     if bad is not None:
         raise IngestError(CORRUPTED_FILE)
