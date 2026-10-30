@@ -13,7 +13,7 @@
   font-family: var(--hd-font);
   letter-spacing: -.012em;
 }
-#hd-login:has(.hd-login-tabs[data-mode="admin"]) {
+#hd-login:has(#hd-login-role input[value="관리자"]:checked) {
   --accent: #1d7350;
   --accent-hover: #175f42;
   --accent-soft: rgba(29, 115, 80, .14);
@@ -54,49 +54,37 @@
   background: #fff !important;
   box-shadow: 0 1px 2px rgba(18, 24, 38, .04), 0 18px 40px -28px rgba(18, 24, 38, .28) !important;
 }
-#hd-login-role {flex: none !important; width: 100%;}
-.hd-login-tabs {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 4px;
-  height: 44px;
-  box-sizing: border-box;
-  border-radius: 10px;
-  background: #f2f3f5;
+/* Gradio Radio의 기본 키보드 이동은 유지하고 모양만 탭으로 표현합니다. */
+#hd-login-role {flex: none !important; width: 100%; padding: 0 !important; border: 0 !important; background: transparent !important;}
+#hd-login-role .wrap {
+  position: relative; display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 !important; padding: 4px !important; height: 44px; box-sizing: border-box;
+  border-radius: 10px; background: #f2f3f5;
 }
-.hd-login-tab-indicator {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: calc(50% - 4px);
-  height: 36px;
-  border-radius: 7px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(18, 24, 38, .09);
-  pointer-events: none;
-  transform: translateX(0);
-  transition: transform .45s cubic-bezier(.16, 1, .3, 1);
+#hd-login-role .wrap::before {
+  content: ""; position: absolute; top: 4px; left: 4px; width: calc(50% - 4px); height: 36px;
+  border-radius: 7px; background: #fff; box-shadow: 0 1px 3px rgba(18, 24, 38, .09);
+  pointer-events: none; transform: translateX(0); transition: transform .45s cubic-bezier(.16, 1, .3, 1);
 }
-.hd-login-tabs[data-mode="admin"] .hd-login-tab-indicator {transform: translateX(100%);}
-#hd-login .hd-login-tabs [role="tab"] {
-  position: relative;
-  z-index: 1;
-  height: 36px;
-  min-width: 0;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  box-shadow: none;
-  color: #5f6773;
-  font: 500 14px/20px var(--hd-font);
-  letter-spacing: inherit;
-  cursor: pointer;
-  transition: color .15s ease;
+#hd-login-role .wrap:has(input[value="관리자"]:checked)::before {transform: translateX(100%);}
+#hd-login-role label {
+  position: relative; z-index: 1; display: flex !important; justify-content: center; align-items: center;
+  height: 36px; min-width: 0; margin: 0 !important; padding: 0 8px !important;
+  border: 0 !important; border-radius: 7px !important; background: transparent !important;
+  box-shadow: none !important; color: #5f6773 !important; cursor: pointer;
 }
-#hd-login .hd-login-tabs [role="tab"]:hover {color: #121826;}
-#hd-login .hd-login-tabs [role="tab"][aria-selected="true"] {color: var(--accent); font-weight: 600;}
+#hd-login-role label span {font: 500 14px/20px var(--hd-font) !important; color: inherit !important;}
+#hd-login-role label:hover {color: #121826 !important;}
+#hd-login-role label:has(input:checked) {color: var(--accent) !important;}
+#hd-login-role label:has(input:checked) span {font-weight: 600 !important;}
+#hd-login-role input[type="radio"] {
+  position: absolute !important; width: 1px !important; height: 1px !important; margin: -1px !important;
+  padding: 0 !important; border: 0 !important; clip-path: inset(50%); overflow: hidden;
+}
+#hd-login-role label:has(input:focus-visible) {outline: 2px solid var(--accent) !important; outline-offset: 2px;}
+.hd-login-heading--admin {display: none;}
+#hd-login:has(#hd-login-role input[value="관리자"]:checked) .hd-login-heading--admin {display: block;}
+#hd-login:has(#hd-login-role input[value="관리자"]:checked) .hd-login-heading--employee {display: none;}
 #hd-login .hd-login-heading {margin-top: 32px;}
 #hd-login .hd-login-heading h1 {margin: 0 !important; color: #121826; font-size: 26px !important; line-height: 34px !important; font-weight: 700; letter-spacing: -.025em;}
 #hd-login .hd-login-heading p {margin: 6px 0 0 !important; color: #4a5260; font-size: 15px !important; line-height: 22px !important; font-weight: 400;}
