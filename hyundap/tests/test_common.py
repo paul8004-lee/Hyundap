@@ -74,7 +74,7 @@ class SettingsTests(unittest.TestCase):
         """환경변수가 없으면 비밀값 없이 문서화된 기본 설정을 반환하는지 확인한다."""
         settings = self.load({})
         self.assertIsNone(settings.openai_api_key)
-        self.assertEqual(settings.openai_embedding_model, 'text-embedding-3-small')
+        self.assertEqual(settings.openai_embedding_model, 'text-embedding-3-large')
         self.assertEqual(settings.openai_chat_model, 'gpt-5')
         self.assertEqual(settings.search_min_score, 0.3)
         self.assertEqual(settings.search_top_k_max, 80)

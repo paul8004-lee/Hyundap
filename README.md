@@ -184,7 +184,7 @@ python -m unittest discover -s hyundap/tests -t .   # 전체 테스트
 | `DATABASE_URL` | 필수 | 팀 공용 MySQL 접속 주소. 발급·형식은 [MYSQL_ACCESS.md](MYSQL_ACCESS.md) 참고 | — |
 | `OPENAI_API_KEY` | 필수 | 임베딩·답변·요약에 사용하는 OpenAI API 키 | — |
 | `OPENAI_CHAT_MODEL` | 선택 | 답변·요약 모델 | `gpt-5` |
-| `OPENAI_EMBEDDING_MODEL` | 선택 | 임베딩 모델 | `text-embedding-3-small` |
+| `OPENAI_EMBEDDING_MODEL` | 선택 | 임베딩 모델 | `text-embedding-3-large` |
 | `CHROMA_DB_PATH` | 선택 | 벡터 저장소 폴더 | `data/chroma_db` |
 | `UPLOAD_DIR` | 선택 | 업로드 원본 보관 폴더 | `data/uploads` |
 | `CHUNK_SIZE`, `CHUNK_OVERLAP` | 선택 | 청크 길이와 겹침(글자 수) | `1000`, `150` |
@@ -236,7 +236,7 @@ python -m hyundap.auth.create_account --email admin@example.com --role platform_
 | 구분 | 사용 기술 |
 |---|---|
 | 화면 | Gradio |
-| AI | OpenAI(`gpt-5`, `text-embedding-3-small`), LangChain |
+| AI | OpenAI(`gpt-5`, `text-embedding-3-large`), LangChain |
 | 저장소 | MySQL(Railway), Chroma(벡터 저장소) |
 | 문서 처리 | pypdf, python-docx, python-pptx |
 | 협업 | GitHub(이슈·PR·리뷰) |

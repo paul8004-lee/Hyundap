@@ -3,7 +3,7 @@
 Owner: 박영준
 Spec: AI_문서검색_통합_기능명세서 (MOD-101)
 
-수업 범위: langchain_openai.OpenAIEmbeddings(text-embedding-3-small), embed_query, embed_documents,
+수업 범위: langchain_openai.OpenAIEmbeddings(text-embedding-3-large), embed_query, embed_documents,
           numpy, collections.Counter, time, try/except, openai SDK(수업의 OpenAI SDK 기본)의 예외 클래스.
 뺀 것: tiktoken(토큰 수 계산), 직접 만든 재시도 반복문, re 마스킹, 스레드 시간 제한, lru_cache.
 시간 제한·재시도: OpenAIEmbeddings의 request_timeout·max_retries 인자에 맡긴다(직접 만든 재시도 코드 없음).

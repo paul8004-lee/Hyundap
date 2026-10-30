@@ -24,7 +24,7 @@ from hyundap.embedding import (
     validate_embeddings,
 )
 
-# 가짜 벡터의 길이. 실제는 1536이지만 테스트는 8이면 충분하다
+# 가짜 벡터의 길이. 실제는 3072이지만 테스트는 8이면 충분하다
 DIM = 8
 # setUp에서 가짜로 바꾸기 전의 진짜 함수를 보관해 두었다가 NO_API_KEY 시험에 쓴다
 REAL_GET_MODEL = embedder.get_embedding_model  # 가짜로 바꾸기 전의 진짜 함수

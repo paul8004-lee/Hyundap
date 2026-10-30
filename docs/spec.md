@@ -3509,7 +3509,7 @@
 
 | 규칙 ID | 분류 | 항목 | 현재 값·조건 | 적용 범위 | 설명·범위 |
 |---|---|---|---|---|---|
-| L100 | 임베딩 | 기본 모델 | text-embedding-3-small (1536차원) | 팀 P1(필수) | .env의 OPENAI_EMBEDDING_MODEL로 바꿀 수 있다. |
+| L100 | 임베딩 | 기본 모델 | text-embedding-3-large (3072차원) | 팀 P1(필수) | .env의 OPENAI_EMBEDDING_MODEL로 바꿀 수 있다. |
 
 ## 4. 오류 코드
 

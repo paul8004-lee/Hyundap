@@ -32,7 +32,7 @@ class EmbeddedChunk:
 
     # 원본 청크(Chunk 객체 또는 dict)
     chunk: Any
-    # 임베딩 벡터(숫자 1536개 등)
+    # 임베딩 벡터(숫자 3072개 등)
     vector: list[float]
     # Chroma에 함께 저장할 정보(회사·문서·버전·공개 여부 등)
     metadata: dict
