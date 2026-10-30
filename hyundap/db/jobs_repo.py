@@ -7,10 +7,8 @@ from dataclasses import asdict, is_dataclass
 
 from sqlalchemy import text
 
-from hyundap.common.schemas import DOC_TYPE_CODES
-
 from .errors import DbError
-from .classification import decision_fields
+from .classification import decision_fields, classification_fields, CLASSIFICATION_FIELDS
 from .runtime import require_id, transaction
 from .clock import epoch_now
 
@@ -19,7 +17,7 @@ STAGES = ('received', 'ingest', 'embedding', 'verify', 'publish', 'complete')
 COUNT_FIELDS = ('total', 'skipped_existing', 'embedded', 'stored', 'truncated_count')
 INGEST_COUNT_FIELDS = ('chunk_size', 'chunk_overlap', 'section_count', 'chunk_count', 'warning_count', 'short_chunk_count')
 # 수집(정규화 직후) 문서 자동 분류 결과(chatbot.doc_classifier). 값 목록은 분류기와 같다.
-CLASSIFY_FIELDS = ('auto_doc_type', 'doc_type_confidence', 'company_match', 'classify_status')
+CLASSIFY_FIELDS = CLASSIFICATION_FIELDS
 
 
 def normalize_report(report):
@@ -33,7 +31,10 @@ def normalize_report(report):
     clean = _report_identity(report)
     clean.update(_report_metrics(report))
     clean.update(_ingest_metrics(report, clean['stage']))
-    clean.update(_classify_fields(report, clean['stage']))
+    classification = classification_fields(report)
+    if classification and clean['stage'] != 'ingest':
+        raise DbError('INVALID_INPUT')
+    clean.update(classification)
     decision = decision_fields(report)
     if decision and clean['stage'] != 'ingest':
         raise DbError('INVALID_INPUT')
@@ -146,30 +147,6 @@ def _ingest_metrics(report, stage):
         if clean['short_chunk_count'] > clean['chunk_count']:
             raise DbError('INVALID_INPUT')
     return clean
-
-
-def _classify_fields(report, stage):
-    """수집 단계의 문서 분류 결과(유형·확신도·회사 일치·분류 상태)를 검사해 새 dict로 반환한다.
-
-    분류는 실패해도 업로드는 성공시키는 부가 기능이므로, 값 하나라도 허용 범위 밖이면 수집 기록 전체를
-    거부하지 않고 분류 값을 모두 빼고 classify_status='failed'만 남긴다. 분류 실패 원인 문구는 저장하지 않는다.
-    수집이 아닌 단계에 분류 값이 섞이면 호출 쪽 계약 오류이므로 INVALID_INPUT이다.
-    """
-    if not any(field in report for field in CLASSIFY_FIELDS):
-        return {}
-    if stage != 'ingest':
-        raise DbError('INVALID_INPUT')
-    clean = {field: report[field] for field in CLASSIFY_FIELDS if field in report}
-    auto_doc_type = clean.get('auto_doc_type', '')
-    confidence = clean.get('doc_type_confidence', 0.0)
-    valid = (
-        isinstance(auto_doc_type, str) and (auto_doc_type == '' or auto_doc_type in DOC_TYPE_CODES)
-        # bool은 숫자로 받지 않고 0~1 사이의 유한한 값만 허용한다.
-        and type(confidence) in (int, float) and math.isfinite(confidence) and 0 <= confidence <= 1
-        and clean.get('company_match', '') in ('yes', 'no', '')
-        and clean.get('classify_status') in ('success', 'failed')
-    )
-    return clean if valid else {'classify_status': 'failed'}
 
 
 def _report_failures(report):
@@ -314,6 +291,9 @@ def _merge_stage_reports(stored_report, clean):
         raise DbError('INVALID_STATE')
     # 이미 성공한 단계의 내용이 달라지는 재기록은 충돌로 처리한다.
     previous_stage_report = reports.get(clean['stage'])
+    if previous_stage_report and clean['stage'] == 'ingest':
+        # 과거의 분류 필드 누락은 표현 차이다. 나머지 성공 내용의 변경은 계속 거부한다.
+        previous_stage_report = dict(previous_stage_report, **classification_fields(previous_stage_report))
     if (previous_stage_report and previous_stage_report.get('status') == 'success'
             and previous_stage_report != clean):
         raise DbError('CONFLICT')

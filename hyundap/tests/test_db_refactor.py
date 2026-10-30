@@ -195,10 +195,12 @@ class RefactorBoundaryTests(unittest.TestCase):
             ('mysql+pymysql://admin:admin-secret@127.0.0.1/control', 0),
             ('mysql+pymysql://admin:admin-secret@127.0.0.1/other', 1),
             ('mysql+pymysql://admin:admin-secret@127.0.0.1:3307/control', 1),
+            ('mysql+pymysql://admin:admin-secret@127.0.0.1:3306/control', 1),
             ('mysql+pymysql://admin:admin-secret@localhost/control', 1),
         )
         for target, expected in targets:
             control, admin = Mock(url=control_url), Mock(url=make_url(target))
+            admin.dialect.name = 'mysql'
             output = io.StringIO()
             with self.subTest(target=target), \
                     patch.object(sys, 'argv', ['company_admin', '--create-control']), \

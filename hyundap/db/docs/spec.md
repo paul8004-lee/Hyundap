@@ -182,9 +182,11 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 | `upload_service` | `failure_code(error)` | 보조 | 없음 |
 | `upload_service` | `record_upload_failure(ids, stage, error, backend)` | 보조 | 없음 |
 | `upload_service` | `read_attempt_source(ids)` | 보조 | 없음 |
-| `upload_service` | `save_ingest_chunks(ids, company_id, result)` | 보조 | 없음 |
+| `upload_service` | `save_ingest_chunks(ids, company_id, result, *, automatic=False)` | 보조 | 없음 |
 | `upload_service` | `verify_uploaded_chunks(ids, backend)` | 보조 | 없음 |
 | `upload_service` | `ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None)` | 보조 | 없음 |
+| `ingest_adapter` | `call_ingest(function, source, metadata, *, find_by_hash, file_hash=None, classify=False, automatic=False, classification=None)` | 수집 호출 어댑터 | 없음 |
+| `classification` | `classification_fields(report)` | 저장·반환 공통 정규화 | 없음 |
 | `upload_service` | `embed_and_record_result(chunks, job_id, backend)` | 보조 | 없음 |
 | `upload_service` | `run_attempt(actor, ids, expected_active_id, ingest_function, backend)` | 메인 | 없음 |
 | `upload_service` | `prepare_upload_source(source_path, metadata, upload_dir)` | 보조 | 없음 |
@@ -287,8 +289,18 @@ UI 전송은 HttpOnly 브라우저 쿠키에 묶인 60초·1회 티켓을 사용
 수동 호출은 유지한다. 설정 꺼짐에서는 자동 후보를 만들지 않는다.
 
 `classification.py`의 일반 보조 함수는 입력 구분과 결정값 검증·이력 재사용을 담당한다.
-`upload_document`/`retry_upload`는 메인 진입점, `ingest_and_save_chunks`는 수집 연결,
+`classification_fields(report)`는 저장·반환에 쓰이는 분류 네 필드의 공통 정규화 함수다.
+분류 미실행은 빈 dict, 실패·잘못된 결과는 `auto_doc_type=''`, `doc_type_confidence=0.0`,
+`company_match=''`, `classify_status='failed'`로 반환한다. 실패한 추정값과 원시 오류는 전파하지 않는다.
+기존 보고서의 누락 필드는 반환 시에도 같은 함수로 보완한다. DB 저장 구조를 마이그레이션하지 않는다.
+
+`upload_document`/`retry_upload`는 메인 진입점, `ingest_and_save_chunks`는 수집 후 저장 연결,
 `save_ingest_chunks`는 모든 청크와 최종 유형의 일치 검사, `upload_result`는 현재 시도 반환을 담당한다.
+`ingest_adapter.call_ingest`는 기존/현재 수집 함수의 선택 인자 차이를 한 곳에서 처리한다.
+공개 문서 정보와 `classify`·`automatic`·`classification` 옵션을 분리해 받으며
+DB 내부 `_` 필드를 수집 메타데이터에 전달하지 않는다. 중복 조회 콜백은 업로드 함수가
+검증한 회사·현재 후보에 묶어 전달한다. 재사용 결정값은 호출 전에 복사·검증하므로
+수집기가 전달받은 dict를 변경해도 기존 결정값 비교를 우회할 수 없다.
 분류 기준은 DB에서 계산하지 않는다. 수집 인자 `apply_classification`·`classification` 지원이 필요하다.
 
 `doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`은 세 필드가 함께 있어야 한다.

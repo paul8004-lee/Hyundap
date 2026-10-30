@@ -23,9 +23,9 @@ class DocumentAdapterTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.actor = {"user_id": "user", "_session_token": "private-token"}
         self.row = {
-            "document_id": "document", "active_version_id": "version",
+            "document_id": "document", "version_id": "version",
             "company_id": "company", "company_name": "Actual company",
-            "file_name": "original.pdf", "doc_type": "manual", "version_no": 3,
+            "file_name": "original.pdf", "doc_type": "manual", "version_no": 3, "size_bytes": 123,
         }
         self.hits = [
             {
@@ -39,8 +39,8 @@ class DocumentAdapterTests(unittest.TestCase):
             for index in range(5)
         ]
         self.read = self.stack.enter_context(patch(
-            "hyundap.db.documents_repo.get_documents_with_active_version",
-            autospec=True, return_value=[self.row],
+            "hyundap.db.documents_repo.get_document_detail",
+            autospec=True, return_value=self.row,
         ))
         self.verify = self.stack.enter_context(patch(
             "hyundap.auth.permissions.verify_documents_access", autospec=True,
@@ -60,8 +60,7 @@ class DocumentAdapterTests(unittest.TestCase):
         ordered.attach_mock(self.chunks, "chunks")
         result = self.get()
         self.assertEqual(ordered.mock_calls, [
-            call.read(["document"]),
-            call.verify(self.actor, [("document", "version")]),
+            call.read(self.actor, "document"),
             call.chunks("document", "version", active_only=True),
             call.verify(self.actor, [("document", "version")]),
         ])
@@ -71,26 +70,28 @@ class DocumentAdapterTests(unittest.TestCase):
         self.assertEqual(result["company_name"], "Actual company")
         self.assertEqual(result["version_id"], "version")
         self.assertIsNone(result["indexed_at"])
+        self.assertEqual(result["size_bytes"], 123)
         self.assertNotIn("private-token", repr(result))
 
     def test_access_denied_before_body_read(self):
-        self.verify.side_effect = AccessError("ACCESS_DENIED")
+        self.read.side_effect = AccessError("ACCESS_DENIED")
         with self.assertRaises(AccessError):
             self.get()
         self.chunks.assert_not_called()
 
     def test_access_revoked_after_body_read(self):
-        self.verify.side_effect = [None, AccessError("STATE_CHANGED")]
+        self.verify.side_effect = AccessError("STATE_CHANGED")
         with self.assertRaises(AccessError):
             self.get()
-        self.assertEqual(self.verify.call_count, 2)
+        self.assertEqual(self.verify.call_count, 1)
         self.chunks.assert_called_once()
 
     def test_old_version_rejected_after_permission_check(self):
         with self.assertRaises(UIServiceError) as caught:
             self.get("old")
         self.assertEqual(caught.exception.code, "DOCUMENT_CHANGED")
-        self.verify.assert_called_once_with(self.actor, [("document", "version")])
+        self.read.assert_called_once_with(self.actor, "document")
+        self.verify.assert_not_called()
         self.chunks.assert_not_called()
 
     def test_all_chunks_checked_including_fifth_not_displayed(self):
@@ -134,7 +135,7 @@ class DocumentAdapterTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "DOCUMENT_UNAVAILABLE")
 
     def test_missing_document_does_not_read_chunks(self):
-        self.read.return_value = []
+        self.read.side_effect = AccessError("STATE_CHANGED")
         with self.assertRaises(UIServiceError) as caught:
             self.get()
         self.assertEqual(caught.exception.code, "DOCUMENT_UNAVAILABLE")

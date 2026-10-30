@@ -10,6 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import ArgumentError
 
+from .errors import mysql_error_number
+
 
 def create_db_engine(database_url=None) -> Engine:
     """로컬 접속 설정을 검사하고 지연 연결 방식의 SQLAlchemy Engine을 만든다.
@@ -40,6 +42,27 @@ def create_db_engine(database_url=None) -> Engine:
             raise ValueError
     except (ArgumentError, ValueError, TypeError):
         raise ValueError('DATABASE_URL must be a valid MySQL URL; check URL-encoded credentials') from None
+    # 공개 TCP 경로에서는 운영자가 배포한 CA로 서버 인증서를 확인하고 암호화한다.
+    ssl_options = {}
+    ca_file = os.environ.get('DB_SSL_CA', '').strip()
+    # 명시적으로 다른 서버를 쓰는 격리 테스트/도구에 팀 DB의 CA를 강제하지 않는다.
+    if ca_file and database_url:
+        configured = os.environ.get('DATABASE_URL', '').strip()
+        try:
+            configured_url = make_url(configured)
+        except (ArgumentError, ValueError, TypeError):
+            configured_url = None
+        if configured_url is None or (url.host, url.port or 3306) != (configured_url.host, configured_url.port or 3306):
+            ca_file = ''
+    if ca_file:
+        ca_path = Path(ca_file)
+        if not ca_path.is_absolute():
+            ca_path = Path(__file__).resolve().parents[2] / ca_path
+        if not ca_path.is_file():
+            raise ValueError('DB_SSL_CA certificate file is missing; check MYSQL_ACCESS.md')
+        # MySQL 자체 발급 인증서는 Railway 프록시 도메인을 CN/SAN에 포함하지 않는다.
+        # 지정된 CA 서명은 검증하며 TLS 실패 시 평문 연결로 재시도하지 않는다.
+        ssl_options = {'ssl_ca': str(ca_path), 'ssl_verify_cert': True, 'ssl_verify_identity': False}
     # 연결 풀, 타임아웃, UTF-8, UTC와 엄격한 SQL 모드를 설정한다.
     return create_engine(
         url.set(drivername='mysql+pymysql'),
@@ -48,6 +71,7 @@ def create_db_engine(database_url=None) -> Engine:
         hide_parameters=True,
         isolation_level='READ COMMITTED',
         connect_args={
+            **ssl_options,
             'connect_timeout': 10,
             'read_timeout': 30,
             'write_timeout': 30,
@@ -87,7 +111,16 @@ def main() -> int:
               f'version_storage_ready={version == 4}')
         return 0
     except Exception as error:
-        print('DB_CHECK_FAILED:', type(error).__name__, 'Check DATABASE_URL, account permissions and network access.')
+        # 드라이버 예외 원문에는 주소·계정·비밀번호가 섞일 수 있어 숫자 코드만 사용한다.
+        code = mysql_error_number(error)
+        message = {
+            1044: 'DB_ACCESS_DENIED: 발급된 계정의 대상 DB 접근 권한을 확인하세요.',
+            1045: 'DB_AUTH_FAILED: DB 계정과 비밀번호를 확인하세요.',
+            1049: 'DB_NOT_FOUND: DATABASE_URL의 DB 이름을 확인하세요. DB를 자동 생성하지 않습니다.',
+            2003: 'DB_UNREACHABLE: DB 주소·포트와 네트워크를 확인하세요. localhost 주소는 해당 PC의 DB 또는 SSH 터널이 필요합니다.',
+            2005: 'DB_HOST_NOT_FOUND: 공개 DB 호스트 이름을 확인하세요. Railway 내부 주소는 외부 PC에서 사용할 수 없습니다.',
+        }.get(code, 'DB_CONFIG_OR_CONNECTION_ERROR: .env.example과 MYSQL_ACCESS.md의 설정·연결 절차를 확인하세요.')
+        print('DB_CHECK_FAILED:', message)
         return 1
     finally:
         if engine is not None:

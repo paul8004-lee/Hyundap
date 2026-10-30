@@ -5,7 +5,6 @@
 """
 
 import hashlib
-import inspect
 import json
 import re
 from uuid import uuid4
@@ -17,7 +16,8 @@ from sqlalchemy import text
 from hyundap.common.config import get_settings
 from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
 from .errors import DbError
-from .classification import (validate_auto_request, decision_fields, reusable_classification, CLASSIFICATION_FIELDS)
+from .classification import (validate_auto_request, decision_fields, reusable_classification, classification_fields)
+from .ingest_adapter import call_ingest
 from .source_files import file_digest, source_destination, resolve_stored_source, copy_original
 from .runtime import require_id, transaction, shared_table, split_layout
 from .tenancy import company_scope, company_for_reference, processing_lock, authorize_company
@@ -65,9 +65,7 @@ def upload_result(ids, *, connection=None, **status):
         if not decision and not reports.get('_auto_classify'):
             decision = dict(doc_type=document['doc_type'], doc_type_fallback=False, doc_type_fallback_reason=None)
         result.update(decision)
-        for key in CLASSIFICATION_FIELDS:
-            if key in ingest:
-                result[key] = ingest[key]
+        result.update(classification_fields(ingest))
     return result
 
 
@@ -223,35 +221,14 @@ def ingest_and_save_chunks(source, info, ids, ingest_function, file_hash=None):
         return documents_repo.find_duplicate_document(
             company_id, sha256, exclude_version_id=ids['version_id'])
 
-    kwargs = {'find_by_hash': find_by_hash}
-    try:
-        # 수집 함수가 file_hash 매개변수를 지원하는지 확인한다.
-        parameters = inspect.signature(ingest_function).parameters
-    except (TypeError, ValueError):
-        parameters = {}
-    if file_hash is not None and 'file_hash' in parameters:
-        kwargs['file_hash'] = file_hash
-    # 자동 분류는 설정에서 켜고 수집기가 해당 인자를 지원할 때만 요청한다.
-    if 'classify' in parameters and get_settings().doc_classify:
-        kwargs['classify'] = True
     automatic = info.get('_auto_classify', False)
-    if automatic:
-        if not {'apply_classification', 'classification'} <= parameters.keys():
-            raise DbError('INTEGRATION_UNAVAILABLE')
-        previous = info.get('_classification')
-        if previous is None and not get_settings().doc_classify:
-            raise DbError('INVALID_STATE')
-        kwargs.update(apply_classification=True, classification=previous)
     public_info = {key: value for key, value in info.items() if not key.startswith('_')}
-    raw_result = version_service.call_external(ingest_function, str(source), public_info, **kwargs)
-    result = version_service.as_mapping(raw_result)
+    result = call_ingest(
+        ingest_function, source, public_info, find_by_hash=find_by_hash, file_hash=file_hash,
+        classify=get_settings().doc_classify, automatic=automatic,
+        classification=info.get('_classification'))
     if result.get('status') != 'success':
         return None, failure_code(result.get('error_code'))
-    if automatic and info.get('_classification') is not None:
-        # 이미 저장한 후보 결정값을 재사용했는지 확인한다.
-        old = decision_fields(info['_classification'], required=True)
-        if decision_fields(version_service.as_mapping(result.get('report') or {}), required=True) != old:
-            raise DbError('CONFLICT')
     chunks = save_ingest_chunks(ids, info['company_id'], result, automatic=automatic)
     return chunks, None
 
@@ -300,6 +277,8 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
 
         # 검증에 성공한 후보만 게시 함수로 넘긴다.
         stage = 'publish'
+        # 게시 전 공개 반환값을 확보한다. 게시 후 조회 실패로 성공 계약이 축소되지 않는다.
+        success = upload_result(ids, status='success', error_code=None, recovery_required=False)
         version_service.publish_version(
             actor, ids['document_id'], ids['version_id'], expected_active_id, embedding=backend)
     except (DbError, OSError) as error:
@@ -309,13 +288,8 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
         record_upload_failure(ids, stage, error, backend)
         raise
 
-    # 게시 성공은 이미 확정됐다. 화면용 부가 정보를 읽지 못해도 실패 기록이나
-    # 벡터 정리를 다시 실행하지 않는다. ID와 성공 상태는 그대로 반환한다.
-    success = dict(ids, status='success', error_code=None, recovery_required=False)
-    try:
-        return upload_result(ids, status='success', error_code=None, recovery_required=False)
-    except DbError:
-        return success
+    # 게시 성공 후에는 DB를 다시 읽지 않고 준비한 공개 결과를 반환한다.
+    return success
 
 
 def prepare_upload_source(source_path, metadata, upload_dir):

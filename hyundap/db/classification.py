@@ -1,11 +1,35 @@
 """자동 유형 적용 계약. 분류 판단은 수집 담당이 수행하고 DB는 결정값을 검증한다."""
 
+import math
+
 from hyundap.common.schemas import DOC_TYPE_CODES
 from .errors import DbError
 
 
 DECISION_FIELDS = ('doc_type', 'doc_type_fallback', 'doc_type_fallback_reason')
 CLASSIFICATION_FIELDS = ('auto_doc_type', 'doc_type_confidence', 'company_match', 'classify_status')
+
+
+def classification_fields(report):
+    """저장·반환이 공유하는 네 분류 필드 계약. 미실행은 {}, 실패는 안전한 기본값이다.
+
+    불완전한 과거 보고서도 처리한다. 잘못된 값은 분류 실패로 정규화하고 원문·예외는
+    옮기지 않는다. 최종 문서 유형 결정값은 decision_fields가 별도로 검증한다.
+    """
+    if not any(key in report for key in CLASSIFICATION_FIELDS):
+        return {}
+    failed = dict(auto_doc_type='', doc_type_confidence=0.0, company_match='', classify_status='failed')
+    if report.get('classify_status') != 'success':
+        return failed
+    values = {key: report.get(key, failed[key]) for key in CLASSIFICATION_FIELDS}
+    kind, confidence = values['auto_doc_type'], values['doc_type_confidence']
+    valid = (
+        isinstance(kind, str) and (kind == '' or kind in DOC_TYPE_CODES)
+        and type(confidence) in (int, float) and math.isfinite(confidence) and 0 <= confidence <= 1
+        and values['company_match'] in ('yes', 'no', '')
+        and values['classify_status'] in ('success', 'failed')
+    )
+    return values if valid else failed
 
 
 def validate_auto_request(metadata):

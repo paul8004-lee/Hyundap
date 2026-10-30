@@ -15,12 +15,22 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .connection import create_db_engine
-from .errors import DbError
+from .errors import DbError, mysql_error_number
 from . import runtime
 from .split_schema import create_split_schema
 from .tenancy import quoted_database
 from .company_credentials import credential_path as local_credential_path, credential_source, has_credential, save_credential
 from .company_routines import procedure_statements
+
+
+def _require_admin_target(admin_engine, control):
+    """Require the same MySQL server, explicit port and control database."""
+    if admin_engine.dialect.name != 'mysql':
+        raise DbError('INVALID_INPUT')
+    admin_target = (admin_engine.url.host, admin_engine.url.port, admin_engine.url.database)
+    control_target = (control.url.host, control.url.port, control.url.database)
+    if admin_target != control_target:
+        raise DbError('INVALID_INPUT')
 
 
 @contextmanager
@@ -51,12 +61,7 @@ def create_company_db_user(company_id, *, admin_engine, credential_path=None, _a
     if not runtime.split_layout():
         raise DbError('INVALID_STATE')
     control = runtime.get_engine()
-    if admin_engine.dialect.name != 'mysql':
-        raise DbError('INVALID_INPUT')
-    admin_target = (admin_engine.url.host, admin_engine.url.port, admin_engine.url.database)
-    control_target = (control.url.host, control.url.port, control.url.database)
-    if admin_target != control_target:
-        raise DbError('INVALID_INPUT')
+    _require_admin_target(admin_engine, control)
     with admin_transaction(admin_engine) as database:
         row = database.execute(text('''
             SELECT r.database_name,r.status,c.is_active FROM company_databases r
@@ -129,7 +134,7 @@ def create_company_db_user(company_id, *, admin_engine, credential_path=None, _a
             try:
                 database.execute(text('SELECT id FROM ' + quoted_database(control.url.database) + '.users LIMIT 1'))
             except SQLAlchemyError as error:
-                if not error.orig.args or error.orig.args[0] not in (1044, 1142):
+                if mysql_error_number(error) not in (1044, 1142):
                     raise
             else:
                 raise DbError('INVALID_STATE')
@@ -170,13 +175,7 @@ def provision_company(name, *, admin_engine, company_id=None):
     if re.fullmatch(r'[a-zA-Z0-9_-]{1,36}', company_id) is None:
         raise DbError('INVALID_INPUT')
     control = runtime.get_engine()
-    if admin_engine.dialect.name != 'mysql':
-        raise DbError('INVALID_INPUT')
-    # 계정/비밀번호는 달라도 되지만 서버·포트·공통 DB는 앱 설정과 같아야 한다.
-    admin_target = (admin_engine.url.host, admin_engine.url.port, admin_engine.url.database)
-    control_target = (control.url.host, control.url.port, control.url.database)
-    if admin_target != control_target:
-        raise DbError('INVALID_INPUT')
+    _require_admin_target(admin_engine, control)
     database_name = 'tenant_' + uuid4().hex
     # 1. 공통 DB에 비활성 회사와 생성 중 상태를 저장한다. 아직 앱에서 사용할 수 없다.
     with admin_transaction(admin_engine) as database:
@@ -256,9 +255,7 @@ def main():
         engine = create_db_engine(url)
         if args.create_control:
             # dispose는 연결 풀을 닫는다. 이미 검증한 URL 설정은 그대로 읽을 수 있다.
-            selected = control.url
-            if (engine.url.host, engine.url.port, engine.url.database) != (selected.host, selected.port, selected.database):
-                raise DbError('INVALID_INPUT')
+            _require_admin_target(engine, control)
             create_split_schema(engine)
             print('CONTROL_SCHEMA_CREATED')
         elif args.create_company_account:

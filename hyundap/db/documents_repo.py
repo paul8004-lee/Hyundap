@@ -7,7 +7,9 @@ from sqlalchemy import bindparam, text
 from hyundap.auth.errors import AccessError
 from hyundap.auth.permissions import allowed_companies
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES
+from .access_checks import require_company_manager
 from .errors import DbError
+from .source_files import MAX_ORIGINAL_BYTES
 from .classification import validate_auto_request
 from .runtime import require_hash, require_id, transaction, shared_table, split_layout, isolated_company_connection
 from .sessions_repo import current_actor
@@ -239,7 +241,7 @@ def validate_metadata(metadata):
         if not isinstance(value, str) or not value.strip() or len(value) > max_length or '\x00' in value:
             raise DbError('INVALID_INPUT')
     file_size = result['file_size']
-    if type(file_size) is not int or not 1 <= file_size <= 104857600:
+    if type(file_size) is not int or not 1 <= file_size <= MAX_ORIGINAL_BYTES:
         raise DbError('INVALID_INPUT')
     if metadata.get('document_id') is not None:
         result['document_id'] = require_id(metadata['document_id'])
@@ -270,10 +272,7 @@ def _check_candidate_creation(database, actor, data):
     """
     # 전달받은 역할을 그대로 믿지 않고 현재 세션과 회사 상태를 다시 확인한다.
     current = current_actor(actor, connection=database, lock=True)
-    if current['role'] not in ('platform_admin', 'company_admin'):
-        raise AccessError('ACCESS_DENIED')
-    if current['role'] != 'platform_admin' and current['company_id'] != data['company_id']:
-        raise AccessError('ACCESS_DENIED')
+    require_company_manager(current, data['company_id'])
     if isolated_company_connection(database):
         from .company_routines import lock_company_status
         active = lock_company_status(database)

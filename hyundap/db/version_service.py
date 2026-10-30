@@ -12,11 +12,13 @@ from threading import RLock
 from sqlalchemy import text
 
 from hyundap.auth.errors import AccessError
+from .access_checks import require_company_manager
 from .errors import DbError
 from .classification import decision_fields
 from .runtime import require_id, transaction, shared_table, split_layout, isolated_company_connection
 from .tenancy import company_scope, company_for_reference, processing_lock, authorize_company
 from .sessions_repo import current_actor
+from .chunks_repo import read_manifest
 from . import jobs_repo
 
 
@@ -119,13 +121,7 @@ def read_candidate(database, document_id, version_id, *, lock=False):
 def manifest_snapshot(database, version):
     """원장과 후보 메타데이터의 해시를 만든다. 외부 검사 이후 변경 여부를 다시 비교한다."""
     # 현재 원장과 버전 정보를 묶어 나중에 변경 여부를 비교할 값을 만든다.
-    rows = database.execute(text('''
-        SELECT id,chunk_index,content_hash FROM document_chunks WHERE version_id=:id ORDER BY chunk_index
-    '''), {'id': version['id']}).mappings()
-    manifest = []
-    # 첫 반복은 DB가 순번대로 반환한 청크 행을 원장 목록으로 옮긴다.
-    for row in rows:
-        manifest.append(dict(row))
+    manifest = read_manifest(database, version['id'])
     fields = ('id', 'document_id', 'company_id', 'sha256', 'file_size', 'storage_path',
               'data_category', 'expected_chunk_count')
     version_snapshot = {}
@@ -365,11 +361,7 @@ def require_manager(actor, database, company_id):
     # 세션을 다시 읽고 관리자 역할과 대상 회사의 활성 상태를 확인한다.
     current = current_actor(actor, connection=database, lock=True)
     # 1. 직원은 회사가 같아도 관리 작업을 할 수 없다.
-    if current['role'] not in ('platform_admin', 'company_admin'):
-        raise AccessError('ACCESS_DENIED')
-    # 2. 회사 관리자는 자기 회사만, 플랫폼 관리자는 활성 회사 전체를 처리한다.
-    if current['role'] != 'platform_admin' and current['company_id'] != company_id:
-        raise AccessError('ACCESS_DENIED')
+    require_company_manager(current, company_id)
     # 3. 역할이 허용돼도 비활성 회사에는 쓸 수 없다. 쓰기가 끝날 때까지 회사 행을 잠근다.
     active = company_is_active(database, company_id, lock=True)
     if not active:
@@ -424,10 +416,7 @@ def check_publication_access(actor, document_id, candidate_id):
     with transaction(document_id=document_id, version_id=candidate_id) as database:
         current = current_actor(actor, connection=database)
         document, _ = read_candidate(database, document_id, candidate_id)
-        if current['role'] not in ('platform_admin', 'company_admin'):
-            raise AccessError('ACCESS_DENIED')
-        if current['role'] != 'platform_admin' and current['company_id'] != document['company_id']:
-            raise AccessError('ACCESS_DENIED')
+        require_company_manager(current, document['company_id'])
         active_company = company_is_active(database, document['company_id'])
         if not active_company:
             raise AccessError('ACCESS_DENIED')
@@ -448,10 +437,7 @@ def read_publishable_candidate(database, actor, document_id, candidate_id, compa
     document, version = read_candidate(database, document_id, candidate_id, lock=True)
     if document['company_id'] != company_id:
         raise DbError('CONFLICT')
-    if current['role'] not in ('platform_admin', 'company_admin'):
-        raise AccessError('ACCESS_DENIED')
-    if current['role'] != 'platform_admin' and current['company_id'] != document['company_id']:
-        raise AccessError('ACCESS_DENIED')
+    require_company_manager(current, document['company_id'])
     if document['deleted_at'] is not None or document['publication_status'] == 'blocked':
         raise DbError('INVALID_STATE')
     if version['data_category'] != 'operational':

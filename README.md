@@ -177,11 +177,14 @@ python -m unittest discover -s hyundap/tests -t .   # 전체 테스트
 
 ### 환경 설정 (`.env`)
 
+처음 받은 팀원은 루트의 [`.env.example`](.env.example)을 참고해 `.env`와 운영자가 전달한 회사별 DB 계정 파일을 한 번 설정합니다. 현재 split DB의 팀원 실행 순서는 [MYSQL_ACCESS.md](MYSQL_ACCESS.md#develop을-처음-받은-팀원)에 있습니다. 개인 PC의 `127.0.0.1:33992` SSH 터널 주소와 절대 파일 경로는 다른 PC에서 그대로 사용할 수 없습니다. 실제 비밀값은 Git으로 배포하지 않습니다.
+
 저장소 맨 위 폴더에 `.env` 파일을 만들고 아래 항목을 채웁니다. `.env`는 커밋하지 않습니다.
 
 | 항목 | 필수 | 내용 | 기본값 |
 |---|:---:|---|---|
 | `DATABASE_URL` | 필수 | 팀 공용 MySQL 접속 주소. 발급·형식은 [MYSQL_ACCESS.md](MYSQL_ACCESS.md) 참고 | — |
+| `DB_SSL_CA` | 팀 공개 DB 필수 | 예제의 공개 CA 인증서 경로. 상대 경로는 저장소 루트 기준이며 TLS 인증서 오류 시 접속을 거부 | — |
 | `OPENAI_API_KEY` | 필수 | 임베딩·답변·요약에 사용하는 OpenAI API 키 | — |
 | `OPENAI_CHAT_MODEL` | 선택 | 답변·요약 모델 | `gpt-5` |
 | `OPENAI_EMBEDDING_MODEL` | 선택 | 임베딩 모델 | `text-embedding-3-small` |

@@ -180,6 +180,61 @@ class UploadWorkflowTests(unittest.TestCase):
             self.actor, self.source, dict(company_id=self.company, doc_type='manual', **metadata),
             ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
 
+    def test_classification_failure_keeps_published_result_compatible_with_ui(self):
+        """실제 DB에 저장된 분류 실패 결과가 게시 성공 후에도 UI 계약을 만족한다."""
+        from hyundap.ui.backend_documents import _classification_fields
+        from hyundap.db.classification import CLASSIFICATION_FIELDS
+        def ingest(path, info, *, find_by_hash):
+            result = self.ingest(path, info, find_by_hash=find_by_hash)
+            result['report']['classify_status'] = 'failed'
+            return result
+        result = self.upload_service.upload_document(
+            self.actor, self.source, dict(company_id=self.company, doc_type='manual'),
+            ingest_document=ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+        self.assertEqual(result['status'], 'success')
+        fields = _classification_fields(result)
+        self.assertEqual(fields['classify_status'], 'failed')
+        with self.engine.connect() as database:
+            report = json.loads(database.execute(text('SELECT report FROM index_jobs WHERE id=:id'),
+                                                {'id': result['job_id']}).scalar_one())['ingest']
+            active = database.execute(text('SELECT active_version_id FROM documents WHERE id=:id'),
+                                      {'id': result['document_id']}).scalar_one()
+        self.assertEqual(active, result['version_id'])
+        self.assertEqual({key: report[key] for key in CLASSIFICATION_FIELDS},
+                         {key: result[key] for key in CLASSIFICATION_FIELDS})
+
+    def test_published_success_does_not_depend_on_post_publish_reads(self):
+        from hyundap.ui.backend_documents import _classification_fields
+        original_result = self.upload_service.upload_result
+        original_publish = self.version_service.publish_version
+        published = False
+
+        def read_result(*args, **kwargs):
+            if published:
+                raise DbError('DB_UNAVAILABLE')
+            return original_result(*args, **kwargs)
+
+        def publish(*args, **kwargs):
+            nonlocal published
+            result = original_publish(*args, **kwargs)
+            published = True
+            return result
+
+        def ingest(path, info, *, find_by_hash):
+            result = self.ingest(path, info, find_by_hash=find_by_hash)
+            result['report']['classify_status'] = 'failed'
+            return result
+
+        with patch.object(self.upload_service, 'upload_result', side_effect=read_result), \
+                patch.object(self.version_service, 'publish_version', side_effect=publish):
+            result = self.upload_service.upload_document(
+                self.actor, self.source, dict(company_id=self.company, doc_type='manual'),
+                ingest_document=ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+        self.assertTrue(published)
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(_classification_fields(result, required=True)['classify_status'], 'failed')
+        self.assertEqual(self.active_version(result['document_id']), result['version_id'])
+
     def test_download_snapshot_preserves_bytes_and_rejects_changed_source(self):
         from hyundap.db.download_service import prepare_original_download, read_download_source
         result = self.upload()
@@ -301,8 +356,7 @@ class UploadWorkflowTests(unittest.TestCase):
             detail = backend_documents.get_document(user=self.actor, document_id=result['document_id'])
             self.assertEqual(detail['version_id'], result['version_id'])
             self.assertTrue(detail['citations'])
-            # 아직 UI가 P2 상세 전용 함수를 연결하지 않았다는 현재 계약도 명확히 고정한다.
-            self.assertIsNone(detail['size_bytes'])
+            self.assertEqual(detail['size_bytes'], self.source.stat().st_size)
             self.assertIsNone(detail['indexed_at'])
             self.assertNotIn('storage_path', detail)
             revoke = True
