@@ -49,8 +49,9 @@ def credential_source():
 
 
 def credential_path():
-    """시험 프로세스의 별도 경로 또는 기본 Git 제외 경로를 반환한다."""
-    return Path(os.environ.get('HYUNDAP_COMPANY_CREDENTIALS_FILE', str(DEFAULT_PATH)))
+    """상대 경로는 저장소 루트 기준으로 읽어 PC·작업 폴더에 의존하지 않는다."""
+    path = Path(os.environ.get('HYUNDAP_COMPANY_CREDENTIALS_FILE', str(DEFAULT_PATH)))
+    return path if path.is_absolute() else DEFAULT_PATH.parent / path
 
 
 def _validate(company_id, username, password):

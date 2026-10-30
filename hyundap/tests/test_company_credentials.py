@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from hyundap.db.company_credentials import read_credential, save_credential, credential_file_lock
+from hyundap.db.company_credentials import read_credential, save_credential, credential_file_lock, credential_path, DEFAULT_PATH
 from hyundap.db.errors import DbError
 
 
@@ -30,6 +30,15 @@ def hold_file_lock(path, ready):
 
 
 class CompanyCredentialTests(unittest.TestCase):
+    def test_relative_credential_path_is_repository_relative(self):
+        """팀원마다 작업 폴더가 달라도 배포한 회사 계정 파일을 같은 위치에서 읽는다."""
+        with patch.dict(os.environ, {'HYUNDAP_COMPANY_CREDENTIALS_FILE': '.env.company-databases.json'}):
+            self.assertEqual(credential_path(), DEFAULT_PATH)
+        with TemporaryDirectory() as directory:
+            absolute = Path(directory) / 'company-accounts.json'
+            with patch.dict(os.environ, {'HYUNDAP_COMPANY_CREDENTIALS_FILE': str(absolute)}):
+                self.assertEqual(credential_path(), absolute)
+
     def setUp(self):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
