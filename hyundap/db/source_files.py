@@ -7,6 +7,8 @@ from uuid import uuid4
 from .errors import DbError
 from .runtime import require_id
 
+MAX_ORIGINAL_BYTES = 100 * 1024 * 1024
+
 
 def file_digest(path):
     """실제 파일을 1MiB씩 읽어 SHA-256과 크기를 구한다. 비어 있거나 상한을 넘으면 거부한다."""
@@ -21,7 +23,7 @@ def file_digest(path):
                 break  # 더 읽을 내용이 없으면 반복을 끝낸다.
             size += len(block)
             # 읽은 크기가 100MiB를 넘으면 입력 오류로 중단한다.
-            if size > 104857600:
+            if size > MAX_ORIGINAL_BYTES:
                 raise DbError('INVALID_INPUT')
             digest.update(block)
     if size == 0:
@@ -60,7 +62,7 @@ def copy_original(source, destination, expected_hash, expected_size):
                 if not block:
                     break
                 size += len(block)
-                if size > 104857600:
+                if size > MAX_ORIGINAL_BYTES:
                     raise DbError('INVALID_INPUT')
                 digest.update(block)
                 outgoing.write(block)

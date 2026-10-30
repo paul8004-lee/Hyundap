@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from hyundap.auth.errors import AccessError
-from .errors import DbError
+from .errors import DbError, mysql_error_number
 from .runtime import require_id
 from .tenancy import quoted_database
 
@@ -156,10 +156,8 @@ def _raise_routine_error(error):
     """
     original = getattr(error, 'orig', None)
     arguments = getattr(original, 'args', ())
-    number = None
+    number = mysql_error_number(error)
     message = None
-    if arguments:
-        number = arguments[0]
     if len(arguments) > 1:
         message = arguments[-1]
     # 1644는 프로시저의 SIGNAL로 발생한 오류다. 아래에 적힌 코드만 전달한다.

@@ -7,7 +7,7 @@ from functools import lru_cache
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .connection import create_db_engine
-from .errors import DbError
+from .errors import DbError, mysql_error_number
 
 
 def split_layout():
@@ -119,10 +119,7 @@ def transaction(connection=None, *, company_id=None, document_id=None, version_i
                 yield database
     except IntegrityError as error:
         # 드라이버 원본 오류의 첫 번째 인자에서 MySQL 오류 번호를 확인한다.
-        arguments = getattr(error.orig, 'args', ())
-        error_number = None
-        if arguments:
-            error_number = arguments[0]
+        error_number = mysql_error_number(error)
         # MySQL 오류 번호 1062는 같은 고유 키를 중복 저장하려 했다는 뜻이다.
         if error_number == 1062:
             raise DbError('CONFLICT') from None

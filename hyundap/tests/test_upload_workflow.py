@@ -203,6 +203,38 @@ class UploadWorkflowTests(unittest.TestCase):
         self.assertEqual({key: report[key] for key in CLASSIFICATION_FIELDS},
                          {key: result[key] for key in CLASSIFICATION_FIELDS})
 
+    def test_published_success_does_not_depend_on_post_publish_reads(self):
+        from hyundap.ui.backend_documents import _classification_fields
+        original_result = self.upload_service.upload_result
+        original_publish = self.version_service.publish_version
+        published = False
+
+        def read_result(*args, **kwargs):
+            if published:
+                raise DbError('DB_UNAVAILABLE')
+            return original_result(*args, **kwargs)
+
+        def publish(*args, **kwargs):
+            nonlocal published
+            result = original_publish(*args, **kwargs)
+            published = True
+            return result
+
+        def ingest(path, info, *, find_by_hash):
+            result = self.ingest(path, info, find_by_hash=find_by_hash)
+            result['report']['classify_status'] = 'failed'
+            return result
+
+        with patch.object(self.upload_service, 'upload_result', side_effect=read_result), \
+                patch.object(self.version_service, 'publish_version', side_effect=publish):
+            result = self.upload_service.upload_document(
+                self.actor, self.source, dict(company_id=self.company, doc_type='manual'),
+                ingest_document=ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+        self.assertTrue(published)
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(_classification_fields(result, required=True)['classify_status'], 'failed')
+        self.assertEqual(self.active_version(result['document_id']), result['version_id'])
+
     def test_download_snapshot_preserves_bytes_and_rejects_changed_source(self):
         from hyundap.db.download_service import prepare_original_download, read_download_source
         result = self.upload()
@@ -324,8 +356,7 @@ class UploadWorkflowTests(unittest.TestCase):
             detail = backend_documents.get_document(user=self.actor, document_id=result['document_id'])
             self.assertEqual(detail['version_id'], result['version_id'])
             self.assertTrue(detail['citations'])
-            # 아직 UI가 P2 상세 전용 함수를 연결하지 않았다는 현재 계약도 명확히 고정한다.
-            self.assertIsNone(detail['size_bytes'])
+            self.assertEqual(detail['size_bytes'], self.source.stat().st_size)
             self.assertIsNone(detail['indexed_at'])
             self.assertNotIn('storage_path', detail)
             revoke = True

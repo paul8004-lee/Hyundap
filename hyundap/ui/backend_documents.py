@@ -11,6 +11,8 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from hyundap.auth.errors import AccessError
+
 from .services import DOC_TYPES, UIServiceError, to_plain, validate_upload_file, validate_upload_metadata
 
 
@@ -45,21 +47,6 @@ def _function(module_name, name):
     return function
 
 
-def _document_row(rows, document_id):
-    """조회 응답에서 요청한 문서 하나와 활성 버전을 확인한다."""
-    rows = to_plain(rows)
-    if not isinstance(rows, list):
-        raise UIServiceError("INVALID_RESPONSE", "문서 조회 응답 형식을 확인해 주세요.")
-    if not rows:
-        raise UIServiceError("DOCUMENT_UNAVAILABLE", "문서를 찾을 수 없습니다. 다시 검색해 주세요.")
-    if len(rows) != 1 or not isinstance(rows[0], dict) or rows[0].get("document_id") != document_id:
-        raise UIServiceError("INVALID_RESPONSE", "요청한 문서와 조회 결과가 일치하지 않습니다.")
-    row = rows[0]
-    if not row.get("company_id") or not row.get("active_version_id"):
-        raise UIServiceError("DOCUMENT_UNAVAILABLE", "현재 공개된 문서를 확인할 수 없습니다. 다시 검색해 주세요.")
-    return row
-
-
 def _citations(hits, document):
     """모든 청크의 소속을 확인하고 앞부분의 실제 발췌만 표시용으로 만든다."""
     hits = to_plain(hits)
@@ -67,7 +54,7 @@ def _citations(hits, document):
         raise UIServiceError("INVALID_RESPONSE", "문서 본문 응답 형식을 확인해 주세요.")
     expected = {
         "document_id": document["document_id"],
-        "version_id": document["active_version_id"],
+        "version_id": document["version_id"],
         "company_id": document["company_id"],
     }
     citations = []
@@ -104,13 +91,17 @@ def _citations(hits, document):
 
 def get_document(*, user, document_id, version_id=None):
     """권한이 있는 활성 문서의 정보와 최대 네 개의 실제 발췌를 반환한다."""
-    read_documents = _function("hyundap.db.documents_repo", "get_documents_with_active_version")
+    read_detail = _function("hyundap.db.documents_repo", "get_document_detail")
     verify_access = _function("hyundap.auth.permissions", "verify_documents_access")
     read_chunks = _function("hyundap.embedding.vector_store", "get_document_chunks")
-    document = _document_row(read_documents([document_id]), document_id)
-    active_version = document["active_version_id"]
+    try:
+        document = read_detail(user, document_id)
+    except AccessError as error:
+        if error.code == "STATE_CHANGED":
+            raise UIServiceError("DOCUMENT_UNAVAILABLE", "문서를 찾을 수 없습니다. 다시 검색해 주세요.") from None
+        raise
+    active_version = document["version_id"]
     pairs = [(document_id, active_version)]
-    verify_access(user, pairs)
     if version_id is not None and version_id != active_version:
         raise UIServiceError("DOCUMENT_CHANGED", "문서 버전이 변경되었습니다. 다시 검색해 주세요.")
     citations = _citations(read_chunks(document_id, active_version, active_only=True), document)
@@ -124,8 +115,8 @@ def get_document(*, user, document_id, version_id=None):
         "file_name": document.get("file_name"),
         "doc_type": document.get("doc_type"),
         "version_no": document.get("version_no"),
-        "indexed_at": None,
-        "size_bytes": None,
+        "indexed_at": document.get("indexed_at"),
+        "size_bytes": document.get("size_bytes"),
         "location_label": citations[0]["location_label"],
         "excerpt": citations[0]["excerpt"],
         "citations": citations,

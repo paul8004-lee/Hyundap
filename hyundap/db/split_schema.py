@@ -9,7 +9,7 @@ import hashlib
 
 from sqlalchemy import text
 
-from .schema import DESIGN_DIR, _read_layout, _structure, _expression
+from .schema import DESIGN_DIR, _read_layout, _structure, _expression, schema_statements
 from .tenancy import quoted_database
 
 
@@ -80,22 +80,12 @@ def _extra_contract(name):
 
 def _statements(kind, control_name=None):
     """고정 v4 SQL에서 해당 역할의 테이블만 선택한다. 관리 DB 참조만 명시적으로 바꾼다."""
-    source = (DESIGN_DIR / 'schema_v4.sql').read_text(encoding='utf-8')
-    # SQL 설명 줄을 먼저 제거한다. 아래 SQL 문장 반복과 중첩되는 반복이 아니다.
-    sql_lines = []
-    for line in source.splitlines():
-        if not line.lstrip().startswith('--'):
-            sql_lines.append(line)
-    source = '\n'.join(sql_lines)
     if kind == 'control':
         allowed = CONTROL_TABLES
     else:
         allowed = BUSINESS_TABLES | {'schema_migrations'}
     result = []
-    for statement in source.split(';'):
-        statement = statement.strip()
-        if not statement:
-            continue
+    for statement in schema_statements():
         # 고정 SQL에서 테이블 이름만 읽는다. 사용자 SQL을 해석하는 범용 파서가 아니다.
         table = re.match(r'(?:CREATE|ALTER) TABLE (\w+)', statement)
         if table is None:

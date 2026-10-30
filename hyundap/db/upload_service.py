@@ -277,6 +277,8 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
 
         # 검증에 성공한 후보만 게시 함수로 넘긴다.
         stage = 'publish'
+        # 게시 전 공개 반환값을 확보한다. 게시 후 조회 실패로 성공 계약이 축소되지 않는다.
+        success = upload_result(ids, status='success', error_code=None, recovery_required=False)
         version_service.publish_version(
             actor, ids['document_id'], ids['version_id'], expected_active_id, embedding=backend)
     except (DbError, OSError) as error:
@@ -286,13 +288,8 @@ def run_attempt(actor, ids, expected_active_id, ingest_function, backend):
         record_upload_failure(ids, stage, error, backend)
         raise
 
-    # 게시 성공은 이미 확정됐다. 화면용 부가 정보를 읽지 못해도 실패 기록이나
-    # 벡터 정리를 다시 실행하지 않는다. ID와 성공 상태는 그대로 반환한다.
-    success = dict(ids, status='success', error_code=None, recovery_required=False)
-    try:
-        return upload_result(ids, status='success', error_code=None, recovery_required=False)
-    except DbError:
-        return success
+    # 게시 성공 후에는 DB를 다시 읽지 않고 준비한 공개 결과를 반환한다.
+    return success
 
 
 def prepare_upload_source(source_path, metadata, upload_dir):

@@ -10,6 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import ArgumentError
 
+from .errors import mysql_error_number
+
 
 def create_db_engine(database_url=None) -> Engine:
     """로컬 접속 설정을 검사하고 지연 연결 방식의 SQLAlchemy Engine을 만든다.
@@ -110,8 +112,7 @@ def main() -> int:
         return 0
     except Exception as error:
         # 드라이버 예외 원문에는 주소·계정·비밀번호가 섞일 수 있어 숫자 코드만 사용한다.
-        args = getattr(getattr(error, 'orig', None), 'args', ())
-        code = args[0] if args and isinstance(args[0], int) else None
+        code = mysql_error_number(error)
         message = {
             1044: 'DB_ACCESS_DENIED: 발급된 계정의 대상 DB 접근 권한을 확인하세요.',
             1045: 'DB_AUTH_FAILED: DB 계정과 비밀번호를 확인하세요.',

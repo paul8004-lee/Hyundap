@@ -172,6 +172,14 @@ def validate_v4(layout):
     return errors
 
 
+def schema_statements():
+    """Read statements from the fixed v4 DDL file; not a general SQL parser."""
+    source = (DESIGN_DIR / 'schema_v4.sql').read_text(encoding='utf-8')
+    script = '\n'.join(line for line in source.splitlines()
+                       if not line.lstrip().startswith('--'))
+    return [statement.strip() for statement in script.split(';') if statement.strip()]
+
+
 def create_v4_schema(engine):
     """명시적으로 받은 Engine의 빈 MySQL DB에 최종 v4를 직접 생성한다.
 
@@ -205,18 +213,8 @@ def create_v4_schema(engine):
             # 로컬 계약 파일 오류는 DDL 실행 전 발견한다.
             json.loads((DESIGN_DIR / 'schema_v4_contract.json').read_text(encoding='utf-8'))
             connection.execute(text("SET time_zone='+00:00'"))
-            source = (DESIGN_DIR / 'schema_v4.sql').read_text(encoding='utf-8')
-            sql_lines = []
-            # 먼저 설명 줄을 제외한다. 아래 문장 실행 반복과 별도로 끝나는 반복이다.
-            for line in source.splitlines():
-                if not line.lstrip().startswith('--'):
-                    sql_lines.append(line)
-            script = '\n'.join(sql_lines)
-            # SQL 파일을 세미콜론 기준으로 나누고 비어 있지 않은 문장만 순서대로 실행한다.
-            # 이 반복은 스키마 생성 명령에서만 실행되며 일반 조회에서는 실행되지 않는다.
-            for statement in script.split(';'):
-                if statement.strip():
-                    connection.execute(text(statement))
+            for statement in schema_statements():
+                connection.execute(text(statement))
             if validate_v4(_read_layout(connection)):
                 raise ValueError('Created structure differs from final v4; inspect partial DDL')
             connection.execute(text('INSERT INTO schema_migrations (version) VALUES (4)'))

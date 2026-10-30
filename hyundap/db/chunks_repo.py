@@ -6,6 +6,13 @@ from .errors import DbError
 from .runtime import require_hash, require_id, transaction
 
 
+def read_manifest(database, version_id):
+    """호출자의 연결·잠금을 유지하며 순번대로 원장을 읽는다. TX를 열거나 커밋하지 않는다."""
+    return [dict(row) for row in database.execute(text('''
+        SELECT id,chunk_index,content_hash FROM document_chunks WHERE version_id=:id ORDER BY chunk_index
+    '''), {'id': require_id(version_id)}).mappings()]
+
+
 def save_manifest(version_id, chunks, *, connection=None):
     """처리 중인 버전에 완전한 청크 목록을 한 번 저장한다. 같은 목록 재시도는 허용한다.
 
@@ -22,13 +29,7 @@ def save_manifest(version_id, chunks, *, connection=None):
                                   {'id': version_id}).scalar_one_or_none()
         if status != 'processing':
             raise DbError('INVALID_STATE')
-        result_rows = database.execute(text('''
-            SELECT id,chunk_index,content_hash FROM document_chunks WHERE version_id=:id ORDER BY chunk_index
-        '''), {'id': version_id}).mappings()
-        existing = []
-        # 첫 번째 반복: DB에서 읽은 행을 비교하기 쉬운 dict 목록으로 옮긴다.
-        for row in result_rows:
-            existing.append(dict(row))
+        existing = read_manifest(database, version_id)
         # 이미 원장이 있으면 완전히 같은 재호출만 허용하고 다른 내용은 충돌로 처리한다.
         if existing:
             if existing != normalized:

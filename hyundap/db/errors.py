@@ -1,6 +1,12 @@
 """DB 호출자가 원시 SQL·접속 정보 없이 구분할 수 있는 오류 코드."""
 
 
+def mysql_error_number(error):
+    """SQLAlchemy가 감싼 드라이버 예외의 숫자 코드만 읽는다. 원문은 반환하지 않는다."""
+    arguments = getattr(getattr(error, 'orig', None), 'args', ())
+    return arguments[0] if arguments and type(arguments[0]) is int else None
+
+
 class DbError(Exception):
     """안전한 코드와 고정 안내만 전달하는 DB 오류. 원시 예외는 포함하지 않는다."""
 
