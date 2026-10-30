@@ -94,6 +94,7 @@ ui.services.BackendServices.ask (박경환)
    │   └─ validate_citations                          FUN-414
    │       ├─ validate_citations_answer               FUN-414 보조  빈 답·길이
    │       ├─ validate_citations_aliases              FUN-414 보조  이름표 유무·없는 이름표 (extract_cited_aliases 413)
+   │       │   └─ validate_citations_only_no_evidence FUN-414 보조  유보 문장에만 이름표 → NO_EVIDENCE
    │       └─ validate_citations_line × 줄            FUN-414 보조  문장마다 이름표
    │           ├─ validate_citations_heading          FUN-414 보조  마크다운 제목 줄이면 검사 생략
    │           ├─ validate_citations_split            FUN-414 보조  문장 나누기
@@ -174,6 +175,7 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-414 | `validate_citations` | `answer`, `aliases`, `max_chars=20000` | 쓰인 이름표 | ① 빈 답·초과 → INVALID_ANSWER ② 인용이 하나도 없고 유보 표현(`NO_EVIDENCE_HINTS`)이 있으면 NO_EVIDENCE, 없으면 INVALID_CITATION ③ 준 적 없는 이름표 → INVALID_CITATION ④ **문장마다 이름표 확인**: 줄·문장(숫자 바로 뒤가 아닌 `. ! ?` 뒤 공백)으로 나눠 이름표 없는 문장이 있으면 INVALID_CITATION. 제목 줄(`:`로 끝남)과 유보 문장은 예외. 번호 목록(`1. …`)·날짜(`2026. 11. 3.`) 마침표에서는 자르지 않음. 마침표 뒤에 온 이름표(`…합니다. [E1]`, `…합니다. [E1] 다음 문장 [E2].`)는 같은 줄 바로 앞 문장의 근거로 인정. 다음 줄 이름표는 인정 안 함 |
 | 414 보조 | `validate_citations_answer` | `answer`, `max_chars` | 공백 정리된 답변 | 빈 답·초과 → INVALID_ANSWER (①) |
 | 414 보조 | `validate_citations_aliases` | `answer`, `aliases` | 쓰인 이름표 | ②·③ |
+| 414 보조 | `validate_citations_only_no_evidence` | `answer` | bool | 이름표를 지운 뒤 모든 문장이 유보 표현(`NO_EVIDENCE_HINTS`)이면 True → NO_EVIDENCE. 사실과 유보가 섞이면 정상 답변 (10/30 실측: gpt-5가 '확인할 수 없습니다 [E1][E5].'를 냄) |
 | 414 보조 | `validate_citations_line` | 답변 1줄 | 없음 | ④. 마크다운 제목 줄이면 바로 통과. 문장 앞 이름표(`LEADING_ALIASES`)는 앞에 무인용 문장이 있으면 그 문장의 근거 |
 | 414 보조 | `validate_citations_heading` | 답변 1줄 | bool | 줄 전체가 `### 제목`·`**제목**`·`__제목__`(뒤 `:` 허용)이고, 제목이 40자 이하이며 문장 끝말(`HEADING_SENTENCE_ENDINGS`: `.` `!` `?` `다` `니다` `세요` `해요` `어요` `아요` `에요` `예요` `네요` `죠`)로 끝나지 않고 이름표가 없으면 True. `개요`·`중요`·`필요`처럼 `요`로 끝나는 명사 제목은 통과 (예전 규칙은 `요` 한 글자로 막아 요약의 `### 개요`가 거부됨) |
 | 414 보조 | `check_line_aliases` | 답변 1줄, 허용 이름표 | 없음 | 준 적 없는 이름표가 있으면 INVALID_CITATION. 요약 스트리밍에서 줄을 화면에 보내기 전에 쓴다 |

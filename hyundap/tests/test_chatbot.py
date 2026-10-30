@@ -62,6 +62,16 @@ class ValidateCitationsTests(unittest.TestCase):
     def test_no_evidence_message(self):
         self.assert_rejected('제공된 문서에서 확인할 수 없습니다.', 'NO_EVIDENCE')
 
+    def test_no_evidence_message_with_alias(self):
+        """유보 문장에만 이름표를 붙여도 근거 없음이다 (10/30 실측에서 gpt-5가 낸 형태)."""
+        self.assert_rejected('제공된 문서에서 확인할 수 없습니다 [E1][E2].', 'NO_EVIDENCE')
+        self.assert_rejected('- 제공된 문서에서 확인할 수 없습니다 [E1].\n- 관련 내용이 없습니다 [E2].', 'NO_EVIDENCE')
+        self.assertIsNone(ask_module.ask_check_answer('제공된 문서에서 확인할 수 없습니다 [E1].', ALIASES))
+
+    def test_fact_with_partial_no_evidence_is_answer(self):
+        """사실과 '그 밖은 확인할 수 없음'이 섞이면 정상 답변이다."""
+        self.assert_used('기한은 6 업무시간입니다 [E1]. 비용은 확인할 수 없습니다.', ['E1'])
+
 
 class AskFiltersTests(unittest.TestCase):
     """ask()가 필터를 None·ChatFilters·dict 어느 형태로 받아도 처리하는지 확인한다."""

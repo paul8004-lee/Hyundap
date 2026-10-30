@@ -10,6 +10,7 @@
     FUN-414 validate_citations — 인용 누락이나 제공하지 않은 이름표 사용을 검사한다.
         validate_citations_answer — 빈 답변·너무 긴 답변을 거부한다.
         validate_citations_aliases — 이름표 유무와 준 적 없는 이름표를 검사한다.
+        validate_citations_only_no_evidence — 유보 문장에만 이름표를 붙인 답변인지 판정한다.
         validate_citations_line — 줄 1개의 문장마다 이름표가 있는지 검사한다.
         validate_citations_heading — 줄 전체가 마크다운 제목('### A사'·'**A사**')인지 판정한다.
         check_line_aliases — 줄 1개에 준 적 없는 이름표가 있는지 검사한다 (요약 스트리밍용).
@@ -92,9 +93,20 @@ def validate_citations_aliases(answer, aliases):
         if any(hint in answer for hint in NO_EVIDENCE_HINTS):
             raise ChatbotError('NO_EVIDENCE')
         raise ChatbotError('INVALID_CITATION')
+    if validate_citations_only_no_evidence(answer):
+        # '확인할 수 없습니다 [E1][E5].'처럼 유보 문장에만 이름표를 붙이면 출처가 달린 정상 답변처럼 보이므로 근거 없음으로 처리한다
+        raise ChatbotError('NO_EVIDENCE')
     if any(alias not in aliases for alias in used):
         raise ChatbotError('INVALID_CITATION')
     return used
+
+
+def validate_citations_only_no_evidence(answer):
+    """받는 것: 답변 / 돌려주는 것: 이름표를 지운 뒤 남은 문장이 모두 유보 문장이면 True
+    사실과 '그 밖은 확인할 수 없습니다'가 섞인 답변은 False(정상 답변)."""
+    sentences = [s.strip(' .!?') for line in ALIAS_PATTERN.sub('', answer).splitlines() for s in validate_citations_split(line)]
+    sentences = [s for s in sentences if s]
+    return bool(sentences) and all(any(hint in s for hint in NO_EVIDENCE_HINTS) for s in sentences)
 
 
 def validate_citations_line(line):
