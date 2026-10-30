@@ -20,12 +20,13 @@ from .chat_page import checked_answer_citations, render_citation, render_compact
 from .admin_page import render_batch_upload_results, render_upload_result
 from .components import show_feedback, set_loading, render_header, render_login_error
 from .search_page import document_rows, render_document, render_evidence, render_coverage
-from .services import company_choices, validate_upload_file, UIServiceError, UIServices
+from .services import company_choices, validate_upload_file, validate_upload_metadata, UIServiceError, UIServices
 
 
 @dataclass
 class ViewState:
     user: dict | None = None
+    download_browser: str = ''
     results: list[dict] = field(default_factory=list)
     selected: dict | None = None
     company: str = "__all__"
@@ -586,6 +587,12 @@ class UIController:
     async def do_download(self, ctx, ticket):
         if not ctx.selected:
             raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
+        if not self.service.demo:
+            from .downloads import issue_download
+            document = await self.wait(ctx, ticket, self.service.detail(ctx.user, ctx.selected['document_id'], ctx.selected.get('version_id')))
+            url = issue_download(ctx.user, document, ctx.download_browser, self.service)
+            return {self.search['download_file']: gr.update(value=f'<a href="{escape(url, quote=True)}">원문 다운로드 (1분 이내·1회)</a>', visible=True),
+                    self.search['detail_feedback']: show_feedback('링크를 열 때 접근 권한을 다시 확인합니다.', 'info')}
         path = await self.wait(ctx, ticket, self.service.download(ctx.user, ctx.selected["document_id"], ctx.selected.get("version_id")))
         return {self.search["download_file"]: gr.update(value=path, visible=True), self.search["detail_feedback"]: show_feedback("예시 텍스트 파일입니다. 실제 원문 다운로드는 담당 함수 연결 후 사용할 수 있어요." if self.service.demo else "파일이 준비되었습니다. 아래 파일을 눌러 저장하세요.", "info")}
 
@@ -621,13 +628,15 @@ class UIController:
         ctx.upload_ready = True
         return {self.admin["submit"]: gr.update(interactive=True)}
 
-    @staticmethod
-    def validate_upload_metadata(company, doc_type):
-        if not company or not doc_type:
-            raise UIServiceError("METADATA_REQUIRED", "회사와 문서 유형을 선택해 주세요.", "input_error")
+    def validate_upload_metadata(self, company, doc_type):
+        automatic = getattr(self.service, "auto_classify", False) is True
+        # 숨긴 컨트롤의 이전 값/클라이언트 값으로 자동 분류를 덮어쓰지 않는다.
+        selected = None if automatic else doc_type
+        validate_upload_metadata(company, selected, auto_classify=automatic)
+        return selected
 
     async def do_upload(self, ctx, ticket, file_path, company, doc_type):
-        self.validate_upload_metadata(company, doc_type)
+        doc_type = self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(file_path)
         file_path = paths[0] if paths else None
         result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
@@ -635,7 +644,7 @@ class UIController:
 
     async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
         """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
-        self.validate_upload_metadata(company, doc_type)
+        doc_type = self.validate_upload_metadata(company, doc_type)
         paths = self.upload_paths(files)
         # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
         self.validate_upload_paths(paths)

@@ -162,6 +162,7 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 | `schema` | `_read_layout(connection)` | 보조 | 없음 |
 | `schema` | `snapshot(connection)` | 메인 | 없음 |
 | `schema` | `_expression(value)` | 보조 | 없음 |
+| `schema` | `_ascii_literal(match)` | 보조 — 정규식이 찾은 ASCII 문자셋 접두사 정리 | 없음 |
 | `schema` | `_structure(layout)` | 보조 | 없음 |
 | `schema` | `validate_v4(layout)` | 메인 | 없음 |
 | `schema` | `create_v4_schema(engine)` | 메인 | 없음 |
@@ -231,3 +232,70 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 `test_schema_v4`는 직접 생성·기존 객체 무변경 거부·DDL/검증 실패 시 버전 미확정·동시 초기화·실제 제약·구조 훼손을 검증한다. `test_db_runtime`, `test_upload_workflow`, `test_final_db_contract`는 최종 DDL을 직접 사용해 회사 격리·경쟁·원자성·manifest·게시 CAS·복구·재시도를 검증한다. SQLite 입력/조회 테스트와 실제 MySQL 결과는 구분한다.
 
 수동 API/UI 스크립트는 tests/smoke에 두며 Gradio는 수동 main에서만 import한다. 최종 검증 결과와 인증 PR #167 대조 범위는 [리팩토링 검증 보고서](../../../docs/db-design/V4_REFACTOR_VALIDATION.md)에 기록한다. Railway DB는 변경하지 않았다.
+
+## test-01 데이터 격리 통합
+
+`HYUNDAP_DB_LAYOUT=split`에서 인증·세션·회사 등록·문서 라우팅은 공통 DB에,
+문서·버전·청크·작업 기록은 회사별 DB에 저장한다. `company_scope`는 요청별 회사를
+고정하고, 공개 진입점은 공통 DB의 현재 세션과 회사 권한을 먼저 검사한다.
+`provision_company`는 회사 등록과 스키마 준비를, `create_company_db_user`는
+회사 전용 계정과 권한·자격 증명 준비를 담당한다. 실패 회사는 ready로 공개하지 않는다.
+
+회사별 MySQL 권한 격리는 `HYUNDAP_DB_COMPANY_ACCOUNTS=1`도 필요하다.
+회사 비밀이 없을 때 공통 계정으로 대체하지 않는다. 설정 파일은 Git 제외 경로에 두며
+운영 설정·회사 생성 절차는 [서비스 권한 계약](../../../docs/db-design/DB_SERVICE_ACCESS_AND_LIFECYCLE.md)을 따른다.
+기존 단일 DB를 자동으로 분리하거나 기존 Railway 테이블을 변경하지 않는다.
+
+자동 분류의 후보 결정값, 게시 시 최종 유형 갱신, 실패 복구 및 재시도 재사용 계약은
+회사별 DB에서도 유지한다. 단일 모드는 아래 전역 잠금을 사용하고 분리 모드는
+회사별 잠금을 사용하므로 다른 회사 업로드는 같은 업무 잠금을 공유하지 않는다.
+같은 호스트·같은 저장 루트라는 지원 범위는 동일하다.
+
+통합 검증(2026-10-29): develop `fa47acb`와 test-01 `03bec68`를 통합한 작업 트리에서
+새 로컬 MySQL 8.4의 단일/분리 DB를 사용해 전체 unittest 670개를 실행했다.
+실패·오류·건너뜀은 모두 0개다. 별도 로컬 결합 검사 2개에서 자동 분류 결과의 회사별
+저장과 설정을 끈 뒤 동일 후보 재시도의 결정값 재사용을 확인했다. 수집·임베딩은 대역이며
+실제 AI 호출·브라우저 전송·Railway 적용을 이 결과로 완료 처리하지 않는다.
+
+## #247 원본 다운로드
+
+`download_service.prepare_original_download`는 활성 운영 버전만 현재 세션 권한으로
+확인하고 원본 해시·크기를 검사한 임시 사본을 만든다. 호출자는 반환된 temporary를 cleanup한다.
+보조 함수 `read_download_source`는 복사 전후 권한·활성 버전·원본 정보를 다시 확인한다.
+`source_files`는 기존 원본 저장의 범용 함수 소속이며 upload_service의 기존 import 경로도 유지한다.
+
+UI 전송은 HttpOnly 브라우저 쿠키에 묶인 60초·1회 티켓을 사용하고, 전송 시 서비스를
+다시 호출해 현재 세션과 문서 접근을 확인한다. 원본 경로를 gr.File 공개 캐시에 올리지 않는다.
+프로세스 메모리 티켓이므로 단일 앱 프로세스 기준이다. 여러 서버로 확장하려면 공유 티켓 저장소가 필요하다.
+전송 시작 전 권한을 재검증하며 이미 전송한 바이트를 회수하는 기능은 제공하지 않는다.
+
+## #248 동일 호스트 다중 프로세스 보호
+
+`processing.processing_lock()`은 설정의 UPLOAD_DIR 아래 고정 잠금 파일을 사용한다.
+업로드·재시도·게시·복구·실패 기록의 메인 경로는 이 잠금 다음 기존 스레드 잠금을 획득한다.
+`workflow_file_lock()`은 중첩 호출의 재진입을 위해 같은 객체를 공유하는 보조 함수다.
+잠금 대기 상한은 30초이며 초과 시 CONFLICT로 거부한다. SQL 잠금과 조건부 갱신은 유지한다.
+프로세스 종료 시 OS가 잠금을 회수하므로 잠금 파일을 직접 삭제하지 않는다.
+
+모든 앱 프로세스는 동일 호스트와 동일 UPLOAD_DIR를 사용해야 한다. 서로 다른 저장 루트나
+호스트의 분산 실행은 이 패치의 보장 범위가 아니다. 회사별 병렬화는 추가하지 않으며
+기존 직렬 처리 범위를 프로세스 간으로 확대한다. 저수준 저장 함수를 직접 호출하는 관리 도구는
+메인 업로드·게시 경로의 잠금을 우회하지 않아야 한다.
+## #261 자동 유형 적용 계약
+
+자동 업로드는 `auto_classify=True`를 전달하며 `doc_type` 동시 입력은 거부한다.
+수동 호출은 유지한다. 설정 꺼짐에서는 자동 후보를 만들지 않는다.
+
+`classification.py`의 일반 보조 함수는 입력 구분과 결정값 검증·이력 재사용을 담당한다.
+`upload_document`/`retry_upload`는 메인 진입점, `ingest_and_save_chunks`는 수집 연결,
+`save_ingest_chunks`는 모든 청크와 최종 유형의 일치 검사, `upload_result`는 현재 시도 반환을 담당한다.
+분류 기준은 DB에서 계산하지 않는다. 수집 인자 `apply_classification`·`classification` 지원이 필요하다.
+
+`doc_type`, `doc_type_fallback`, `doc_type_fallback_reason`은 세 필드가 함께 있어야 한다.
+수집 성공 전 실패하면 반환하지 않는다. 게시 실패 반환 유형은 후보의 결정값이지 공개 문서 유형이 아니다.
+`store_pending_publication`은 활성 버전과 유형을 같은 TX에서 갱신하며
+`restore_database_pointer`는 이전 유형을 함께 복원한다. 스키마 변경은 없다.
+
+재시도는 같은 후보의 가장 최근 성공 수집·성공 분류 결과와 결정값을 재사용한다.
+수집기가 재사용 결정값을 변경하면 CONFLICT로 중단한다. 과거 실패 분류는 재사용하지 않는다.
+수집 담당의 결정값 보존 계약 및 실제 수집·분류·UI 통합 검증 전까지 초안 기능이다.

@@ -164,7 +164,8 @@ class OfflineTtlSettingTests(unittest.TestCase):
 def fake_transaction(database):
     """session_service.transaction을 대신해 mock 연결을 넘기는 테스트용 컨텍스트."""
     @contextmanager
-    def transaction(connection=None):
+    def transaction(connection=None, *, control=False):
+        assert control, "인증은 공통 DB를 선택해야 한다"
         yield database
     with patch.object(session_service, 'transaction', transaction):
         yield

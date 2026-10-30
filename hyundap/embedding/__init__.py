@@ -20,6 +20,7 @@ from .embedder import (
     embed_chunks,
     embed_query,
     fit_to_char_limit,
+    format_report_log,
     get_embedding_model,
     validate_embeddings,
 )
@@ -50,7 +51,7 @@ __all__ = [
     # 임베딩 생성 (embedder.py)
     "get_embedding_model", "build_embedding_text", "fit_to_char_limit", "build_chunk_metadata",
     "embed_texts", "embed_chunks", "validate_embeddings", "embed_and_store",
-    "embed_query", "check_embedding_health",
+    "embed_query", "check_embedding_health", "format_report_log",
     # 벡터 저장·조회 (vector_store.py)
     "collection_name_for_model", "get_vector_store", "filter_new_chunks", "upsert_chunks",
     "build_where_filter", "query_vectors", "activate_version", "delete_vectors",

@@ -1225,6 +1225,7 @@
 - **처리 흐름**: 청크 묶음 검사 → 미색인 선별 → 임베딩 → 벡터 검증 → Chroma 저장(비공개)을 차례로 실행하고 보고서를 돌려준다. 공개(활성화)는 하지 않는다.
 - **출력·상태**: EmbedStoreReport (status: success·partial·failed, 실패 목록, 개수)
 - **조건·범위**: 서로 다른 문서·버전·회사 청크가 섞이면 MIXED_SCOPE 오류. partial은 실패로 취급(전부 준비돼야 공개).
+- **로그**: format_report_log(report, requested_by="")가 보고서를 "언제·누가·무엇을 시도했고·결과·실패 원인(단계 포함)" 로그 줄 목록으로 만든다. 요청 계정은 embedding이 알 수 없으므로 호출한 쪽(db)이 넘긴다. 메시지는 API 키를 가린 값만 쓴다.
 - **연결 상태**: 설계(미구현)
 - **정의 ID**:
   - FUN-307
@@ -1408,7 +1409,7 @@
 - **분류**: 데이터 스키마
 - **역할**: 임베딩·저장에 실패한 청크 1개와 실패 원인.
 - **상속**: dataclass
-- **직접 정의 속성**: chunk_id, code, message, retryable
+- **직접 정의 속성**: chunk_id, code, message, retryable, stage
 - **직접 정의 메서드**: 직접 정의 없음
 - **사용 상태**: 설계 단계
 - **연결 기능**: F103, F104
@@ -1421,6 +1422,7 @@
 | FLD-316 | code | str |  |  |
 | FLD-317 | message | str |  |  |
 | FLD-318 | retryable | bool |  |  |
+| FLD-410 | stage | str | 기본값 "". prepare·embed·validate·store 중 실패한 단계 |  |
 
 ##### CLS-103 `EmbeddingBatch`
 
@@ -1446,7 +1448,7 @@
 - **분류**: 데이터 스키마
 - **역할**: embed_and_store의 결과 보고서. db/가 처리 결과·실패 원인을 기록할 때 쓴다.
 - **상속**: dataclass
-- **직접 정의 속성**: document_id, version_id, company_id, model_name, total, skipped_existing, embedded, stored, truncated_count, failures, status, elapsed_sec
+- **직접 정의 속성**: document_id, version_id, company_id, model_name, total, skipped_existing, embedded, stored, truncated_count, failures, status, elapsed_sec, started_at, finished_at, batch_size, batch_count
 - **직접 정의 메서드**: 직접 정의 없음
 - **사용 상태**: 설계 단계
 - **연결 기능**: F107
@@ -1467,6 +1469,10 @@
 | FLD-330 | failures | list[EmbeddingFailure] |  |  |
 | FLD-331 | status | str |  |  |
 | FLD-332 | elapsed_sec | float |  |  |
+| FLD-411 | started_at | int | 기본값 0. 시작 시각(epoch 초) |  |
+| FLD-412 | finished_at | int | 기본값 0. 종료 시각(epoch 초) |  |
+| FLD-413 | batch_size | int | 기본값 0. 한 번에 보낸 청크 수 |  |
+| FLD-414 | batch_count | int | 기본값 0. 새로 임베딩한 청크를 나눈 묶음 개수 |  |
 
 ##### CLS-105 `VectorHit`
 

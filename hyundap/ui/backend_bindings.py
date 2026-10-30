@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-from .backend_documents import get_document, upload_document
+from .backend_documents import auto_classify_enabled, get_document, upload_document
 from .backend_companies import list_company_names
 from .backend_feedback import to_feedback
 from .services import BackendBindings, UIServiceError
@@ -79,11 +79,9 @@ def validated_session_to_actor(session: dict) -> dict:
 
 
 def download_original(**kwargs):
-    """권한 검증을 포함한 원문 다운로드 공개 함수는 DB팀 제공 대기."""
-    raise UIServiceError(
-        "DOWNLOAD_NOT_CONNECTED",
-        "원문 다운로드는 백엔드 다운로드 함수 연결 후 사용할 수 있습니다.",
-    )
+    """실제 전송 시 호출한다. 반환된 임시 사본은 HTTP 전송자가 정리한다."""
+    from hyundap.db.download_service import prepare_original_download
+    return prepare_original_download(kwargs['user'], kwargs['document_id'], kwargs.get('version_id'))
 
 
 def create_bindings(authentication=None) -> BackendBindings:
@@ -107,6 +105,7 @@ def create_bindings(authentication=None) -> BackendBindings:
         summarize_document=summarize_document,
         summarize_document_stream=summarize_document_stream,
         upload=upload_document,
+        auto_classify_enabled=auto_classify_enabled,
         download=download_original,
         user_factory=validated_session_to_actor,
         to_feedback=to_feedback,

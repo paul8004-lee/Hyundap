@@ -41,7 +41,7 @@ APP_CSS = """
 #hd-shell.hd-role-admin #hd-topnav {background:var(--hd-green)!important;}
 #hd-topnav-row {flex-wrap:nowrap;}
 #hd-topnav #hd-nav-search,#hd-topnav #hd-nav-upload,#hd-topnav #hd-nav-logout {color:#fff!important;}
-#hd-nav-brand {flex:0 0 160px;min-width:150px;}
+#hd-nav-brand {flex:0 0 auto!important;width:auto!important;min-width:0!important;}
 #hd-nav-search,#hd-nav-upload {flex:0 0 96px;min-width:90px;max-width:110px;}
 #hd-topnav-row .hd-nav-button.primary {border-bottom-color:white!important;color:white!important;font-weight:700!important;}
 #hd-nav-user {margin-left:auto;min-width:80px;max-width:230px;}
@@ -64,7 +64,6 @@ APP_CSS = """
 #hd-modal-close {max-width:100px;margin-left:auto;border:1px solid #dfe4ed;border-radius:10px;min-height:38px;}
 @media(max-width:640px) {
  #hd-topnav-row {width:calc(100% - 24px);gap:4px!important;flex-wrap:wrap;}
- #hd-nav-brand {min-width:130px;flex-basis:130px;}
  #hd-nav-user {max-width:130px;} #hd-nav-search,#hd-nav-upload {min-width:70px;max-width:85px;}
  #hd-nav-logout {min-width:60px;max-width:60px;} .hd-user-summary span:last-child {display:none;}
  #hd-content {width:calc(100% - 28px)!important;}
@@ -139,7 +138,8 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
             with gr.Column(elem_id="hd-content", elem_classes=["hd-content"]):
                 search = build_search_page(companies, DOC_TYPES, demo_mode)
                 # 질문은 검색 입력으로 받으며 답변·출처는 검색 스플릿뷰에 표시한다.
-                admin = build_admin_page(companies, DOC_TYPES, demo_mode)
+                admin = build_admin_page(companies, DOC_TYPES, demo_mode,
+                                         auto_classify=getattr(service, "auto_classify", False) is True)
             # 일반·기업 관리자는 소속 회사를, 전체 관리자는 서비스명을 표시한다.
             with gr.Row(elem_id="hd-shell-footer", elem_classes=["hd-footer"]):
                 footer_company = gr.HTML("© Hyundap", elem_id="hd-footer-company", elem_classes=["hd-plain-html"])
@@ -160,7 +160,10 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
         )
 
         def handler(action):
-            async def callback(session_key, *values):
+            async def callback(session_key, request: gr.Request, *values):
+                if action == 'login':
+                    from hyundap.ui.downloads import COOKIE
+                    controller.state(session_key).download_browser = request.cookies.get(COOKIE, '')
                 async for patch in controller.run(action, session_key, *values):
                     yield patch
             callback.__name__ = f"on_{action}"
@@ -237,9 +240,13 @@ def main():
         from hyundap.ui.backend_check import print_backend_status
         raise SystemExit(print_backend_status())
     demo = build_app(mode=args.mode)
+    from starlette.middleware import Middleware
+    from hyundap.ui.downloads import DownloadMiddleware
+    from hyundap.db.lifecycle import service_lifespan
     from hyundap.ingest import ocr
     ocr.start_warm_up()   # OCR 엔진을 백그라운드에서 미리 불러온다(.env의 OCR_WARMUP=0이면 건너뜀). 첫 스캔 문서 업로드 지연을 줄인다.
-    demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024)
+    demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024,
+                app_kwargs={'middleware': [Middleware(DownloadMiddleware)], 'lifespan': service_lifespan})
 
 
 if __name__ == "__main__":

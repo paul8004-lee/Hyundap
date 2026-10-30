@@ -37,7 +37,7 @@ def login(username, password):
         raise AccessError('INVALID_CREDENTIALS')
     ttl = get_settings().session_ttl_minutes
     try:
-        with transaction() as database:
+        with transaction(control=True) as database:
             user = database.execute(text('''
                 SELECT id,password_hash,auth_version FROM users WHERE login_identifier=:identifier
             '''), {'identifier': identifier}).mappings().one_or_none()
@@ -65,7 +65,7 @@ def validate_session(session):
     session의 role·company_id·allowed_company_ids·user_id는 읽지 않는다. 만료를 연장하지 않는다.
     """
     actor = _actor(session)
-    with transaction() as database:
+    with transaction(control=True) as database:
         return _session_payload(actor, database)
 
 
@@ -75,7 +75,7 @@ def logout(session):
         actor = _actor(session)
     except AccessError:
         return None
-    with transaction() as database:
+    with transaction(control=True) as database:
         database.execute(text('''
             UPDATE sessions SET revoked_at=UTC_TIMESTAMP(6)
             WHERE id=:id AND token_hash=:token_hash AND revoked_at IS NULL

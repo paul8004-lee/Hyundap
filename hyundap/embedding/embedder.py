@@ -218,12 +218,13 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 # 오류를 '실패 기록(EmbeddingFailure)'으로 바꾼다. 메시지의 비밀 값은 가린다
-def _failure(chunk, error: EmbeddingError) -> EmbeddingFailure:
+def _failure(chunk, error: EmbeddingError, stage: str = "") -> EmbeddingFailure:
     return EmbeddingFailure(
         chunk_id=str(get_chunk_value(chunk, "chunk_id", "")),
         code=error.code,
         message=_mask_secrets(error.message),
         retryable=error.retryable,
+        stage=stage,
     )
 
 
@@ -246,7 +247,7 @@ def embed_chunks(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Embed
             meta = build_chunk_metadata(chunk, model_name=model_name, truncated=truncated)
             prepared.append((chunk, text, meta, truncated))
         except EmbeddingError as error:
-            result.failures.append(_failure(chunk, error))
+            result.failures.append(_failure(chunk, error, "prepare"))
 
     # 2단계: batch_size개씩 묶어 API로 보낸다(0 이하가 들어와도 최소 1)
     size = max(1, int(batch_size))
@@ -257,7 +258,7 @@ def embed_chunks(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Embed
             vectors = embed_texts([item[1] for item in group])
         except EmbeddingError as error:
             for item in group:
-                result.failures.append(_failure(item[0], error))
+                result.failures.append(_failure(item[0], error, "embed"))
             continue
         for (chunk, _text, meta, truncated), vector in zip(group, vectors):
             result.items.append(EmbeddedChunk(chunk=chunk, vector=vector, metadata=meta, truncated=truncated))
@@ -316,12 +317,15 @@ def embed_and_store(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Em
     document_id, version_id, company_id = _check_scope(chunks)
     report = EmbedStoreReport(
         document_id=document_id, version_id=version_id, company_id=company_id,
-        model_name=get_model_name(), total=len(chunks),
+        model_name=get_model_name(), total=len(chunks), started_at=int(started),
     )
 
     # 이미 저장된 청크는 다시 임베딩하지 않는다(비용 절약, 재실행해도 안전)
     new_chunks = filter_new_chunks(chunks)  # VectorStoreError(COMPANY_MISMATCH 등)는 그대로 올린다.
     report.skipped_existing = len(chunks) - len(new_chunks)
+    # 무엇을 시도했는지 남긴다: 묶음 크기와 묶음 개수(올림 나눗셈)
+    report.batch_size = max(1, int(batch_size))
+    report.batch_count = -(-len(new_chunks) // report.batch_size)
 
     batch = embed_chunks(new_chunks, batch_size=batch_size)
     report.failures.extend(batch.failures)
@@ -333,6 +337,7 @@ def embed_and_store(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Em
         report.failures.append(EmbeddingFailure(
             chunk_id=str(get_chunk_value(items[index].chunk, "chunk_id", "")),
             code="INVALID_VECTOR", message="차원이 다르거나 NaN·무한대·전부 0인 벡터입니다.", retryable=True,
+            stage="validate",
         ))
     good = [item for i, item in enumerate(items) if i not in bad]
     report.embedded = len(good)
@@ -350,7 +355,7 @@ def embed_and_store(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Em
             for i in good[report.stored:]:
                 report.failures.append(EmbeddingFailure(
                     chunk_id=str(get_chunk_value(i.chunk, "chunk_id", "")),
-                    code=error.code, message=error.message, retryable=True,
+                    code=error.code, message=error.message, retryable=True, stage="store",
                 ))
 
     # 결과 판정: 실패 없으면 success, 실패가 있어도 저장·건너뜀이 있으면 partial, 하나도 없으면 failed. partial도 호출한 쪽은 실패로 취급해야 한다
@@ -361,7 +366,48 @@ def embed_and_store(chunks: list, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Em
     else:
         report.status = "failed"
     report.elapsed_sec = round(time.time() - started, 3)
+    report.finished_at = int(time.time())
     return report
+
+
+# 로그에 쓰는 단계 이름(EmbeddingFailure.stage 값 → 한글)
+STAGE_LABELS = {"prepare": "입력 점검", "embed": "임베딩", "validate": "벡터 검증", "store": "저장"}
+
+
+# 시각(epoch 초)을 '2026-10-29 14:03:11' 형태로 바꾼다. 값이 없으면(0) '-'
+def _stamp(value) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(value)) if value else "-"
+
+
+# 보고서를 사람이 읽는 로그 줄 목록으로 만든다: 언제·누가·무엇을 시도했고·결과·실패 원인
+def format_report_log(report, *, requested_by: str = "") -> list[str]:
+    """보고서를 '언제·누가·무엇을 시도했고·어떤 결과였고·어떤 오류가 났는지' 로그 줄 목록으로 만든다.
+
+    requested_by(요청 계정)는 embedding이 알 수 없는 값이라, 호출한 쪽(db)이 넘기면 첫 줄에 넣는다.
+    실패 줄의 메시지는 API 키를 가린 값만 쓴다. report는 EmbedStoreReport여도 dict여도 된다.
+    """
+    def value(name, default=0):
+        return get_chunk_value(report, name, default)
+
+    new_count = value("total") - value("skipped_existing")
+    who = f", 요청 계정 {requested_by}" if requested_by else ""
+    failures = value("failures", []) or []
+    lines = [
+        f"[{_stamp(value('started_at'))}] 문서 {value('document_id', '')} 버전 {value('version_id', '')} "
+        f"(회사 {value('company_id', '')}) 임베딩·저장 시도{who}: 청크 {value('total')}개 중 새로 처리 {new_count}개, "
+        f"묶음 {value('batch_count')}개(묶음당 최대 {value('batch_size')}개), 모델 {value('model_name', '')}",
+        f"[{_stamp(value('finished_at'))}] 결과 {value('status', '')}: 건너뜀 {value('skipped_existing')}개, "
+        f"임베딩 {value('embedded')}개, 저장 {value('stored')}개, 실패 {len(failures)}건, 소요 {value('elapsed_sec')}초",
+    ]
+    for failure in failures:
+        retry = "재시도 가능" if get_chunk_value(failure, "retryable", False) else "재시도 불가"
+        stage = get_chunk_value(failure, "stage", "")
+        message = _mask_secrets(str(get_chunk_value(failure, "message", "")))
+        lines.append(
+            f"  - 실패 [{STAGE_LABELS.get(stage, stage or '-')}] {get_chunk_value(failure, 'chunk_id', '')}: "
+            f"{get_chunk_value(failure, 'code', '')} ({retry}) {message}"
+        )
+    return lines
 
 
 # ---------------------------------------------------------------------------
