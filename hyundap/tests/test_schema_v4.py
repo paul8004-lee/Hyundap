@@ -19,6 +19,20 @@ from hyundap.db import clock, connection, runtime, schema
 
 
 class SchemaOfflineTests(unittest.TestCase):
+    def test_expression_preserves_literals_and_non_ascii_charset(self):
+        cases = (
+            (None, None),
+            (42, '42'),
+            ('', ''),
+            (" `File_Name` = _utf8mb4'ABC' ", "file_name='ABC'"),
+            ("`Name` = _ascii'O''Reilly'", "name='O''Reilly'"),
+            ("`Name` = _utf8mb4'한글ABC'", "name=_utf8mb4'한글ABC'"),
+            ("(`State` IN ('Ready', 'FAILED'))", "(statein('Ready','FAILED'))"),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(schema._expression(source), expected)
+
     def test_unix_seconds_cannot_be_changed_by_legacy_environment(self):
         with patch.dict(os.environ, {'DB_LEGACY_TIME_UNIT': 'milliseconds'}), \
                 patch.object(clock.time, 'time_ns', return_value=123456789000):

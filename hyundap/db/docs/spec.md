@@ -162,6 +162,7 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 | `schema` | `_read_layout(connection)` | 보조 | 없음 |
 | `schema` | `snapshot(connection)` | 메인 | 없음 |
 | `schema` | `_expression(value)` | 보조 | 없음 |
+| `schema` | `_ascii_literal(match)` | 보조 — 정규식이 찾은 ASCII 문자셋 접두사 정리 | 없음 |
 | `schema` | `_structure(layout)` | 보조 | 없음 |
 | `schema` | `validate_v4(layout)` | 메인 | 없음 |
 | `schema` | `create_v4_schema(engine)` | 메인 | 없음 |
@@ -231,6 +232,30 @@ verify_documents_access(actor, [(detail['document_id'], detail['version_id'])])
 `test_schema_v4`는 직접 생성·기존 객체 무변경 거부·DDL/검증 실패 시 버전 미확정·동시 초기화·실제 제약·구조 훼손을 검증한다. `test_db_runtime`, `test_upload_workflow`, `test_final_db_contract`는 최종 DDL을 직접 사용해 회사 격리·경쟁·원자성·manifest·게시 CAS·복구·재시도를 검증한다. SQLite 입력/조회 테스트와 실제 MySQL 결과는 구분한다.
 
 수동 API/UI 스크립트는 tests/smoke에 두며 Gradio는 수동 main에서만 import한다. 최종 검증 결과와 인증 PR #167 대조 범위는 [리팩토링 검증 보고서](../../../docs/db-design/V4_REFACTOR_VALIDATION.md)에 기록한다. Railway DB는 변경하지 않았다.
+
+## test-01 데이터 격리 통합
+
+`HYUNDAP_DB_LAYOUT=split`에서 인증·세션·회사 등록·문서 라우팅은 공통 DB에,
+문서·버전·청크·작업 기록은 회사별 DB에 저장한다. `company_scope`는 요청별 회사를
+고정하고, 공개 진입점은 공통 DB의 현재 세션과 회사 권한을 먼저 검사한다.
+`provision_company`는 회사 등록과 스키마 준비를, `create_company_db_user`는
+회사 전용 계정과 권한·자격 증명 준비를 담당한다. 실패 회사는 ready로 공개하지 않는다.
+
+회사별 MySQL 권한 격리는 `HYUNDAP_DB_COMPANY_ACCOUNTS=1`도 필요하다.
+회사 비밀이 없을 때 공통 계정으로 대체하지 않는다. 설정 파일은 Git 제외 경로에 두며
+운영 설정·회사 생성 절차는 [서비스 권한 계약](../../../docs/db-design/DB_SERVICE_ACCESS_AND_LIFECYCLE.md)을 따른다.
+기존 단일 DB를 자동으로 분리하거나 기존 Railway 테이블을 변경하지 않는다.
+
+자동 분류의 후보 결정값, 게시 시 최종 유형 갱신, 실패 복구 및 재시도 재사용 계약은
+회사별 DB에서도 유지한다. 단일 모드는 아래 전역 잠금을 사용하고 분리 모드는
+회사별 잠금을 사용하므로 다른 회사 업로드는 같은 업무 잠금을 공유하지 않는다.
+같은 호스트·같은 저장 루트라는 지원 범위는 동일하다.
+
+통합 검증(2026-10-29): develop `fa47acb`와 test-01 `03bec68`를 통합한 작업 트리에서
+새 로컬 MySQL 8.4의 단일/분리 DB를 사용해 전체 unittest 670개를 실행했다.
+실패·오류·건너뜀은 모두 0개다. 별도 로컬 결합 검사 2개에서 자동 분류 결과의 회사별
+저장과 설정을 끈 뒤 동일 후보 재시도의 결정값 재사용을 확인했다. 수집·임베딩은 대역이며
+실제 AI 호출·브라우저 전송·Railway 적용을 이 결과로 완료 처리하지 않는다.
 
 ## #247 원본 다운로드
 

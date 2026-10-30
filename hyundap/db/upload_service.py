@@ -7,7 +7,6 @@
 import hashlib
 import inspect
 import json
-import os
 import re
 from uuid import uuid4
 from pathlib import Path
@@ -18,14 +17,13 @@ from sqlalchemy import text
 from hyundap.common.config import get_settings
 from . import chunks_repo, documents_repo, jobs_repo, versions_repo, version_service
 from .errors import DbError
-from .source_files import file_digest, source_destination, copy_original, resolve_stored_source
-from .processing import processing_lock
-from .classification import (validate_auto_request, decision_fields, reusable_classification,
-                             CLASSIFICATION_FIELDS)
-from .runtime import require_id, transaction
+from .classification import (validate_auto_request, decision_fields, reusable_classification, CLASSIFICATION_FIELDS)
+from .source_files import file_digest, source_destination, resolve_stored_source, copy_original
+from .runtime import require_id, transaction, shared_table, split_layout
+from .tenancy import company_scope, company_for_reference, processing_lock, authorize_company
 
 
-# ponytail: P0의 단일 앱 프로세스에서 업로드·같은 후보 재시도를 순차 실행한다.
+# 단일 DB 모드의 잠금이다. 분리 모드는 tenancy의 회사별 OS 잠금을 사용한다.
 WORKFLOW_LOCK = RLock()
 
 
@@ -76,7 +74,7 @@ def upload_result(ids, *, connection=None, **status):
 def record_upload_failure(ids, stage, error, backend):
     """게시 미완료는 복구에 맡기고, 비활성 처리 후보만 실패 기록·벡터 정리한다."""
     code = failure_code(error)
-    with processing_lock(), version_service.PUBLICATION_LOCK:
+    with processing_lock(version_service.PUBLICATION_LOCK, publication=True):
         # 게시 중이거나 이미 활성화된 후보는 게시 복구 절차에서 처리한다.
         with transaction() as database:
             document, _ = version_service.read_candidate(database, ids['document_id'], ids['version_id'], lock=True)
@@ -107,18 +105,19 @@ def record_upload_failure(ids, stage, error, backend):
 
 
 
+
 def read_attempt_source(ids):
     """문서·버전 ID로 저장 원본을 확인하고 (파일 경로, 수집 정보, 검증한 해시)를 반환한다.
 
     DB 조회를 끝낸 뒤 파일을 읽는다. 파일의 해시·크기가 저장 당시와 다르면 중단한다.
     """
     # DB에서 원본 정보를 읽은 다음 트랜잭션 밖에서 실제 파일을 검증한다.
-    with transaction() as database:
+    with transaction(document_id=ids['document_id'], version_id=ids['version_id']) as database:
         document, version = version_service.read_candidate(
             database, ids['document_id'], ids['version_id'])
         _, reports = version_service.read_job(database, ids['version_id'])
         company_name = database.execute(
-            text('SELECT name FROM companies WHERE id=:id'),
+            text(f"SELECT name FROM {shared_table('companies', connection=database)} WHERE id=:id"),
             {'id': document['company_id']},
         ).scalar_one()
 
@@ -185,8 +184,12 @@ def save_ingest_chunks(ids, company_id, result, *, automatic=False):
     report = dict(report)
     if 'warnings' in report:
         warnings = report['warnings']
-        if not isinstance(warnings, list) or any(not isinstance(value, str) for value in warnings):
+        if not isinstance(warnings, list):
             raise DbError('INVALID_INPUT')
+        # 청크 원장 반복은 이미 끝났다. 여기서는 경고 목록의 각 값이 문자열인지 검사한다.
+        for value in warnings:
+            if not isinstance(value, str):
+                raise DbError('INVALID_INPUT')
         report['warning_count'] = len(warnings)
         report.pop('warnings')
     jobs_repo.record_stage_result(
@@ -376,20 +379,29 @@ def create_upload_candidate(actor, company_id, values, source, root):
 
 
 def upload_document(actor, source_path, metadata, *, ingest_document=None, embedding=None, upload_dir=None):
-    """관리자 업로드의 원본 저장부터 게시까지 연결하고 결과 ID·상태를 반환한다.
-
-    metadata는 company_id/doc_type, 선택 data_category/document_id/file_name이다.
-    해시·크기·경로는 서버가 결정한다. 후보 생성 전 권한·입력 오류는 예외이며 후보 이후
-    예상 처리 실패는 status=failed로 반환한다. 실패 원본은 같은 후보 재시도를 위해 보존한다.
-    """
-    # 회사와 관리자 권한을 확인한 후 원본 준비와 후보 생성을 진행한다.
+    """회사별 DB 문맥에서 기존 원본→게시 처리를 실행한다. 인증은 공통 DB에서 재검증한다."""
     if not isinstance(metadata, dict):
         raise DbError('INVALID_INPUT')
     automatic = validate_auto_request(metadata)
     if automatic and not get_settings().doc_classify:
         raise DbError('INVALID_INPUT')
     company_id = require_id(metadata.get('company_id'))
-    with processing_lock(), WORKFLOW_LOCK:
+    authorize_company(actor, company_id, manager=True)
+    with company_scope(company_id):
+        return _upload_document(actor, source_path, metadata, company_id=company_id, ingest_document=ingest_document,
+                                embedding=embedding, upload_dir=upload_dir)
+
+
+def _upload_document(actor, source_path, metadata, *, company_id, ingest_document=None, embedding=None, upload_dir=None):
+    """관리자 업로드의 원본 저장부터 게시까지 연결하고 결과 ID·상태를 반환한다.
+
+    company_id는 공개 진입점에서 검증한 값이다. metadata는 company_id/doc_type,
+    선택 data_category/document_id/file_name이다.
+    해시·크기·경로는 서버가 결정한다. 후보 생성 전 권한·입력 오류는 예외이며 후보 이후
+    예상 처리 실패는 status=failed로 반환한다. 실패 원본은 같은 후보 재시도를 위해 보존한다.
+    """
+    # 입력 형식은 공개 진입점에서 확인했다. 잠금을 얻은 뒤 현재 관리자 권한은 다시 확인한다.
+    with processing_lock(WORKFLOW_LOCK):
         with transaction() as database:
             version_service.require_manager(actor, database, company_id)
         ingest_function = get_ingest_function(ingest_document)
@@ -431,7 +443,7 @@ def prepare_retry(actor, version_id):
     여기서는 경로 문자열만 다루며 실제 파일 확인은 DB 변경 확정 후에 한다.
     """
     # 현재 세션과 후보 상태를 다시 검사하고 이전 시도를 보존한다.
-    with transaction() as database:
+    with transaction(version_id=version_id) as database:
         document, version, job, reports = read_retry_records(database, actor, version_id)
         check_retry_allowed(document, version, reports)
         if reports.get('_auto_classify') and reusable_classification(reports) is None and not get_settings().doc_classify:
@@ -511,6 +523,19 @@ def reset_retry_records(database, version_id, job_id, report):
 
 
 def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):
+    """전역 식별자로 회사 DB를 선택한 뒤 기존 후보를 재시도한다."""
+    version_id = require_id(version_id)
+    authorize_company(actor, manager=True)
+    company_id = None
+    if split_layout():
+        company_id = company_for_reference(version_id=version_id)
+    authorize_company(actor, company_id, manager=True)
+    with company_scope(company_id):
+        return _retry_upload(actor, version_id, ingest_document=ingest_document,
+                             embedding=embedding, source_path=source_path)
+
+
+def _retry_upload(actor, version_id, *, ingest_document=None, embedding=None, source_path=None):
     """재시도 준비 → 경로 확인 → 이전 벡터 정리 → 처리 순서로 실행하고 결과 dict를 반환한다.
 
     실패 또는 중단된 후보의 문서·버전·작업 ID를 그대로 쓴다. 게시 복구가 남으면 거부한다.
@@ -518,9 +543,9 @@ def retry_upload(actor, version_id, *, ingest_document=None, embedding=None, sou
     기존 파일은 덮지 않으며 원본이 있으면 저장된 파일로 run_attempt를 실행한다.
     """
     # 저장된 원본 또는 다시 제공된 원본을 확인하고 같은 후보로 재시도한다.
-    require_id(version_id)
+    # version_id 형식은 retry_upload가 확인했다. 후보의 현재 상태는 prepare_retry에서 검사한다.
     # 같은 프로세스에서 업로드와 재시도 흐름을 순차 실행한다.
-    with processing_lock(), WORKFLOW_LOCK:
+    with processing_lock(WORKFLOW_LOCK):
         ingest_function = get_ingest_function(ingest_document)
         backend = version_service.get_embedding_backend(embedding)
         retry_info = prepare_retry(actor, version_id)

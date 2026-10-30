@@ -242,10 +242,11 @@ def main():
     demo = build_app(mode=args.mode)
     from starlette.middleware import Middleware
     from hyundap.ui.downloads import DownloadMiddleware
+    from hyundap.db.lifecycle import service_lifespan
     from hyundap.ingest import ocr
     ocr.start_warm_up()   # OCR 엔진을 백그라운드에서 미리 불러온다(.env의 OCR_WARMUP=0이면 건너뜀). 첫 스캔 문서 업로드 지연을 줄인다.
     demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024,
-                app_kwargs={'middleware': [Middleware(DownloadMiddleware)]})
+                app_kwargs={'middleware': [Middleware(DownloadMiddleware)], 'lifespan': service_lifespan})
 
 
 if __name__ == "__main__":

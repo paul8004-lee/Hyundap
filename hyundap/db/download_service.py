@@ -14,7 +14,7 @@ from .source_files import copy_original, resolve_stored_source
 def read_download_source(actor, document_id, version_id=None):
     """상세 조회 권한을 재사용하고 같은 회사 연결에서 원본 저장 정보를 읽는다."""
     detail = get_document_detail(actor, document_id, version_id=version_id)
-    with transaction() as database:
+    with transaction(company_id=detail['company_id']) as database:
         # 두 조회 사이에 활성 버전이나 권한이 바뀌면 이전 파일을 제공하지 않는다.
         get_document_detail(actor, document_id, version_id=detail['version_id'], connection=database)
         row = database.execute(text('''
