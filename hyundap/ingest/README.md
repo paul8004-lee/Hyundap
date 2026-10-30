@@ -9,13 +9,14 @@
 ## 이 폴더가 하는 일
 
 ```
-업로드 파일 → ① 검증 → ② 글자 추출 → ③ 글자 정리 → ④ 청킹 → 청크 목록
+업로드 파일 → ① 검증 → ② 글자 추출 → ②-1 깨진 글자 교정 → ③ 글자 정리 → ④ 청킹 → 청크 목록
 ```
 
 | 단계 | 하는 일 | 파일 |
 |---|---|---|
 | ① 검증 | 형식·용량(100MiB)·암호화·손상·중복 검사 | `validator.py` |
 | ② 글자 추출 | PDF는 쪽마다, DOCX는 제목 구간마다, PPTX는 슬라이드마다 글자·표를 꺼냄 | `loaders/` |
+| ②-1 깨진 글자 교정 | 사전(`glyph_dictionary.py`)으로 `%` 등 깨지거나 잘못 읽힌 글자를 고침. 사전에 없는 깨짐은 고치지 않고 경고(unknown issue)로 남김 | `glyph_corrector.py` |
 | ③ 글자 정리 | 한글 결합, 보이지 않는 글자 제거, 공백 정리 | `normalizer.py` |
 | ④ 청킹 | 약 1,000자씩 자름. 쪽·슬라이드 경계는 넘지 않음 | `chunker.py` |
 
@@ -40,6 +41,8 @@ ingest/
 │   ├── figures.py     그림 OCR 공통(크기 기준·중복 제거·상한)
 │   ├── charts.py      Office 차트 개체(DOCX·PPTX)의 제목·항목·값 읽기
 │   └── base.py        표 변환, 출처 위치 문구
+├── glyph_dictionary.py  깨진 글자 사전 (사례는 여기에만 추가)
+├── glyph_corrector.py   사전으로 교정, 사전에 없는 깨짐은 경고
 ├── normalizer.py      글자 정리
 ├── chunker.py         청킹
 └── pipeline.py        위 과정을 한 번에 실행

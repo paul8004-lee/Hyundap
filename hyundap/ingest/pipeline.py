@@ -4,13 +4,14 @@
 기준 명세: AI_문서검색_통합_기능명세서
 
 함수:
-    FUN-218 ingest_document — 검증·로딩·정규화·청킹을 순서대로 실행하고 IngestResult를 돌려준다.
+    FUN-218 ingest_document — 검증·로딩·깨진 글자 교정·정규화·청킹을 순서대로 실행하고 IngestResult를 돌려준다.
     FUN-219 build_ingest_report — 사용한 파서·청킹 설정·경고·구간/조각 수를 보고서로 구성한다."""
 
 import os
 from importlib.metadata import version
 
 from .chunker import chunk_document
+from .glyph_corrector import correct_document
 from .loaders import load_document
 from hyundap.common.config import get_settings
 from hyundap.common.schemas import DEFAULT_DOC_TYPE, DOC_TYPE_CODES, HEADER_KEYS
@@ -48,6 +49,7 @@ def ingest_document(file_path, upload_info, find_by_hash=None, file_hash=None):
             raise IngestError(INVALID_DOC_TYPE)
         validate_upload(file_path, upload_info["company_id"], find_by_hash, file_hash)
         doc = load_document(file_path, upload_info)
+        doc = correct_document(doc)
         doc = normalize_document(doc)
         if len(doc.sections) == 0:
             raise IngestError(EMPTY_DOCUMENT)
