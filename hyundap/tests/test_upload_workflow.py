@@ -180,6 +180,29 @@ class UploadWorkflowTests(unittest.TestCase):
             self.actor, self.source, dict(company_id=self.company, doc_type='manual', **metadata),
             ingest_document=self.ingest, embedding=self.embedding, upload_dir=self.upload_dir)
 
+    def test_classification_failure_keeps_published_result_compatible_with_ui(self):
+        """실제 DB에 저장된 분류 실패 결과가 게시 성공 후에도 UI 계약을 만족한다."""
+        from hyundap.ui.backend_documents import _classification_fields
+        from hyundap.db.classification import CLASSIFICATION_FIELDS
+        def ingest(path, info, *, find_by_hash):
+            result = self.ingest(path, info, find_by_hash=find_by_hash)
+            result['report']['classify_status'] = 'failed'
+            return result
+        result = self.upload_service.upload_document(
+            self.actor, self.source, dict(company_id=self.company, doc_type='manual'),
+            ingest_document=ingest, embedding=self.embedding, upload_dir=self.upload_dir)
+        self.assertEqual(result['status'], 'success')
+        fields = _classification_fields(result)
+        self.assertEqual(fields['classify_status'], 'failed')
+        with self.engine.connect() as database:
+            report = json.loads(database.execute(text('SELECT report FROM index_jobs WHERE id=:id'),
+                                                {'id': result['job_id']}).scalar_one())['ingest']
+            active = database.execute(text('SELECT active_version_id FROM documents WHERE id=:id'),
+                                      {'id': result['document_id']}).scalar_one()
+        self.assertEqual(active, result['version_id'])
+        self.assertEqual({key: report[key] for key in CLASSIFICATION_FIELDS},
+                         {key: result[key] for key in CLASSIFICATION_FIELDS})
+
     def test_download_snapshot_preserves_bytes_and_rejects_changed_source(self):
         from hyundap.db.download_service import prepare_original_download, read_download_source
         result = self.upload()

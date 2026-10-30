@@ -333,7 +333,8 @@ class UploadPath(unittest.TestCase):
             with self.subTest(changes=changes):
                 clean = jobs_repo.normalize_report(dict(base, **dict(good, **changes)))
                 self.assertEqual({key: clean[key] for key in jobs_repo.CLASSIFY_FIELDS if key in clean},
-                                 {'classify_status': 'failed'})
+                                 {'auto_doc_type': '', 'doc_type_confidence': 0.0,
+                                  'company_match': '', 'classify_status': 'failed'})
                 self.assertEqual((clean['stage'], clean['status'], clean['chunk_count']), ('ingest', 'success', 1))
         # 상태 없이 값만 오거나 상태만 이상해도 failed
         self.assertEqual(jobs_repo.normalize_report(dict(base, auto_doc_type='policy'))['classify_status'], 'failed')

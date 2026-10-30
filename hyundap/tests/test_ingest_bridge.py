@@ -3,12 +3,30 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from hyundap.db import upload_service
 from hyundap.db.errors import DbError
 
 
 class IngestBridgeTests(unittest.TestCase):
+    def test_retry_options_are_separate_and_ingest_cannot_rewrite_saved_decision(self):
+        """수집기가 받은 사전을 수정해 재시도 결정 비교를 우회할 수 없다."""
+        previous = dict(doc_type='manual', doc_type_fallback=False, doc_type_fallback_reason=None)
+        info = dict(company_id='c', _auto_classify=True, _classification=previous)
+        def ingest(path, metadata, *, find_by_hash, apply_classification, classification):
+            self.assertEqual(metadata, {'company_id': 'c'})
+            self.assertTrue(apply_classification)
+            classification['doc_type'] = 'policy'
+            return {'status': 'success', 'report': classification}
+        with patch.object(upload_service, 'get_settings', return_value=SimpleNamespace(doc_classify=False)), \
+                patch.object(upload_service, 'save_ingest_chunks') as save:
+            with self.assertRaises(DbError) as caught:
+                upload_service.ingest_and_save_chunks('file', info, {'version_id': 'v'}, ingest)
+        self.assertEqual(caught.exception.code, 'CONFLICT')
+        self.assertEqual(previous['doc_type'], 'manual')
+        save.assert_not_called()
+
     def test_missing_and_unreadable_source_preserve_safe_code(self):
         with TemporaryDirectory() as directory:
             missing = Path(directory) / 'missing.pdf'
