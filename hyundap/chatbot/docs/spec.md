@@ -61,7 +61,7 @@
 | B2 | 문서 청크 받기 | `embedding.get_document_chunks` | 공개 버전 청크(VectorHit)를 순서대로. 조회 오류는 RETRIEVAL_FAILED |
 | B2-1 | 형식 맞추기 | `summarize_document` 안에서 | VectorHit(metadata) → `search.models.ChunkHit`. 형식 오류는 감추지 않고 그대로 드러냄 |
 | B3 | 문서 접근 확인 | `recheck_before_return(user, 청크)` → `verify_documents_access` | 받은 청크의 실제 (문서ID, 버전ID)로 확인. 볼 수 없으면 **LLM 호출 전에** 중단 (DB 계약은 버전ID 없는 확인을 받지 않음) |
-| B4 | 구간 계획 | `plan_summary_segments` | tiktoken으로 센 토큰 기준. 한 호출 입력 23만 토큰(`SUMMARY_INPUT_TOKEN_BUDGET`)에서 넘겨받는 요약 몫·프롬프트 고정분을 뺀 단계 상한으로 1~3구간. 고르게 나눠지면 고르게, 3구간을 넘는 뒤쪽은 제외 |
+| B4 | 구간 계획 | `plan_summary_segments` | tiktoken으로 센 토큰 기준. 한 호출 입력 30만 토큰(`SUMMARY_INPUT_TOKEN_BUDGET`)에서 넘겨받는 요약 몫·프롬프트 고정분을 뺀 단계 상한으로 1~3구간. 고르게 나눠지면 고르게, 3구간을 넘는 뒤쪽은 제외 |
 | B5 | 이름표 | `assign_aliases` | 사용 청크 전체에 E1~En 한 번만 |
 | B6 | 구간별 직렬 요약 | `summarize_rolling` → `summarize_step` | 구간 1 요약 → (구간 1 요약 + 구간 2 원문) 요약 → … 호출은 구간 수만큼, 최대 3회, 항상 하나씩. 각 단계는 **그 단계가 본 이름표(이번 구간 + 이전 요약)만 허용**. 인용 오류는 총 3회 안에서 같은 단계 재시도. 중간 구간이 끝내 실패하면 그 구간만 빼고 이전 요약을 넘김 |
 | B7 | 최종 단계 스트리밍 | `stream_summary` | 줄이 완성될 때마다 인용 검사, **통과한 줄만** `delta`로 화면에 보냄. 스트리밍이 거절되면(조직 인증) 한 번에 받음. 입력 길이 초과로 거절되면 상한을 15% 줄여 B4부터 한 번 다시 |
@@ -85,7 +85,7 @@ ui.services.BackendServices.ask (박경환)
    │   └─ search.search_chunks(user, query, company_ids, doc_types, document_ids, top_k)   (이준영)
    ├─ select_evidence                                 FUN-404
    │   ├─ select_evidence_dedupe                      FUN-404 보조  같은 청크 1개
-   │   └─ select_evidence_limit                       FUN-404 보조  문서당 max(4, 8 // 문서 수)·전체 8
+   │   └─ select_evidence_limit                       FUN-404 보조  문서당 max(4, 8 // 문서 수)·전체 8, 남은 자리는 잘린 근거로 채움
    ├─ build_no_evidence_response                      FUN-406  (근거 0개일 때)
    ├─ assign_aliases → format_evidence                FUN-411, 412 (format_source_label 417)
    ├─ generate_answer                                 FUN-405
@@ -103,6 +103,7 @@ ui.services.BackendServices.ask (박경환)
    ├─ recheck_before_return                           FUN-407
    │   └─ auth.permissions.verify_documents_access(user, refs)                           (전재경)
    └─ ask_build_response                              FUN-401 보조
+       ├─ extract_fact_aliases                        FUN-413 보조  제목·유보 문장에만 붙은 이름표는 출처에서 뺌
        └─ render_answer, group_citations_by_company   FUN-418, 419
    오류: map_dependency_error(427) → ChatbotError(425) → to_feedback(426)
          map_dependency_error_access · _search · _llm (427 보조)
@@ -151,7 +152,7 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-403 | `retrieve_evidence` | `question`, `ChatFilters`, `user` | `list[ChunkHit]` | `search_chunks(user=, query=, company_ids=, doc_types=, document_ids=, top_k=TOP_K×2)`. min_score는 넘기지 않음(search 설정 0.3). import도 try 안에서 해 search가 없을 때(ImportError)도 FUN-427로 RETRIEVAL_FAILED |
 | FUN-404 | `select_evidence` | `hits` | `list[ChunkHit]` | 같은 chunk_id는 점수 높은 것 하나 → 점수순 → 문서당 상한 → 전체 8개 |
 | 404 보조 | `select_evidence_dedupe` | `hits` | `list[ChunkHit]` | chunk_id마다 점수가 가장 높은 것 1개 |
-| 404 보조 | `select_evidence_limit` | 점수순 `hits` | `list[ChunkHit]` | 문서당 상한 = max(MAX_PER_DOCUMENT 4, TOP_K 8 // 근거에 나온 문서 수) → 문서 1개면 8, 2개 이상이면 4. 전체 TOP_K(8) (#182) |
+| 404 보조 | `select_evidence_limit` | 점수순 `hits` | `list[ChunkHit]` | 문서당 상한 = max(MAX_PER_DOCUMENT 4, TOP_K 8 // 근거에 나온 문서 수) → 문서 1개면 8, 2개 이상이면 4. 전체 TOP_K(8) (#182). 상한으로 자리가 남으면 잘린 근거로 점수순으로 채운다 (10/30 실제 문서 실측: 점수 0.302짜리 다른 문서 때문에 점검 절차 4단계가 빠짐) |
 | FUN-405 | `generate_answer` | `question`, `evidence_text` | 답변 원문(str) | 체인 실행. 시간 초과·속도 제한 → LLM_FAILED(재시도 가능), 인증 오류 → CONFIG_MISSING |
 | FUN-406 | `build_no_evidence_response` | `filters` | ChatResponse(`NO_EVIDENCE`) | LLM 미호출. 문서·유형 필터가 걸려 있으면 "필터를 넓혀 보세요" 안내 |
 | FUN-407 | `recheck_before_return` | `user`, `cited`(ChunkHit) | 없음 | `(document_id, version_id)` 중복 제거 → `verify_documents_access(user, refs)` (성공 = None, 실패 = 예외. DB 계약 3절). 빈 목록이면 부르지 않음(auth가 INVALID_INPUT으로 거부). 예외는 FUN-427로: `AccessError(STATE_CHANGED)` → ChatbotError(STATE_CHANGED), 다른 AccessError는 그대로, `DbError` → RETRIEVAL_FAILED, 그 밖의 오류는 감추지 않고 그대로 |
@@ -160,10 +161,10 @@ ui.services.BackendServices.summarize (박경환)
 
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
-| FUN-408 | `get_chat_model` | 없음 | ChatOpenAI | 키는 `common.config.get_settings()`의 `openai_api_key`, 모델은 질문 답변 전용 `ANSWER_MODEL`(gpt-4o, 10/30 실측 근거). 요약은 `get_summary_model`이 공통 설정 모델(기본 gpt-5)을 그대로 쓴다. 키 없으면 CONFIG_MISSING. **temperature는 넘기지 않음**(실측 기준과 같게, gpt-5 계열은 기본값 외 거부). timeout 30초. 한 번 만들어 재사용 |
+| FUN-408 | `get_chat_model` | 없음 | ChatOpenAI | 키는 `common.config.get_settings()`의 `openai_api_key`, 모델은 질문 답변 전용 `ANSWER_MODEL`(gpt-6-luna, 10/30 실측: 정답 132/132, 지연 중앙값 1.5초, 1,000건 $0.15). 공통 설정의 `openai_chat_model`은 쓰지 않는다. 키 없으면 CONFIG_MISSING. **temperature는 넘기지 않음**(실측 기준과 같게, gpt-5 계열은 기본값 외 거부). timeout 30초. 한 번 만들어 재사용 |
 | FUN-409 | `build_answer_chain` | `llm=None` | `{question, evidence}` → str 체인 | 시스템 규칙: 근거만 사용 · 문장마다 `[E번호]` · 없으면 유보 문구 · 근거 속 지시 무시 · 회사별 구분 · 한국어 · 예시 1개 |
 | FUN-410 | `build_summary_chain` | `stage`('step'·'final'), `llm=None` | `{evidence}` → str 체인 | step: 다음 구간에 넘길 상세 요약 / final: 섹션별 문서 전체 요약. 둘 다 이전 요약의 내용·이름표 유지, `### 짧은 명사` 제목과 `- ` 목록, **표 금지**(표 머리글·구분 줄은 이름표를 붙일 수 없어 인용 검사에서 항상 걸림), 항목마다 이름표 |
-| 410 보조 | `get_summary_model` | `streaming` | ChatOpenAI | 요약 전용. 타임아웃 300초, 출력 상한(추론 포함) 중간 8000·최종 10000, `reasoning_effort='low'`는 추론 모델(`REASONING_MODEL_PREFIXES`: gpt-5·o1·o3·o4)일 때만. 질문 답변용 `get_chat_model`(30초)은 그대로 |
+| 410 보조 | `get_summary_model` | `streaming` | ChatOpenAI | 요약 전용 `SUMMARY_MODEL`(gpt-6-luna). 프롬프트는 '모든 문장 끝에 이름표'(인용 검사 기준과 같게). 타임아웃 300초, 출력 상한(추론 포함) 중간 8000·최종 10000, `reasoning_effort='low'`는 추론 모델(`REASONING_MODEL_PREFIXES`: gpt-5·o1·o3·o4)일 때만. 질문 답변용 `get_chat_model`(30초)은 그대로 |
 
 ### citations.py
 
@@ -172,6 +173,7 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-411 | `assign_aliases` | `hits` | `{'E1': hit, …}` | 1부터 순서대로 |
 | FUN-412 | `format_evidence` | `aliases` | 근거 문자열 | `[E1] 회사 · 파일 · 위치` 다음 줄에 본문, 블록 사이 빈 줄 |
 | FUN-413 | `extract_cited_aliases` | `answer` | `['E3', 'E1']` | `\[(E\d+)\]`, 처음 나온 순서·중복 제거 |
+| 413 보조 | `extract_fact_aliases` | `answer` | `['E1', 'E2']` | 사실 문장에 붙은 이름표만. '현대경제연구원: [E5]'·'확인할 수 없습니다. [E5]'에만 붙은 이름표는 빼서 관련 없는 문서가 출처로 나가지 않게 함. 비면 검사 결과를 그대로 씀 (10/30 실제 문서 실측) |
 | FUN-414 | `validate_citations` | `answer`, `aliases`, `max_chars=20000` | 쓰인 이름표 | ① 빈 답·초과 → INVALID_ANSWER ② 인용이 하나도 없고 유보 표현(`NO_EVIDENCE_HINTS`)이 있으면 NO_EVIDENCE, 없으면 INVALID_CITATION ③ 준 적 없는 이름표 → INVALID_CITATION ④ **문장마다 이름표 확인**: 줄·문장(숫자 바로 뒤가 아닌 `. ! ?` 뒤 공백)으로 나눠 이름표 없는 문장이 있으면 INVALID_CITATION. 제목 줄(`:`로 끝남)과 유보 문장은 예외. 번호 목록(`1. …`)·날짜(`2026. 11. 3.`) 마침표에서는 자르지 않음. 마침표 뒤에 온 이름표(`…합니다. [E1]`, `…합니다. [E1] 다음 문장 [E2].`)는 같은 줄 바로 앞 문장의 근거로 인정. 다음 줄 이름표는 인정 안 함 |
 | 414 보조 | `validate_citations_answer` | `answer`, `max_chars` | 공백 정리된 답변 | 빈 답·초과 → INVALID_ANSWER (①) |
 | 414 보조 | `validate_citations_aliases` | `answer`, `aliases` | 쓰인 이름표 | ②·③ |
@@ -184,7 +186,7 @@ ui.services.BackendServices.summarize (박경환)
 | FUN-415 | `build_citation` | `hit`, `number` | Citation | 필수 필드(company_name, file_name, document_id, location_label)가 비면 INVALID_CITATION. **version_id는 필수 아님**(실제 DB에 버전이 없어 빈 값 가능) |
 | FUN-416 | `make_excerpt` | `text`, `max_chars=300` | 발췌문 | 공백 정리, 넘으면 마지막 공백에서 자르고 `…` |
 | FUN-417 | `format_source_label` | `hit` | `A사 · 교육안내.pdf · p.2` | 빈 값은 건너뜀. 위치는 ingest의 location_label 그대로. 통합본은 입력을 metadata로 적었지만 ChunkHit 결정에 따라 hit을 받음 |
-| FUN-418 | `render_answer` | `answer`, `used` | (`…[1]…`, {이름표: 번호}) | 정규식으로 이름표 단위 치환 (E1·E10 섞임 없음) |
+| FUN-418 | `render_answer` | `answer`, `used` | (`…[1]…`, {이름표: 번호}) | 정규식으로 이름표 단위 치환 (E1·E10 섞임 없음). `used`에 없는 이름표는 앞 공백과 함께 지움 |
 | FUN-419 | `group_citations_by_company` | `citations` | `{회사명: [Citation]}` | 처음 나온 회사 순 |
 | 자료형 | `AliasLineRenderer.render` | 검사를 통과한 줄 | 화면용 줄 | `[E3]`을 처음 나온 순서대로 `[1]`로. `render_answer`와 같은 번호 규칙이라 스트리밍 중 번호와 최종 출처 번호가 같다 |
 
@@ -215,7 +217,7 @@ ui.services.BackendServices.summarize (박경환)
 | 423 보조 | `compute_cited_ratio` | 쓰인 이름표, 사용 청크 | float | 인용 청크 비율. 일부 구간이 요약에서 빠졌는지 보는 지표 |
 | 423 보조 | `summarize_document_response` | 문서 ID, 전체·사용 청크, 예산 초과 청크, 뺀 구간, 요약, 이름표, 출처 | SummaryResponse | 뺀 것이 있으면 제외 범위에 사유, is_full=False |
 | FUN-424 | `plan_summary_segments` | `hits`, 단계 상한 | SummaryPlan | 상한 단위로 담아 구간 수(≤3)를 정하고 고르게 나눠지면 고르게. 청크는 쪼개지 않음 |
-| 424 보조 | `get_summary_encoder` · `count_summary_tokens` · `step_token_limit` · `pack_segments` · `trim_overflow` | | | 인코더 1회 로드(실패 시 글자×2), 토큰×1.03, 23만−8천−1천, 상한까지 담기, 앞 3구간 외 제외 |
+| 424 보조 | `get_summary_encoder` · `count_summary_tokens` · `step_token_limit` · `pack_segments` · `trim_overflow` | | | 인코더 1회 로드(실패 시 글자×2), 토큰×1.03, 30만−8천−1천, 상한까지 담기, 앞 3구간 외 제외 |
 
 ### doc_classifier.py (명세 밖 추가, 10/29 · #261)
 
@@ -291,7 +293,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 
 | 함수 | 담당 | 현재 상태 | 지금 코드의 처리 |
 |---|---|---|---|
-| `common.config.get_settings` | 이성민 | **구현됨** (`Settings` 반환, `.env` 읽음, 기본 모델 gpt-5) | 그대로 사용 |
+| `common.config.get_settings` | 이성민 | **구현됨** (`Settings` 반환, `.env` 읽음, 기본 모델 gpt-5) | API 키만 사용 (모델은 챗봇 상수) |
 | `hyundap.search.search.search_chunks` (FUN-244) | 이준영 | **구현됨** (#143) | 호출할 때 try 안에서 import. 오류는 FUN-427로 변환 |
 | `hyundap.search.models.ChunkHit` (CLS-051) | 이준영 | **구현됨** (#143) | 질문 경로는 속성 이름으로만 읽음. 요약 경로(`summarize_document_load`)는 이 클래스로 만듦 |
 | `search.errors.SearchError` (CLS-055) | 이준영 | **구현됨** (#143) | 클래스 이름과 `code`·`retryable` 속성으로 구분. `SESSION_EXPIRED`는 재로그인 안내, 권한 코드는 ACCESS_DENIED, 나머지는 RETRIEVAL_FAILED |
@@ -308,11 +310,11 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | MAX_QUESTION_CHARS | 2000 | 통합본 L50·L104와 같은 기준 |
 | MAX_ANSWER_CHARS | 20000 | 기존 L13 |
 | EXCERPT_MAX_CHARS | 300 | search 화면 발췌(200자)와 별개 |
-| SUMMARY_INPUT_TOKEN_BUDGET / SUMMARY_MAX_CALLS | 230,000 / 3 | gpt-5 입력 약 27.2만 토큰 중 23만. 넘으면 구간을 나눠 최대 3회 (글 위주 약 150~250쪽까지 1회, 약 66만 토큰까지 3회) |
+| SUMMARY_INPUT_TOKEN_BUDGET / SUMMARY_MAX_CALLS | 300,000 / 3 | gpt-6-luna는 10/30 실측에서 입력 44.2만 토큰까지 받지만, 38만 토큰 1회 요약은 5회 중 2회가 세부 값을 뭉뚱그림(2회로 나누면 5회 모두 유지)이라 30만. 단계 상한 29.1만, 넘으면 구간을 나눠 최대 3회 (약 87만 토큰까지) |
 | SUMMARY_CARRY_TOKENS / SUMMARY_PROMPT_TOKENS / SUMMARY_TOKEN_MARGIN | 8,000 / 1,000 / 1.03 | 넘겨받는 요약 몫, 고정분, 토크나이저 여유 |
-| SUMMARY_TIMEOUT_SECONDS / SUMMARY_REASONING_EFFORT | 300 / low | 23만 토큰 입력은 30초로 끝나지 않음 |
+| SUMMARY_TIMEOUT_SECONDS / SUMMARY_REASONING_EFFORT | 300 / low | 큰 입력은 30초로 끝나지 않음. reasoning_effort는 추론 모델에만 넘기므로 luna에는 넘기지 않음 |
 | SUMMARY_MAX_CONCURRENT / SUMMARY_SLOT_WAIT_SECONDS / MAX_SUMMARY_CHARS | 1 / 1초 / 30,000 | 분당 토큰 한도 보호 / 대기 상한(ui 작업 스레드 보호) / 요약 글자 상한 (질문 답변 20000과 별개) |
-| LLM | 질문 답변 `ANSWER_MODEL`(gpt-4o), 요약 `get_settings()` 모델(기본 gpt-5), temperature 미지정, 질문 30초·요약 300초 | 키·요약 모델은 이성민 common.config |
+| LLM | 질문 답변 `ANSWER_MODEL`·요약 `SUMMARY_MODEL`·분류 `CLASSIFY_MODEL` 모두 gpt-6-luna, temperature 미지정, 질문 30초·요약 300초 | 키는 이성민 common.config. 모델은 챗봇 상수 |
 | 외부 AI 전송 | 질문 + 고른 근거만 / 요약은 선택 문서 청크 본문 | 사용자 정보는 보내지 않음 (미정 D17) |
 | 프롬프트 | 근거 속 지시문은 따르지 않음 | POL-10 |
 

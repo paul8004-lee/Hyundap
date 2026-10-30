@@ -39,6 +39,7 @@ def ask(question, filters, user):
     used = ask_check_answer(answer, aliases)
     if used is None:
         return build_no_evidence_response(filters)
+    used = cit.extract_fact_aliases(answer) or used  # 유보 문장·제목에만 붙은 이름표는 출처에서 뺀다
     cited_hits = [aliases[alias] for alias in used]
     citations = [cit.build_citation(hit, number) for number, hit in enumerate(cited_hits, 1)]
     recheck_before_return(user, cited_hits)
@@ -119,16 +120,20 @@ def select_evidence_dedupe(hits):
 def select_evidence_limit(hits):
     """받는 것: 점수 높은 순 ChunkHit 목록 / 돌려주는 것: 문서당 상한까지, 전체 TOP_K(8)개까지
     문서당 상한은 근거에 나온 문서 수로 정한다: max(MAX_PER_DOCUMENT, TOP_K // 문서 수).
-    '선택 문서'처럼 문서 1개로 좁히면 8개까지 쓰고, 여러 문서면 지금처럼 문서당 4개다 (#182)."""
+    '선택 문서'처럼 문서 1개로 좁히면 8개까지 쓰고, 여러 문서면 지금처럼 문서당 4개다 (#182).
+    상한으로 자리가 남으면 잘린 근거로 점수순으로 채운다. 점수가 낮은 다른 문서 하나 때문에
+    주 문서의 5번째 근거가 빠지던 문제를 막는다 (10/30 실제 문서 실측: 점검 절차 4단계 누락)."""
     documents = len({hit.document_id for hit in hits}) or 1
     cap = max(MAX_PER_DOCUMENT, TOP_K // documents)
-    picked, per_document = [], {}
+    picked, rest, per_document = [], [], {}
     for hit in hits:
         count = per_document.get(hit.document_id, 0)
         if count < cap:
             per_document[hit.document_id] = count + 1
             picked.append(hit)
-    return picked[:TOP_K]
+        else:
+            rest.append(hit)
+    return (picked + rest)[:TOP_K]
 
 
 def generate_answer(question, evidence_text):

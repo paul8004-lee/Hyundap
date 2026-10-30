@@ -7,6 +7,7 @@
     FUN-411 assign_aliases — 근거마다 인용용 이름표를 부여한다.
     FUN-412 format_evidence — 이름표와 청크를 프롬프트용 근거 문자열로 만든다.
     FUN-413 extract_cited_aliases — 답변에서 사용된 인용 이름표를 추출한다.
+        extract_fact_aliases — 사실 문장에 붙은 이름표만 고른다 (유보 문장·'A사:' 제목에만 붙은 이름표는 출처에서 뺀다).
     FUN-414 validate_citations — 인용 누락이나 제공하지 않은 이름표 사용을 검사한다.
         validate_citations_answer — 빈 답변·너무 긴 답변을 거부한다.
         validate_citations_aliases — 이름표 유무와 준 적 없는 이름표를 검사한다.
@@ -60,6 +61,22 @@ def format_evidence(aliases):
 def extract_cited_aliases(answer):
     """받는 것: 답변 / 돌려주는 것: 답변에 나온 [E번호]를 처음 나온 순서대로 중복 없이"""
     return list(dict.fromkeys(ALIAS_PATTERN.findall(answer)))
+
+
+def extract_fact_aliases(answer):
+    """받는 것: 인용 검사를 통과한 답변 / 돌려주는 것: 사실 문장에 붙은 이름표 (처음 나온 순서, 중복 없이)
+    '현대경제연구원: [E5]'·'확인할 수 없습니다. [E5]'처럼 제목이나 유보 문장에만 붙은 이름표는 빼서
+    관련 없는 문서가 출처로 나가지 않게 한다 (10/30 실제 문서 실측). 마침표 뒤에 따로 붙은 이름표는 앞 문장 것으로 본다."""
+    found = []
+    for line in answer.splitlines():
+        previous_is_fact = False
+        for sentence in validate_citations_split(line):
+            body = ALIAS_PATTERN.sub('', sentence).strip(' .!?')
+            if body:
+                previous_is_fact = not body.endswith(':') and not any(hint in body for hint in NO_EVIDENCE_HINTS)
+            if previous_is_fact:
+                found += ALIAS_PATTERN.findall(sentence)
+    return list(dict.fromkeys(found))
 
 
 def validate_citations(answer, aliases, max_chars=MAX_ANSWER_CHARS):
@@ -187,9 +204,10 @@ def format_source_label(hit):
 
 def render_answer(answer, used):
     """받는 것: 답변, 쓰인 이름표(등장 순) / 돌려주는 것: ([E3]을 [1]로 바꾼 답변, {이름표: 번호})
-    정규식으로 이름표 단위로 바꾸므로 E1과 E10이 섞이지 않는다."""
+    정규식으로 이름표 단위로 바꾸므로 E1과 E10이 섞이지 않는다. used에 없는 이름표(extract_fact_aliases가 뺀 것)는 앞 공백과 함께 지운다."""
     numbers = {alias: i for i, alias in enumerate(used, 1)}
-    return ALIAS_PATTERN.sub(lambda m: f'[{numbers[m.group(1)]}]', answer.strip()), numbers
+    marked = re.sub(r'(\s*)\[(E\d+)\]', lambda m: f'{m.group(1)}[{numbers[m.group(2)]}]' if m.group(2) in numbers else '', answer.strip())
+    return marked, numbers
 
 
 def group_citations_by_company(citations):
