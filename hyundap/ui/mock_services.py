@@ -320,6 +320,11 @@ class MockServices:
             "error_code": None,
         }
 
+    async def retry_upload(self, session: dict, version_id: str) -> dict:
+        """데모는 저장된 후보를 만들지 않으므로 실제 재처리 성공을 흉내내지 않는다."""
+        self._checked(session)
+        raise UIServiceError("RETRY_UNAVAILABLE", "예시 모드에는 다시 처리할 저장 파일이 없습니다.", "input_error")
+
     async def download(self, session: dict, document_id: str, version_id=None) -> str:
         document = self._find(session, document_id, version_id)
         # 원본 파일인 것처럼 다른 확장자를 붙이지 않는다. 예시임을 파일에도 명시.

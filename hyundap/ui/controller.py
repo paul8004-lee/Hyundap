@@ -39,6 +39,11 @@ class ViewState:
     answer_citations: list[dict] = field(default_factory=list)
     evidence_index: int = 0
     upload_ready: bool = False
+    upload_generation: int = 0
+    upload_busy: bool = False
+    upload_results: list[dict] = field(default_factory=list)
+    upload_total: int = 0
+    upload_feedback: str = ""
     summaries: dict = field(default_factory=dict)
 
 
@@ -62,6 +67,7 @@ class UIController:
         ctx = self.states.pop(key, None)
         if ctx is not None:
             ctx.epoch += 1
+            self.invalidate_upload(ctx)
             self.invalidate_inline(ctx)
             self.clear_summaries(ctx)
 
@@ -140,7 +146,40 @@ class UIController:
     @staticmethod
     def current(ctx, ticket):
         epoch, action, number = ticket
-        return ctx.epoch == epoch and ctx.requests.get(action) == number
+        generation = ctx.upload_generation if action == "upload" else ctx.epoch
+        return generation == epoch and ctx.requests.get(action) == number
+
+    @staticmethod
+    def invalidate_upload(ctx):
+        """로그인 경계에서만 업로드를 무효화한다. 메뉴 이동은 포함하지 않는다."""
+        ctx.upload_generation += 1
+        ctx.upload_busy = ctx.upload_ready = False
+        ctx.upload_results = []
+        ctx.upload_total = 0
+        ctx.upload_feedback = ""
+
+    @staticmethod
+    def retryable(result):
+        return (str(result.get("job_status") or result.get("status")) == "failed"
+                and isinstance(result.get("version_id"), str) and bool(result["version_id"].strip())
+                and result.get("recovery_required") is not True
+                and result.get("error_code") not in {"RECOVERY_REQUIRED", "INVALID_STATE", "STATE_CHANGED", "ACCESS_DENIED", "FORBIDDEN"})
+
+    def upload_view(self, ctx):
+        """세션에 보관한 진행·결과를 복원한다. 재시도 값은 이 세션 결과에서만 고른다."""
+        results = ctx.upload_results
+        html = (render_batch_upload_results(results, ctx.upload_total) if ctx.upload_total > 1
+                else render_upload_result(results[0]) if results else "")
+        patch = {self.admin["result"]: html, self.admin["feedback"]: ctx.upload_feedback,
+                 self.admin["submit"]: gr.update(interactive=ctx.upload_ready and not ctx.upload_busy)}
+        choices = [(f"{i + 1}. {item.get('file_name') or '실패 파일'}", item["version_id"])
+                   for i, item in enumerate(results) if self.retryable(item)]
+        if "retry_file" in self.admin:
+            patch[self.admin["retry_file"]] = gr.update(choices=choices, value=choices[0][1] if choices else None,
+                                                      visible=bool(choices), interactive=not ctx.upload_busy)
+        if "retry" in self.admin:
+            patch[self.admin["retry"]] = gr.update(visible=bool(choices), interactive=bool(choices) and not ctx.upload_busy)
+        return patch
 
     async def wait(self, ctx, ticket, awaitable):
         result = await awaitable
@@ -158,8 +197,19 @@ class UIController:
     def clear_search(self):
         return {**self.clear_modal(), **self.clear_document(), **self.inline_patch(), self.search["table"]: [], self.search["results_area"]: gr.update(visible=False), self.search["empty"]: gr.update(visible=False), self.search["caption"]: "", self.search["feedback"]: "", self.search["intro"]: gr.update(visible=True), self.search["quick"]: gr.update(visible=True), self.search["submit"]: gr.update(interactive=True)}
 
+    def clear_password(self):
+        """로그인/로그아웃 후 값과 보기 상태를 함께 초기화한다."""
+        patch = {self.login["password"]: gr.update(value="", type="password")}
+        if "password_visible" in self.login:
+            patch[self.login["password_visible"]] = False
+        if "password_toggle" in self.login:
+            patch[self.login["password_toggle"]] = gr.update(value="비밀번호 표시")
+        return patch
+
     def signed_out(self, message=""):
-        return {**self.clear_search(), self.login["container"]: gr.update(visible=True), self.login["password"]: "", self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False, elem_classes=["hd-app"]), self.shell["account"]: "", self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
+        patch = {**self.clear_search(), self.login["container"]: gr.update(visible=True), **self.clear_password(), self.login["feedback"]: show_feedback(message, "warning") if message else "", self.login["submit"]: gr.update(interactive=True), self.shell["container"]: gr.update(visible=False, elem_classes=["hd-app"]), self.shell["account"]: "", self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False), self.shell["modal_body"]: ""}
+
+        return {**patch, **self.upload_view(ViewState())}
 
     def document_patch(self, ctx, doc):
         ctx.selected = deepcopy(doc)
@@ -189,6 +239,15 @@ class UIController:
     async def run(self, action: str, key: str, *args):
         """B07/B18/B20~B23: 중복 제출·늦은 응답·세션 만료를 공통 처리."""
         ctx = self.state(key)
+        if action in {"upload", "retry_upload"}:
+            async for patch in self.run_upload_action(ctx, action, *args):
+                yield patch
+            return
+        if action == "upload_input" and ctx.upload_busy:
+            # 화면 입력은 잠겨 있다. 이미 도착한 입력 이벤트도 진행 중 요청을 덮지 않는다.
+            return
+        if action in {"login", "logout"}:
+            self.invalidate_upload(ctx)
         if action in {"login", "logout", "search", "filter", "reset", "nav"}:
             self.invalidate_inline(ctx)
         inline_generation = ctx.inline_generation
@@ -197,6 +256,8 @@ class UIController:
         ctx.requests[action] = ctx.requests.get(action, 0) + 1
         ticket = ctx.epoch, action, ctx.requests[action]
         initial = self.busy_patch(action, True)
+        if action in {"login", "logout"}:
+            initial.update(self.upload_view(ctx))
         if action in {"search", "filter", "reset"}:
             ctx.results, ctx.selected = [], None
             initial = {**self.clear_search(), **initial}
@@ -204,12 +265,9 @@ class UIController:
             ctx.selected = None
             initial = {**self.clear_modal(), **self.clear_document(), **initial}
         elif action == "upload_input":
-            # 입력 변경 후 이전 업로드의 늦은 결과는 표시하지 않는다.
-            ctx.requests["upload"] = ctx.requests.get("upload", 0) + 1
+            ctx.upload_results, ctx.upload_total, ctx.upload_feedback = [], 0, ""
             ctx.upload_ready = False
-            initial = {self.admin["result"]: "", self.admin["feedback"]: "", self.admin["submit"]: gr.update(interactive=False)}
-        elif action == "upload":
-            initial[self.admin["result"]] = ""
+            initial = self.upload_view(ctx)
         elif action == "download":
             initial[self.search["download_file"]] = gr.update(value=None, visible=False)
         elif action == "summarize":
@@ -222,10 +280,6 @@ class UIController:
         try:
             # 로딩 표시를 내보낸 사이 새 입력·로그아웃이 도착했을 수 있다.
             if not self.current(ctx, ticket):
-                return
-            if action == "upload" and isinstance(args[0], (list, tuple)) and len(args[0]) > 1:
-                async for patch in self.run_batch_upload(ctx, ticket, *args):
-                    yield patch
                 return
             if action == "summarize":
                 async for patch in self.watch_summary(ctx, ticket, start=True):
@@ -252,6 +306,7 @@ class UIController:
                 error = UIServiceError("UI_ERROR", "화면 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.")
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
+                self.invalidate_upload(ctx)
                 self.invalidate_inline(ctx)
                 self.clear_summaries(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
@@ -297,6 +352,7 @@ class UIController:
                 error = UIServiceError("UI_ERROR", "답변을 준비하지 못했어요. 잠시 후 다시 검색해 주세요.")
             if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
                 ctx.epoch += 1
+                self.invalidate_upload(ctx)
                 self.invalidate_inline(ctx)
                 self.clear_summaries(ctx)
                 ctx.user, ctx.results, ctx.selected = None, [], None
@@ -334,7 +390,7 @@ class UIController:
         platform_admin = user.get("role") == "platform_admin"
         company_name = next((name for name, company_id in companies if company_id == user.get("company_id")), "회사명 확인 필요")
         footer_name = "© Hyundap" if platform_admin else company_name
-        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), self.login["password"]: "", self.login["feedback"]: "", **self.shell_patch(user), self.shell["footer_company"]: escape(footer_name), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: ""}, company
+        return {**self.clear_search(), self.login["role"]: "관리자" if is_admin else "일반 사용자", self.login["container"]: gr.update(visible=False), **self.clear_password(), self.login["feedback"]: "", **self.shell_patch(user), self.shell["footer_company"]: escape(footer_name), self.search["container"]: gr.update(visible=True), self.admin["container"]: gr.update(visible=False), self.search["keyword"]: "", self.search["company"]: gr.update(choices=choices, value=company, interactive=platform_admin, visible=platform_admin), self.search["doc_type"]: "__all__", self.admin["company"]: gr.update(choices=companies, value=upload_company, interactive=platform_admin), self.admin["file"]: None, self.admin["doc_type"]: None, self.admin["result"]: "", self.admin["feedback"]: ""}, company
 
     async def revoke_uncommitted_login(self, user):
         """화면에 반영하지 못한 인증 세션만 폐기한다. 오류 원문은 남기지 않는다."""
@@ -601,7 +657,7 @@ class UIController:
         upload = destination == "upload"
         if upload and user.get("role") not in {"company_admin", "platform_admin"}:
             raise UIServiceError("FORBIDDEN", "관리자만 파일을 업로드할 수 있습니다.", "denied")
-        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), **self.shell_patch(user, upload=upload), self.search["submit"]: gr.update(interactive=True), **(self.summary_view(ctx, ctx.selected) if ctx.selected else {}), self.search["download"]: gr.update(interactive=bool(ctx.selected)), self.admin["submit"]: gr.update(interactive=ctx.upload_ready)}
+        return {**self.clear_modal(), **self.inline_patch(), self.search["container"]: gr.update(visible=not upload), self.admin["container"]: gr.update(visible=upload), **self.shell_patch(user, upload=upload), self.search["submit"]: gr.update(interactive=True), **(self.summary_view(ctx, ctx.selected) if ctx.selected else {}), self.search["download"]: gr.update(interactive=bool(ctx.selected)), **self.upload_view(ctx)}
 
     @staticmethod
     def upload_paths(files):
@@ -635,46 +691,100 @@ class UIController:
         validate_upload_metadata(company, selected, auto_classify=automatic)
         return selected
 
-    async def do_upload(self, ctx, ticket, file_path, company, doc_type):
-        doc_type = self.validate_upload_metadata(company, doc_type)
-        paths = self.upload_paths(file_path)
-        file_path = paths[0] if paths else None
-        result = await self.wait(ctx, ticket, self.service.upload(ctx.user, file_path, company, doc_type))
-        return {self.admin["result"]: render_upload_result({**result, "demo": self.service.demo}), self.admin["feedback"]: show_feedback("입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다." if self.service.demo else result.get("message") or "업로드 요청 결과를 확인해 주세요.", "info")}
+    async def run_upload_action(self, ctx, action, *args):
+        """메뉴·검색과 독립된 업로드 요청. 같은 세션의 중복 제출은 새 호출을 만들지 않는다."""
+        if ctx.upload_busy:
+            yield self.upload_view(ctx)
+            return
+        ctx.requests["upload"] = ctx.requests.get("upload", 0) + 1
+        ticket = ctx.upload_generation, "upload", ctx.requests["upload"]
+        ctx.upload_busy = True
+        if action == "upload":
+            ctx.upload_results, ctx.upload_total = [], 0
+        ctx.upload_feedback = set_loading("선택한 파일을 확인하고 있어요.")
+        try:
+            yield self.upload_view(ctx)
+            if not self.current(ctx, ticket):
+                return
+            if action == "upload":
+                files, company, doc_type = args
+                doc_type = self.validate_upload_metadata(company, doc_type)
+                paths = self.upload_paths(files)
+                if not paths:
+                    raise UIServiceError("FILE_REQUIRED", "업로드할 파일을 선택해 주세요.", "input_error")
+                self.validate_upload_paths(paths)
+                ctx.upload_ready = True
+                ctx.upload_total = len(paths)
+                targets = list(enumerate(paths))
+            else:
+                version_id, = args
+                targets = [(i, item) for i, item in enumerate(ctx.upload_results)
+                           if self.retryable(item) and item["version_id"] == version_id]
+                if len(targets) != 1:
+                    raise UIServiceError("INVALID_INPUT", "이번 업로드 결과에서 다시 처리할 실패 파일을 선택해 주세요.", "input_error")
 
-    async def run_batch_upload(self, ctx, ticket, files, company, doc_type):
-        """검증한 파일을 순서대로 등록하고 각 파일의 결과를 스트리밍한다."""
-        doc_type = self.validate_upload_metadata(company, doc_type)
-        paths = self.upload_paths(files)
-        # 어느 파일이든 입력 검증에 실패하면 등록을 시작하지 않는다.
-        self.validate_upload_paths(paths)
-        results = []
-        for index, path in enumerate(paths, 1):
-            if not self.current(ctx, ticket):
-                return
-            yield {self.admin["feedback"]: set_loading(f"파일을 순서대로 처리하고 있어요. ({index}/{len(paths)})")}
-            # 진행 안내를 보낸 동안 입력이 바뀌었다면 다음 요청을 시작하지 않는다.
-            if not self.current(ctx, ticket):
-                return
-            try:
-                result = await self.wait(ctx, ticket, self.service.upload(ctx.user, path, company, doc_type))
-            except StaleResponse:
-                return
-            except UIServiceError as error:
+            for position, target in targets:
                 if not self.current(ctx, ticket):
                     return
-                if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED", "AUTH_BACKEND_PENDING", "ACCESS_DENIED", "FORBIDDEN"} or error.status in {"session_expired", "denied"}:
-                    raise
-                result = {"status": "failed", "file_name": Path(path).name, "message": error.message, "error_code": error.code}
+                retrying = action == "retry_upload"
+                label = "선택한 실패 파일을 다시 처리하고 있어요." if retrying else f"파일을 순서대로 처리하고 있어요. ({position + 1}/{ctx.upload_total})"
+                ctx.upload_feedback = set_loading(label)
+                yield self.upload_view(ctx)
+                if not self.current(ctx, ticket):
+                    return
+                try:
+                    operation = (self.service.retry_upload(ctx.user, target["version_id"]) if retrying
+                                 else self.service.upload(ctx.user, target, company, doc_type))
+                    result = await self.wait(ctx, ticket, operation)
+                except UIServiceError as error:
+                    if not self.current(ctx, ticket):
+                        return
+                    if ((not retrying and ctx.upload_total == 1)
+                            or error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED", "AUTH_BACKEND_PENDING", "ACCESS_DENIED", "FORBIDDEN"}
+                            or error.status in {"session_expired", "denied"}):
+                        raise
+                    result = {"status": "failed", "message": error.message, "error_code": error.code}
+                    if retrying:
+                        # 일시 실패여도 동일 후보 ID는 유지한다. 신규 등록으로 바꾸지 않는다.
+                        result.update({key: target[key] for key in ("document_id", "version_id", "job_id") if key in target})
+                if retrying:
+                    # 이전 AI 추정값은 새 결과에 섞지 않고 표시용 파일명·회사명만 유지한다.
+                    display = {key: target[key] for key in ("file_name", "company_id", "company_name") if key in target}
+                    ctx.upload_results[position] = {**display, **result, "demo": self.service.demo}
+                else:
+                    ctx.upload_results.append({"file_name": Path(target).name, **result, "demo": self.service.demo})
+                yield self.upload_view(ctx)
             if not self.current(ctx, ticket):
                 return
-            results.append({**result, "demo": self.service.demo})
-            yield {self.admin["result"]: render_batch_upload_results(results, len(paths))}
+            message = ("입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다."
+                       if self.service.demo else "파일별 처리 결과를 확인해 주세요.")
+            ctx.upload_feedback = show_feedback(message, "info")
+        except StaleResponse:
+            return
+        except (asyncio.CancelledError, GeneratorExit):
+            if self.current(ctx, ticket):
+                ctx.upload_feedback = show_feedback("업로드 응답 연결이 중단됐어요. 일부 파일은 이미 처리되었을 수 있으니 등록 결과를 확인해 주세요.", "warning")
+            raise
+        except Exception as error:
+            if not self.current(ctx, ticket):
+                return
+            if not isinstance(error, UIServiceError):
+                logging.getLogger(__name__).exception("UI upload action failed")
+                error = UIServiceError("UI_ERROR", "업로드 요청을 처리하지 못했습니다. 현재 등록 결과를 확인해 주세요.")
+            if error.code in {"SESSION_EXPIRED", "UNAUTHENTICATED", "AUTH_REQUIRED"} or error.status == "session_expired":
+                ctx.epoch += 1
+                self.invalidate_upload(ctx)
+                self.invalidate_inline(ctx)
+                self.clear_summaries(ctx)
+                ctx.user, ctx.results, ctx.selected = None, [], None
+                yield self.signed_out("로그인 시간이 만료되었습니다. 일부 파일은 이미 처리되었을 수 있으니 다시 로그인한 뒤 등록 결과를 확인해 주세요.")
+                return
+            ctx.upload_feedback = show_feedback(error.message, "error")
+        finally:
+            if self.current(ctx, ticket):
+                ctx.upload_busy = False
         if self.current(ctx, ticket):
-            message = "파일별 처리 결과를 확인해 주세요."
-            if self.service.demo:
-                message = "입력 확인이 끝났어요. 예시 모드에서는 파일을 저장하거나 색인하지 않습니다."
-            yield {**self.busy_patch("upload", False), self.admin["feedback"]: show_feedback(message, "info")}
+            yield self.upload_view(ctx)
 
     async def do_close(self, ctx, ticket):
         return {self.shell["modal"]: gr.update(visible=False), self.shell["modal_body"]: ""}

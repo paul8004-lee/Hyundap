@@ -140,42 +140,39 @@ def auto_classify_enabled() -> bool:
 
 
 def _classification_fields(result, *, required=False):
-    """#261: 공개 반환 필드만 복사한다. 최종 유형을 입력값/AI 추정값으로 대체하지 않는다."""
+    """저장 상태와 부가 분류 정보를 분리한다. 확인되지 않은 값은 표시하지 않는다.
+
+    게시 성공 후 DB의 부가 조회가 실패하면 ID·성공 상태만 돌아올 수 있다.
+    분류기 예외도 classify_status만 남길 수 있으므로 7개 필드를 강제하지 않는다.
+    """
     final_keys = {"doc_type", "doc_type_fallback", "doc_type_fallback_reason"}
     ai_keys = {"auto_doc_type", "doc_type_confidence", "company_match", "classify_status"}
-    fields = {key: result[key] for key in final_keys | ai_keys if key in result}
     types = {code for _, code in DOC_TYPES}
+    fields = {}
+    kind, fallback, reason = (result.get(key) for key in ("doc_type", "doc_type_fallback", "doc_type_fallback_reason"))
+    final_valid = (final_keys <= result.keys() and isinstance(kind, str) and kind in types
+                   and type(fallback) is bool
+                   and ((fallback and reason in ("LOW_CONFIDENCE", "CLASSIFY_FAILED"))
+                        or (not fallback and reason is None)))
+    if final_valid:
+        fields.update({key: result[key] for key in final_keys})
 
-    def invalid():
-        raise UIServiceError("INVALID_RESPONSE", "업로드의 문서 유형 결과를 확인할 수 없습니다. 처리 결과를 확인해 주세요.")
-
-    if required and not (final_keys | ai_keys) <= fields.keys():
-        invalid()
-    if final_keys & fields.keys():
-        if not final_keys <= fields.keys():
-            invalid()
-        kind, fallback, reason = (fields[key] for key in ("doc_type", "doc_type_fallback", "doc_type_fallback_reason"))
-        if not isinstance(kind, str) or kind not in types or type(fallback) is not bool:
-            invalid()
-        if (fallback and reason not in ("LOW_CONFIDENCE", "CLASSIFY_FAILED")) or (not fallback and reason is not None):
-            invalid()
-    if ai_keys & fields.keys():
-        if not (final_keys | ai_keys) <= fields.keys():
-            invalid()
-        kind, confidence = fields["auto_doc_type"], fields["doc_type_confidence"]
-        if not isinstance(kind, str) or kind not in types | {""}:
-            invalid()
-        if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
-            invalid()
-        if fields["company_match"] not in ("yes", "no", "") or fields["classify_status"] not in ("success", "failed"):
-            invalid()
+    kind, confidence = result.get("auto_doc_type"), result.get("doc_type_confidence")
+    ai_valid = (ai_keys <= result.keys() and isinstance(kind, str) and kind in types | {""}
+                and type(confidence) in (int, float) and 0 <= confidence <= 1 and math.isfinite(confidence)
+                and result.get("company_match") in ("yes", "no", "")
+                and result.get("classify_status") in ("success", "failed"))
+    if ai_valid:
+        fields.update({key: result[key] for key in ai_keys})
+    elif result.get("classify_status") == "failed":
+        fields["classify_status"] = "failed"
+    if not final_valid or (ai_keys & result.keys() and not ai_valid and result.get("classify_status") != "failed"):
+        fields["classification_incomplete"] = True
     return fields
 
 
 def upload_document(*, user, file_path, company_id, doc_type=None, auto_classify=False):
     """DB 담당의 업로드 전체 흐름을 호출하고 게시 결과를 UI 상태로 변환한다."""
-    from .backend_feedback import safe_upload_message
-
     submit = _function("hyundap.db.upload_service", "upload_document")
     path = validate_upload_file(file_path)
     validate_upload_metadata(company_id, doc_type, auto_classify=auto_classify)
@@ -188,6 +185,28 @@ def upload_document(*, user, file_path, company_id, doc_type=None, auto_classify
         source_path=str(path),
         metadata=metadata,
     ))
+    response = normalize_upload_result(result)
+    response.update(file_name=path.name, company_id=company_id)
+    account = to_plain(user)
+    if isinstance(account, Mapping) and account.get("company_id") == company_id and account.get("company_name"):
+        response["company_name"] = account["company_name"]
+    return response
+
+
+def retry_upload_document(*, user, version_id):
+    """저장된 후보를 재처리한다. 권한·원본·현재 상태 판단은 DB의 재시도 함수가 한다."""
+    if not isinstance(version_id, str) or not version_id.strip():
+        raise UIServiceError("INVALID_INPUT", "다시 처리할 파일을 선택해 주세요.", "input_error")
+    result = to_plain(_function("hyundap.db.upload_service", "retry_upload")(actor=user, version_id=version_id))
+    if not isinstance(result, dict) or result.get("version_id") != version_id:
+        raise UIServiceError("INVALID_RESPONSE", "요청한 파일과 재처리 결과가 일치하지 않습니다.")
+    return normalize_upload_result(result)
+
+
+def normalize_upload_result(result):
+    """원본 저장·게시 상태는 엄격히 검증하고 분류 부가정보 누락은 안내로 남긴다."""
+    from .backend_feedback import safe_upload_message
+
     if not isinstance(result, dict) or result.get("status") not in {"success", "failed"}:
         raise UIServiceError("INVALID_RESPONSE", "업로드 처리 결과 형식을 확인해 주세요.")
     succeeded = result["status"] == "success"
@@ -207,16 +226,11 @@ def upload_document(*, user, file_path, company_id, doc_type=None, auto_classify
         "job_id": result.get("job_id"),
         "status": "succeeded" if succeeded else "failed",
         "searchable": succeeded,
-        "file_name": Path(path).name,
-        "company_id": company_id,
-        **_classification_fields(result, required=auto_classify and succeeded),
+        **_classification_fields(result),
         "error_code": error_code if succeeded else error_code or "PROCESSING_FAILED",
         "recovery_required": recovery,
         "message": "문서 등록과 검색 공개가 완료되었습니다." if succeeded else safe_upload_message(error_code or "PROCESSING_FAILED", recovery_required=recovery),
     }
     if succeeded:
         response["stage"] = "complete"
-    account = to_plain(user)
-    if isinstance(account, Mapping) and account.get("company_id") == company_id and account.get("company_name"):
-        response["company_name"] = account["company_name"]
     return response

@@ -11,7 +11,7 @@ import gradio as gr
 REQUIRED_REFS = {
     "login": ("container", "role", "username", "password", "submit", "feedback", "demo_hint"),
     "search": ("container", "intro", "company", "keyword", "submit", "answer", "feedback", "quick", "doc_type", "reset", "empty", "results_area", "table", "caption", "detail", "summary", "coverage", "summarize", "evidence", "evidence_nav", "evidence_prev", "evidence_next", "evidence_position", "detail_feedback", "source", "download", "download_file"),
-    "admin": ("container", "company", "doc_type", "file", "submit", "feedback", "result"),
+    "admin": ("container", "company", "doc_type", "file", "submit", "feedback", "result", "retry_file", "retry"),
     "shell": ("container", "nav_search", "upload_nav", "account", "footer_company", "logout", "modal", "modal_body", "modal_close"),
 }
 

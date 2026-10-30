@@ -23,7 +23,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 import gradio as gr
 
-from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page
+from hyundap.ui.admin_page import ADMIN_CSS, build_admin_page, with_upload_input_state
 from hyundap.ui.chat_page import CHAT_CSS
 from hyundap.ui.components import apply_common_style, brand_html, get_theme
 from hyundap.ui.controller import UIController
@@ -71,37 +71,8 @@ APP_CSS = """
 @media(prefers-reduced-motion:reduce) {.hd-spinner {animation:none;}}
 """
 
-# B03/B14: 자체 지정한 모달 요소의 키보드 포커스만 관리한다.
-# Gradio 내부 DOM/스토어를 수정하지 않으며 Escape/Tab으로도 닫기·이동 가능.
-APP_JS = """() => {
-  let previous = null, opened = false;
-  const sync = () => {
-    const overlay = document.getElementById('hd-modal');
-    const card = document.getElementById('hd-modal-card');
-    const shown = !!(overlay && card && overlay.getClientRects().length);
-    if (shown && !opened) {
-      previous = document.activeElement;
-      card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true');
-      card.setAttribute('aria-label', '문서 출처 확인'); card.tabIndex = -1;
-      card.focus();
-    }
-    if (!shown && opened && previous && previous.isConnected) previous.focus();
-    opened = shown;
-  };
-  new MutationObserver(sync).observe(document.body, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class']});
-  document.addEventListener('keydown', (event) => {
-    if (!opened) return;
-    const card = document.getElementById('hd-modal-card');
-    if (event.key === 'Escape') { event.preventDefault(); document.getElementById('hd-modal-close')?.click(); }
-    if (event.key === 'Tab') {
-      const controls = Array.from(card.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]')).filter(x => x.getClientRects().length && !x.disabled);
-      if (!controls.length) { event.preventDefault(); card.focus(); return; }
-      const first=controls[0], last=controls[controls.length-1];
-      if (event.shiftKey && (document.activeElement===first || document.activeElement===card)) {event.preventDefault();last.focus();}
-      else if (!event.shiftKey && (document.activeElement===last || document.activeElement===card)) {event.preventDefault();first.focus();}
-    }
-  });
-}"""
+# 기존 QA 실행기의 import 호환용. 실행할 사용자 JavaScript는 없다.
+APP_JS = None
 
 
 def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks:
@@ -165,7 +136,7 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
                     from hyundap.ui.downloads import COOKIE
                     controller.state(session_key).download_browser = request.cookies.get(COOKIE, '')
                 async for patch in controller.run(action, session_key, *values):
-                    yield patch
+                    yield with_upload_input_state(admin, controller.state(session_key), patch)
             callback.__name__ = f"on_{action}"
             return callback
 
@@ -185,14 +156,14 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
                 async def quick_search(session_key, company, doc_type):
                     yield {search["keyword"]: value}
                     async for patch in controller.run("search", session_key, value, company, doc_type):
-                        yield patch
+                        yield with_upload_input_state(admin, controller.state(session_key), patch)
                 return quick_search
             button.click(make_quick(word), inputs=[key, search["company"], search["doc_type"]], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
 
         async def on_document_select(session_key, event: gr.SelectData):
             index = event.index[0] if isinstance(event.index, (list, tuple)) else event.index
             async for patch in controller.run("select", session_key, index):
-                yield patch
+                yield with_upload_input_state(admin, controller.state(session_key), patch)
         search["table"].select(on_document_select, inputs=[key], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
         bind(search["summarize"].click, "summarize", [])
         bind(search["source"].click, "source", [])
@@ -200,12 +171,13 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
         bind(search["evidence_next"].click, "evidence_next", [])
         bind(search["download"].click, "download", [])
         bind(admin["submit"].click, "upload", [admin["file"], admin["company"], admin["doc_type"]])
+        bind(admin["retry"].click, "retry_upload", [admin["retry_file"]])
         async def on_upload_input(session_key, file_path):
             # 큐를 거치지 않는 입력 검사는 스트리밍 대신 최종 변경을 한 번에 반환한다.
             result = {}
             async for patch in controller.run("upload_input", session_key, file_path):
                 result.update(patch)
-            return result
+            return with_upload_input_state(admin, controller.state(session_key), result)
 
         # 파일 교체·제거와 메타정보 변경은 이전 처리 결과를 즉시 지운다.
         for event in (admin["file"].change, admin["company"].input, admin["doc_type"].input):
@@ -216,7 +188,7 @@ def build_app(service: UIServices | None = None, *, mode="backend") -> gr.Blocks
         def navigation(destination):
             async def navigate(session_key):
                 async for patch in controller.run("nav", session_key, destination):
-                    yield patch
+                    yield with_upload_input_state(admin, controller.state(session_key), patch)
             return navigate
         for button, destination in [(nav_search, "search"), (upload_nav, "upload")]:
             button.click(navigation(destination), inputs=[key], outputs=outputs, concurrency_limit=None, api_visibility="private", show_progress="hidden")
@@ -245,7 +217,7 @@ def main():
     from hyundap.db.lifecycle import service_lifespan
     from hyundap.ingest import ocr
     ocr.start_warm_up()   # OCR 엔진을 백그라운드에서 미리 불러온다(.env의 OCR_WARMUP=0이면 건너뜀). 첫 스캔 문서 업로드 지연을 줄인다.
-    demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, js=APP_JS, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024,
+    demo.launch(server_name=args.host, server_port=args.port, share=False, theme=get_theme(), css=demo.hyundap_css, footer_links=[], show_error=False, max_file_size=100 * 1024 * 1024,
                 app_kwargs={'middleware': [Middleware(DownloadMiddleware)], 'lifespan': service_lifespan})
 
 
