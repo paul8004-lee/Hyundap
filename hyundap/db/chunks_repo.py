@@ -16,7 +16,7 @@ def save_manifest(version_id, chunks, *, connection=None):
     # 입력을 검증한 뒤 버전을 잠그고 기존 원장과 새 원장을 비교한다.
     require_id(version_id)
     normalized = _normalize_manifest(version_id, chunks)
-    with transaction(connection) as database:
+    with transaction(connection, version_id=version_id) as database:
         # FOR UPDATE로 버전 행을 잠가 같은 버전의 원장 저장이 겹치지 않도록 한다.
         status = database.execute(text('SELECT version_status FROM document_versions WHERE id=:id FOR UPDATE'),
                                   {'id': version_id}).scalar_one_or_none()

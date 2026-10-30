@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from hyundap.db import upload_service
+from hyundap.db import upload_service, source_files
 from hyundap.db.errors import DbError
 
 
@@ -59,7 +59,7 @@ class OriginalStorageTests(unittest.TestCase):
             root = Path(directory)
             source, destination = root / 'input.txt', root / 'saved.txt'
             source.write_bytes(b'original')
-            with patch.object(upload_service.os, 'link', side_effect=PermissionError('synthetic')):
+            with patch.object(source_files.os, 'link', side_effect=PermissionError('synthetic')):
                 with self.assertRaises(PermissionError):
                     upload_service.copy_original(source, destination, hashlib.sha256(b'original').hexdigest(), 8)
             self.assertFalse(destination.exists())

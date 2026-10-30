@@ -42,7 +42,7 @@ def create_account(email, role, company_id, password):
     # scrypt는 DB 연결을 잡기 전에 계산한다.
     stored = hash_password(password)
     user_id = str(uuid4())
-    with transaction() as database:
+    with transaction(control=True) as database:
         if company_id is not None:
             active = database.execute(text('SELECT is_active FROM companies WHERE id=:id'),
                                       {'id': company_id}).scalar_one_or_none()

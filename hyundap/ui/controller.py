@@ -26,6 +26,7 @@ from .services import company_choices, validate_upload_file, validate_upload_met
 @dataclass
 class ViewState:
     user: dict | None = None
+    download_browser: str = ''
     results: list[dict] = field(default_factory=list)
     selected: dict | None = None
     company: str = "__all__"
@@ -586,6 +587,12 @@ class UIController:
     async def do_download(self, ctx, ticket):
         if not ctx.selected:
             raise UIServiceError("SELECTION_REQUIRED", "먼저 문서를 선택해 주세요.", "input_error")
+        if not self.service.demo:
+            from .downloads import issue_download
+            document = await self.wait(ctx, ticket, self.service.detail(ctx.user, ctx.selected['document_id'], ctx.selected.get('version_id')))
+            url = issue_download(ctx.user, document, ctx.download_browser, self.service)
+            return {self.search['download_file']: gr.update(value=f'<a href="{escape(url, quote=True)}">원문 다운로드 (1분 이내·1회)</a>', visible=True),
+                    self.search['detail_feedback']: show_feedback('링크를 열 때 접근 권한을 다시 확인합니다.', 'info')}
         path = await self.wait(ctx, ticket, self.service.download(ctx.user, ctx.selected["document_id"], ctx.selected.get("version_id")))
         return {self.search["download_file"]: gr.update(value=path, visible=True), self.search["detail_feedback"]: show_feedback("예시 텍스트 파일입니다. 실제 원문 다운로드는 담당 함수 연결 후 사용할 수 있어요." if self.service.demo else "파일이 준비되었습니다. 아래 파일을 눌러 저장하세요.", "info")}
 

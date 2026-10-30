@@ -5,6 +5,8 @@ class DbError(Exception):
     """안전한 코드와 고정 안내만 전달하는 DB 오류. 원시 예외는 포함하지 않는다."""
 
     MESSAGES = {
+        'PROVISION_FAILED': '회사 데이터베이스를 준비하지 못했습니다.',
+        'CONFIG_MISSING': '필수 데이터베이스 설정이 없습니다.',
         'DB_UNAVAILABLE': '데이터 저장소를 사용할 수 없습니다.',
         'DUPLICATE_FILE': '같은 회사에 동일한 파일이 있습니다.',
         'CONFLICT': '다른 처리 결과와 충돌했습니다.',

@@ -196,5 +196,5 @@ def build_search_page(companies: list, doc_types: list, demo_mode: bool = True) 
                 with gr.Row(elem_id="hd-document-actions"):
                     source = gr.Button("출처 확인", interactive=False, variant="primary")
                     download = gr.Button("예시 파일 받기" if demo_mode else "다운로드", interactive=False, variant="secondary")
-                download_file = gr.File(label="예시 파일 · 실제 원문이 아닙니다" if demo_mode else "다운로드 파일", interactive=False, visible=False, elem_id="hd-download-file")
+                download_file = gr.File(label="예시 파일 · 실제 원문이 아닙니다" if demo_mode else "다운로드 파일", interactive=False, visible=False, elem_id="hd-download-file") if demo_mode else gr.HTML(visible=False, elem_id="hd-download-file")
     return dict(container=container, intro=intro, company=company, keyword=keyword, submit=submit, answer=answer, feedback=feedback, quick=quick, quick_buttons=quick_buttons, doc_type=doc_type, reset=reset, empty=empty, results_area=results_area, table=table, caption=caption, detail=detail, summary=summary, coverage=coverage, summarize=summarize, evidence=evidence, evidence_nav=evidence_nav, evidence_prev=evidence_prev, evidence_next=evidence_next, evidence_position=evidence_position, detail_feedback=detail_feedback, source=source, download=download, download_file=download_file)

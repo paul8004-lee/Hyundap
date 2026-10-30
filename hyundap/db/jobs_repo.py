@@ -108,8 +108,13 @@ def _ingest_metrics(report, stage):
     """수집 전용 필드의 타입·범위를 검사한다. 경고 원문은 읽거나 저장하지 않는다."""
     # 수집 전용 필드가 다른 단계에 섞이지 않도록 먼저 검사한다.
     fields = ('parser', 'parser_version') + INGEST_COUNT_FIELDS
-    if any(field in report for field in fields) and stage != 'ingest':
-        raise DbError('INVALID_INPUT')
+    if stage != 'ingest':
+        # 수집 단계가 아니라면 수집 전용 필드가 하나라도 포함되는 즉시 거부한다.
+        for field in fields:
+            if field in report:
+                raise DbError('INVALID_INPUT')
+        # 수집 전용 값이 없는 다른 단계라면 이후 수집 필드 검사는 필요 없다.
+        return {}
     clean = {}
     if 'parser' in report:
         parser = report['parser']
@@ -127,7 +132,9 @@ def _ingest_metrics(report, stage):
         if field in report:
             value = report[field]
             # chunk_size는 최소 1이고 다른 수집 개수는 0부터 허용한다.
-            minimum = 1 if field == 'chunk_size' else 0
+            minimum = 0
+            if field == 'chunk_size':
+                minimum = 1
             if type(value) is not int or value < minimum:
                 raise DbError('INVALID_INPUT')
             clean[field] = value
@@ -190,7 +197,12 @@ def _failure_detail(failure):
     """실패 항목 하나에서 코드·청크 ID·재시도 여부만 새 dict로 반환한다."""
     # 실패 항목에서는 허용한 코드, 청크 ID, 재시도 여부만 가져온다.
     failure = _report_dict(failure)
-    failure_code = failure.get('code', failure.get('error_code'))
+    # code 키가 있으면 그 값을 우선한다. None/빈 값도 오류이므로 다른 코드로 대체하지 않는다.
+    # code 키 자체가 없을 때만 수집 모듈이 사용하는 error_code를 읽는다.
+    if 'code' in failure:
+        failure_code = failure['code']
+    else:
+        failure_code = failure.get('error_code')
     if not isinstance(failure_code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', failure_code):
         raise DbError('INVALID_INPUT')
     item = {'code': failure_code}
@@ -215,7 +227,7 @@ def record_stage_result(job_id, report, *, connection=None):
     연결 제공 시 호출자 TX에 참여하며 직접 커밋하지 않는다.
     """
     clean = normalize_report(report)
-    with transaction(connection) as database:
+    with transaction(connection, job_id=job_id) as database:
         # 조회 → 입력과 작업의 일치 검사 → 보고서 갱신 → 저장을 같은 잠금 안에서 처리한다.
         job, identity = _read_stage_target(database, job_id)
         _check_stage_result(job, identity, clean)
@@ -241,7 +253,7 @@ def _read_stage_target(database, job_id):
     if version is None:
         raise DbError('INVALID_STATE')
     job = database.execute(text('SELECT version_id,stage,report FROM index_jobs WHERE id=:id FOR UPDATE'),
-                           {'id': require_id(job_id)}).mappings().one_or_none()
+                           {'id': job_id}).mappings().one_or_none()
     if not job or job['version_id'] != reference:
         raise DbError('INVALID_STATE')
     identity = dict(version, version_id=job['version_id'])
@@ -257,7 +269,10 @@ def _check_ingest_count(database, version_id, count):
     # REPEATABLE READ에서도 선행 참조 조회의 과거 snapshot 대신 현재 목록을 확인한다.
     rows = database.execute(text('SELECT id FROM document_chunks WHERE version_id=:id FOR UPDATE'),
                             {'id': version_id}).scalars()
-    actual = sum(1 for _ in rows)
+    actual = 0
+    # 조회한 청크 행을 한 번씩 세므로 실제 원장 개수를 확인한다.
+    for _ in rows:
+        actual += 1
     if count <= 0 or count != version['expected_chunk_count'] or count != actual:
         raise DbError('INVALID_INPUT')
 
@@ -319,7 +334,8 @@ def _store_stage_result(database, job_id, clean, reports):
     status = None
     if clean['status'] in ('failed', 'partial'):
         status = 'FAILED'
-    elif clean['stage'] == 'complete' and clean['status'] == 'success':
+    elif clean['stage'] == 'complete':
+        # 정규화된 상태에서 failed/partial을 제외하면 success만 남는다.
         status = 'SUCCEEDED'
     store_job_result(database, job_id, clean['stage'], reports, status=status,
                      error_code=code, error_message=message)
