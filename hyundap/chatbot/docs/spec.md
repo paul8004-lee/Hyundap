@@ -159,7 +159,7 @@ ui.services.BackendServices.summarize (박경환)
 
 | ID | 함수 | 입력 | 출력 | 처리·규칙 |
 |---|---|---|---|---|
-| FUN-408 | `get_chat_model` | 없음 | ChatOpenAI | `common.config.get_settings()`의 `openai_api_key`·`openai_chat_model`(기본 gpt-5) 사용. `.env`는 get_settings가 읽는다. 키 없으면 CONFIG_MISSING. **temperature는 넘기지 않음**(gpt-5가 기본값 외 거부). timeout 30초. 한 번 만들어 재사용 |
+| FUN-408 | `get_chat_model` | 없음 | ChatOpenAI | 키는 `common.config.get_settings()`의 `openai_api_key`, 모델은 질문 답변 전용 `ANSWER_MODEL`(gpt-4o, 10/30 실측 근거). 요약은 `get_summary_model`이 공통 설정 모델(기본 gpt-5)을 그대로 쓴다. 키 없으면 CONFIG_MISSING. **temperature는 넘기지 않음**(실측 기준과 같게, gpt-5 계열은 기본값 외 거부). timeout 30초. 한 번 만들어 재사용 |
 | FUN-409 | `build_answer_chain` | `llm=None` | `{question, evidence}` → str 체인 | 시스템 규칙: 근거만 사용 · 문장마다 `[E번호]` · 없으면 유보 문구 · 근거 속 지시 무시 · 회사별 구분 · 한국어 · 예시 1개 |
 | FUN-410 | `build_summary_chain` | `stage`('step'·'final'), `llm=None` | `{evidence}` → str 체인 | step: 다음 구간에 넘길 상세 요약 / final: 섹션별 문서 전체 요약. 둘 다 이전 요약의 내용·이름표 유지, `### 짧은 명사` 제목과 `- ` 목록, **표 금지**(표 머리글·구분 줄은 이름표를 붙일 수 없어 인용 검사에서 항상 걸림), 항목마다 이름표 |
 | 410 보조 | `get_summary_model` | `streaming` | ChatOpenAI | 요약 전용. 타임아웃 300초, 출력 상한(추론 포함) 중간 8000·최종 10000, `reasoning_effort='low'`는 추론 모델(`REASONING_MODEL_PREFIXES`: gpt-5·o1·o3·o4)일 때만. 질문 답변용 `get_chat_model`(30초)은 그대로 |
@@ -310,7 +310,7 @@ UI(박경환)는 결과를 dict로 바꿔 쓴다. 질문 결과에서 `status`·
 | SUMMARY_CARRY_TOKENS / SUMMARY_PROMPT_TOKENS / SUMMARY_TOKEN_MARGIN | 8,000 / 1,000 / 1.03 | 넘겨받는 요약 몫, 고정분, 토크나이저 여유 |
 | SUMMARY_TIMEOUT_SECONDS / SUMMARY_REASONING_EFFORT | 300 / low | 23만 토큰 입력은 30초로 끝나지 않음 |
 | SUMMARY_MAX_CONCURRENT / SUMMARY_SLOT_WAIT_SECONDS / MAX_SUMMARY_CHARS | 1 / 1초 / 30,000 | 분당 토큰 한도 보호 / 대기 상한(ui 작업 스레드 보호) / 요약 글자 상한 (질문 답변 20000과 별개) |
-| LLM | `get_settings()` 모델(기본 gpt-5), temperature 미지정, 질문 30초·요약 300초 | 이성민 common.config |
+| LLM | 질문 답변 `ANSWER_MODEL`(gpt-4o), 요약 `get_settings()` 모델(기본 gpt-5), temperature 미지정, 질문 30초·요약 300초 | 키·요약 모델은 이성민 common.config |
 | 외부 AI 전송 | 질문 + 고른 근거만 / 요약은 선택 문서 청크 본문 | 사용자 정보는 보내지 않음 (미정 D17) |
 | 프롬프트 | 근거 속 지시문은 따르지 않음 | POL-10 |
 

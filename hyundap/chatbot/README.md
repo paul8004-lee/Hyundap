@@ -53,7 +53,7 @@ except Exception as error:
 ## 실행 전 준비
 
 - 모든 실행은 저장소 맨 위 폴더에서 합니다 (이슈 #133). 다른 폴더는 `from hyundap.<폴더>...`, chatbot 안은 `from .models ...`처럼 가져옵니다.
-- 저장소 맨 위 `.env`에 `OPENAI_API_KEY`가 있어야 합니다. 모델은 `hyundap.common.config.get_settings()`가 정합니다 (기본 gpt-5, `.env`의 `OPENAI_CHAT_MODEL`로 변경).
+- 저장소 맨 위 `.env`에 `OPENAI_API_KEY`가 있어야 합니다. 질문 답변은 `constants.py`의 `ANSWER_MODEL`(gpt-4o)을 쓰고, 요약은 `hyundap.common.config.get_settings()`가 정한 모델을 씁니다 (기본 gpt-5, `.env`의 `OPENAI_CHAT_MODEL`로 변경). 근거: 10/30 실측에서 답변은 정답률이 같고 gpt-4o가 약 6배 빠르고 42% 저렴, 요약은 gpt-5만 핵심 사실을 99% 담음.
 - 코드에는 가짜 함수 자리가 없습니다. search·auth·embedding은 develop에 구현돼 있어 실제 함수를 부릅니다(#143). 다른 폴더 오류는 `map_dependency_error`가 chatbot 오류 코드로 바꿉니다. 시험할 때는 시험 코드에서 가짜 모듈을 끼웁니다 ([`docs/spec.md` 12절](docs/spec.md)).
 
 ## 통합 명세에 없는 추가 항목

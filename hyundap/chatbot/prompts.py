@@ -16,7 +16,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from hyundap.common.config import get_settings
 
-from .constants import (LLM_TIMEOUT_SECONDS, NO_EVIDENCE_MESSAGE, SUMMARY_FINAL_OUTPUT_TOKENS, SUMMARY_REASONING_EFFORT,
+from .constants import (ANSWER_MODEL, LLM_TIMEOUT_SECONDS, NO_EVIDENCE_MESSAGE, SUMMARY_FINAL_OUTPUT_TOKENS, SUMMARY_REASONING_EFFORT,
                         SUMMARY_STEP_OUTPUT_TOKENS, SUMMARY_TIMEOUT_SECONDS)
 from .models import ChatbotError
 
@@ -53,13 +53,14 @@ SUMMARY_FINAL_PROMPT = (
 @lru_cache(maxsize=1)
 def get_chat_model():
     """받는 것: 없음 / 돌려주는 것: ChatOpenAI (처음 한 번 만들고 재사용)
-    API 키·모델명은 common.config.get_settings()에서 읽는다 (.env도 그 함수가 읽음).
-    temperature는 넘기지 않는다: 기본 모델 gpt-5는 기본값 외의 temperature를 거부한다."""
+    API 키는 common.config.get_settings()에서 읽고, 모델은 질문 답변 전용 ANSWER_MODEL(gpt-4o)을 쓴다.
+    요약(get_summary_model)은 계속 공통 설정 모델(기본 gpt-5)을 쓴다.
+    temperature는 넘기지 않는다: 실측을 기본값으로 했고, gpt-5 계열은 기본값 외의 temperature를 거부한다."""
     settings = get_settings()
     if not settings.openai_api_key:
         raise ChatbotError('CONFIG_MISSING')
     from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model=settings.openai_chat_model, timeout=LLM_TIMEOUT_SECONDS, api_key=settings.openai_api_key)
+    return ChatOpenAI(model=ANSWER_MODEL, timeout=LLM_TIMEOUT_SECONDS, api_key=settings.openai_api_key)
 
 
 def build_answer_chain(llm=None):

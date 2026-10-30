@@ -200,6 +200,19 @@ class SummaryModelTests(unittest.TestCase):
             self.assertEqual(prompts.get_chat_model().request_timeout, 30)
         prompts.get_chat_model.cache_clear()
 
+    def test_answer_uses_gpt4o_while_summary_follows_settings(self):
+        # 질문 답변만 ANSWER_MODEL(gpt-4o)로 바꾸고, 요약은 공통 설정 모델(gpt-5)을 그대로 쓴다
+        from types import SimpleNamespace
+        from hyundap.chatbot import prompts
+        prompts.get_chat_model.cache_clear()
+        prompts.get_summary_model.cache_clear()
+        settings = SimpleNamespace(openai_api_key='sk-test', openai_chat_model='gpt-5')
+        with patch.object(prompts, 'get_settings', return_value=settings):
+            self.assertEqual(prompts.get_chat_model().model_name, 'gpt-4o')
+            self.assertEqual(prompts.get_summary_model(True).model_name, 'gpt-5')
+        prompts.get_chat_model.cache_clear()
+        prompts.get_summary_model.cache_clear()
+
 
 class PlanTokenTests(unittest.TestCase):
     """실제 tiktoken으로 센 토큰 기준 구간 계획을 확인한다."""

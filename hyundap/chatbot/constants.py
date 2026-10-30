@@ -31,8 +31,11 @@ SUMMARY_REASONING_EFFORT = 'low'       # gpt-5·o 계열에만 넘긴다
 SUMMARY_STEP_OUTPUT_TOKENS = 8_000     # 중간 요약 출력 상한 (추론 토큰 포함)
 SUMMARY_FINAL_OUTPUT_TOKENS = 10_000   # 최종 요약 출력 상한 (추론 토큰 포함)
 
-# LLM: 모델명·API 키는 common.config.get_settings()가 정한다 (기본 gpt-5)
+# LLM: API 키와 요약 모델은 common.config.get_settings()가 정한다 (기본 gpt-5)
 LLM_TIMEOUT_SECONDS = 30
+# 질문 답변 모델. 10/30 실측(44문항×3회)에서 정답률은 gpt-5와 같고(99.2% 대 98.5%) 지연 중앙값 0.96초 대 5.71초,
+# 비용 1,000건 $3.34 대 $5.78이라 답변만 gpt-4o로 둔다. 요약은 gpt-4o가 핵심 사실을 47%만 담아 gpt-5를 유지한다
+ANSWER_MODEL = 'gpt-4o'
 
 NO_EVIDENCE_MESSAGE = '제공된 문서에서 확인할 수 없습니다.'
 # LLM이 유보 문구를 조금 바꿔 말해도 근거 없음으로 알아보기 위한 표현 (명세 밖 추가 상수)
