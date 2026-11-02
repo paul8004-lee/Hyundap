@@ -85,6 +85,9 @@ def _classification_notes(data: Mapping, status: str) -> list[str]:
     """AI 판정과 실제 게시 성공을 구분한다. 기존 버전의 유지 유형도 그대로 표시한다."""
     names = {code: name for name, code in DOC_TYPES}
     notes = []
+    if data.get("classification_incomplete"):
+        notes.append("문서 등록은 완료됐지만 유형 부가정보를 확인하지 못했어요. 다시 업로드하지 말고 검색 결과에서 확인해 주세요."
+                     if status == "succeeded" else "유형 부가정보를 확인하지 못했어요. 아래 처리 오류를 확인해 주세요.")
     if data.get("doc_type_fallback") is True:
         kind = names.get(data.get("doc_type"), "확인 필요한 유형")
         reason = data.get("doc_type_fallback_reason")
@@ -132,6 +135,8 @@ def render_upload_result(result: Any) -> str:
                     label = "처리 중 판단 유형"
             rows.append((label, value))
     confidence = data.get("doc_type_confidence")
+    if not data.get("doc_type") and data.get("classification_incomplete"):
+        rows.append(("문서 유형", "확인 필요"))
     if (data.get("classify_status") == "success"
             and data.get("auto_doc_type") in {code for _, code in DOC_TYPES}
             and type(confidence) in (int, float) and 0 <= confidence <= 1):
@@ -190,6 +195,22 @@ def render_batch_upload_results(results: list[dict], total: int) -> str:
     return f'<div class="hd-upload-batch"><p class="hd-upload-batch-summary">{escape(summary)}</p>{cards}</div>'
 
 
+def with_upload_input_state(refs, state, patch):
+    """실제 Gradio 이벤트에서 입력값을 보존하며 처리 중 폼 조작만 잠근다."""
+    patch = dict(patch)
+    enabled = not state.upload_busy
+    for name, interactive in (("file", enabled), ("doc_type", enabled),
+                              ("company", enabled and bool(state.user) and state.user.get("role") == "platform_admin")):
+        ref = refs[name]
+        previous = patch.get(ref)
+        update = dict(previous) if isinstance(previous, dict) and previous.get("__type__") == "update" else gr.update()
+        if ref in patch and not (isinstance(previous, dict) and previous.get("__type__") == "update"):
+            update["value"] = previous
+        update["interactive"] = interactive
+        patch[ref] = update
+    return patch
+
+
 def build_admin_page(
     companies: Sequence[tuple[str, str]],
     doc_types: Sequence[tuple[str, str]],
@@ -235,9 +256,9 @@ def build_admin_page(
             gr.HTML(
                 f'<div class="hd-upload-note"><strong>PDF · DOCX · PPTX</strong> 파일을 여러 개 선택할 수 있어요. {escape(type_note)}<br>'
                 '파일당 최대 100MiB(104,857,600바이트)이며, 빈 파일은 등록할 수 없어요.<br>'
-                '파일별로 순서대로 처리합니다. 실패한 파일은 결과를 확인하고 다시 선택해 주세요.<br>'
-                '처리 중 입력을 바꾸면 현재 파일은 등록될 수 있고 나머지 파일은 중단됩니다.<br>'
-                '암호화된 파일과 내용 추출이 필요한 스캔 PDF는 지원하지 않아요.</div>'
+                '파일별로 순서대로 처리합니다. 메뉴를 이동해도 진행과 결과가 유지됩니다.<br>'
+                '처리 중에는 파일·회사·유형 변경과 추가 등록을 잠시 막습니다.<br>'
+                '저장된 실패 파일은 결과 아래에서 다시 처리할 수 있어요. 암호화된 파일은 지원하지 않아요.</div>'
             )
             if demo_mode:
                 gr.HTML(
@@ -251,7 +272,12 @@ def build_admin_page(
             )
             feedback = gr.HTML("", elem_id="hd-upload-feedback", elem_classes=["hd-feedback"])
         result = gr.HTML("", elem_id="hd-upload-result")
+        retry_file = gr.Dropdown([], value=None, label="다시 처리할 실패 파일", visible=False,
+                                 interactive=True, elem_classes=["hd-select"])
+        retry = gr.Button("선택한 파일 다시 처리", visible=False, interactive=False,
+                          elem_classes=["hd-button"])
     return {
         "container": container, "company": company, "doc_type": doc_type,
         "file": file, "submit": submit, "feedback": feedback, "result": result,
+        "retry_file": retry_file, "retry": retry,
     }

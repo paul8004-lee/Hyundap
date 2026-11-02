@@ -82,6 +82,7 @@ class UIServices(Protocol):
     async def summarize(self, session: dict, document_id: str, version_id=None) -> dict: ...
     def summarize_stream(self, session: dict, document_id: str, version_id=None) -> AsyncIterator[dict]: ...
     async def upload(self, session: dict, file_path: str, company_id: str, doc_type: str | None = None) -> dict: ...
+    async def retry_upload(self, session: dict, version_id: str) -> dict: ...
     async def download(self, session: dict, document_id: str, version_id=None) -> str | dict: ...
 
 
@@ -181,6 +182,7 @@ class BackendBindings:
     company_names: Callable | None = None
     summarize_document_stream: Callable | None = None
     auto_classify_enabled: Callable[[], bool] | None = None
+    retry_upload: Callable | None = None
 
 
 class BackendServices:
@@ -398,6 +400,13 @@ class BackendServices:
         mode = {"auto_classify": True} if automatic else {"doc_type": doc_type}
         result = self._dict(await self._call("upload", user=user, file_path=str(path), company_id=company_id, **mode), "업로드")
         return {**result, "company_name": _company_names(checked, demo=self.temporary_auth).get(company_id, "회사명 확인 필요")}
+
+    async def retry_upload(self, session: dict, version_id: str) -> dict:
+        """입력 파일을 다시 신규 등록하지 않고 저장된 실패 후보를 재처리한다."""
+        if not isinstance(version_id, str) or not version_id.strip():
+            raise UIServiceError("INVALID_INPUT", "다시 처리할 파일을 선택해 주세요.", "input_error")
+        result = await self._call("retry_upload", user=await self._user(session), version_id=version_id)
+        return self._dict(result, "업로드 재시도")
 
     async def download(self, session: dict, document_id: str, version_id=None) -> str | dict:
         result = await self._call("download", user=await self._user(session), document_id=document_id, version_id=version_id)
