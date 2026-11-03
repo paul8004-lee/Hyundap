@@ -17,9 +17,11 @@ from hyundap.search.models import ChunkHit, DocumentInfo
 
 search_module = importlib.import_module('hyundap.search.search')
 filters_module = importlib.import_module('hyundap.search.filters')
+keyword_module = importlib.import_module('hyundap.search.keyword')
 
 USER = {'session_id': 's1'}
 SETTINGS = SimpleNamespace(search_min_score=0.3, search_top_k_max=80)
+HYBRID_SETTINGS = SimpleNamespace(search_min_score=0.3, search_top_k_max=80, search_hybrid=True)
 
 
 def make_hit(chunk_id, document_id, version_id='v1', company_id='A', score=0.9, section_no=1, text='본문',
@@ -292,6 +294,143 @@ class DocCodeTests(SearchTestCase):
         hits = search_chunks(USER, self.QUESTION, document_ids=['edu4'], top_k=16)
         self.assertEqual({h.document_id for h in hits}, {'edu4'})
         self.assertEqual(self.queries[0], (['edu4'], 80))
+
+
+class KeywordTests(unittest.TestCase):
+    """키워드(BM25) 점수와 순위 합치기(RRF) 순수 함수 (하이브리드)."""
+
+    def setUp(self):
+        keyword_module._token_cache.clear()  # 테스트마다 같은 chunk_id에 다른 글을 쓰므로 비운다
+
+    def test_tokenize(self):
+        """영문·숫자 코드는 통째와 조각, 한글은 두 글자씩, 한 글자 한글은 빠지는지 확인한다."""
+        self.assertEqual(keyword_module.tokenize('WBST-500 승강기를 및'),
+                         ['wbst-500', 'wbst', '500', '승강', '강기', '기를'])
+        self.assertEqual(keyword_module.tokenize('WMS에 HD2000'), ['wms', 'hd2000'])
+        self.assertEqual(keyword_module.tokenize(''), [])
+
+    def test_bm25_prefers_rare_and_matching_terms(self):
+        """겹치는 낱말이 없으면 0, 드문 낱말이 겹친 청크가 흔한 낱말만 겹친 청크보다 높은지 확인한다."""
+        docs = [['점검', '일정'], ['점검', 'wbst-500'], ['점검', '기록'], ['휴가', '규정']]
+        scores = keyword_module.bm25_scores(['wbst-500', '점검'], docs)
+        self.assertEqual(scores[3], 0.0)
+        self.assertGreater(scores[1], scores[0])
+        self.assertEqual(keyword_module.bm25_scores([], docs), [0.0] * 4)
+
+    def test_rank_by_keyword_drops_zero_and_limits(self):
+        """점수 0인 청크는 빼고, 점수순으로 limit개까지 돌려주는지 확인한다."""
+        chunks = [make_hit('a', 'd1', text='휴가 규정', score=None),
+                  make_hit('b', 'd2', text='WBST-500 사양과 점검', score=None),
+                  make_hit('c', 'd3', text='점검 기록', score=None)]
+        ranked = keyword_module.rank_by_keyword('WBST-500 점검', chunks, 5)
+        self.assertEqual([h.chunk_id for h in ranked], ['b', 'c'])
+        self.assertIsNone(chunks[1].score)  # 원래 후보는 바꾸지 않는다
+        self.assertEqual(len(keyword_module.rank_by_keyword('WBST-500 점검', chunks, 1)), 1)
+
+    def test_rrf_merge(self):
+        """두 목록 모두에 나온 청크가 위로 오고, 모두 1위면 1.0인지 확인한다."""
+        vector = [make_hit('a', 'd1', score=0.9), make_hit('b', 'd2', score=0.8)]
+        keyword = [make_hit('b', 'd2', score=7.0), make_hit('c', 'd3', score=3.0)]
+        merged = keyword_module.rrf_merge([vector, keyword])
+        self.assertEqual([h.chunk_id for h in merged], ['b', 'a', 'c'])
+        self.assertTrue(all(0 < h.score <= 1 for h in merged))
+        top = keyword_module.rrf_merge([[make_hit('a', 'd1')], [make_hit('a', 'd1')]])
+        self.assertAlmostEqual(top[0].score, 1.0)
+        self.assertEqual(keyword_module.rrf_merge([]), [])
+
+
+class HybridTests(SearchTestCase):
+    """SEARCH_HYBRID=1: 벡터·키워드 후보를 같은 조건에서 뽑아 RRF로 합치고 DB 공개 조건을 거친다."""
+
+    SPEC = 'WBST-500 사양서. 정격 속도와 점검 주기를 적는다.'
+
+    def setUp(self):
+        super().setUp()
+        keyword_module._token_cache.clear()
+        hybrid_on = patch.object(search_module, 'get_settings', return_value=HYBRID_SETTINGS)
+        hybrid_on.start()
+        self.addCleanup(hybrid_on.stop)
+        scope = patch.object(search_module, '_load_scope_chunks', side_effect=self._scope_chunks)
+        scope.start()
+        self.addCleanup(scope.stop)
+        # 벡터는 주제가 비슷한 매뉴얼을 앞에 두고, 모델명이 든 사양서는 최소 점수 아래에 있는 상황
+        self.hits = [make_hit('m1', 'man', score=0.62, text='승강기 정기 안전 절차 안내'),
+                     make_hit('s1', 'spec', score=0.25, text=self.SPEC)]
+        self.chunks = [make_hit('m1', 'man', score=None, text='승강기 정기 안전 절차 안내'),
+                       make_hit('s1', 'spec', score=None, text=self.SPEC),
+                       make_hit('h1', 'hr', score=None, text='휴가 규정')]
+        self.rows = [make_row('man'), make_row('spec'), make_row('hr')]
+
+    def _query_vectors(self, vector, where, top_k):
+        self.calls['vector_where'] = where
+        self.calls['top_k'] = top_k
+        return list(self.hits)
+
+    def _scope_chunks(self, where):
+        self.calls['scope_where'] = where
+        return list(self.chunks)
+
+    def test_keyword_finds_model_number(self):
+        """벡터 최소 점수에 못 미친 사양서도 모델명이 겹치면 결과에 들어오는지 확인한다."""
+        hits = search_chunks(USER, 'WBST-500 점검 주기')
+        self.assertIn('s1', [h.chunk_id for h in hits])
+        self.assertNotIn('h1', [h.chunk_id for h in hits])
+
+    def test_found_in_both_lists_comes_first(self):
+        """두 목록 모두에서 찾은 청크가 위로 오고, score가 합친 점수(0~1, 높은 순)인지 확인한다."""
+        self.hits[1] = make_hit('s1', 'spec', score=0.35, text=self.SPEC)
+        hits = search_chunks(USER, 'WBST-500 점검 주기')
+        self.assertEqual(hits[0].chunk_id, 's1')
+        self.assertEqual([h.score for h in hits], sorted((h.score for h in hits), reverse=True))
+        self.assertTrue(all(0 < h.score <= 1 for h in hits))
+
+    def test_same_where_for_both(self):
+        """키워드 후보도 벡터와 같은 조건(회사 범위 등)으로 뽑는지, 후보 수가 30개 이상인지 확인한다."""
+        search_chunks(USER, 'WBST-500', company_ids=['A'])
+        self.assertEqual(self.calls['scope_where'], self.calls['vector_where'])
+        self.assertEqual(self.calls['scope_where'], {'company_id': ['A']})
+        self.assertEqual(self.calls['top_k'], 30)
+
+    def test_keyword_hits_pass_visibility(self):
+        """키워드로만 찾은 청크도 DB 공개 조건에 걸리면 빠지는지 확인한다."""
+        self.rows = [make_row('man'), make_row('spec', publication_status='draft'), make_row('hr')]
+        hits = search_chunks(USER, 'WBST-500 점검 주기')
+        self.assertNotIn('s1', [h.chunk_id for h in hits])
+
+    def test_top_k_is_kept(self):
+        """합친 뒤에도 top_k개까지만 돌려주는지 확인한다."""
+        self.assertEqual(len(search_chunks(USER, 'WBST-500 점검 주기', top_k=1)), 1)
+
+    def test_screen_search_uses_hybrid(self):
+        """화면 검색도 같은 기준이라 키워드로 찾은 문서가 결과에 나오는지 확인한다."""
+        results = search(USER, 'WBST-500 점검 주기').results
+        self.assertIn('spec', [r.document_id for r in results])
+
+    def test_scope_error_is_converted(self):
+        """키워드 후보 조회에서 회사 조건 오류가 나면 검색 오류로 바뀌는지 확인한다."""
+        with patch.object(search_module, '_load_scope_chunks', side_effect=VectorStoreError('NO_COMPANY_SCOPE', 'x')):
+            self.assert_code('NO_COMPANY_SCOPE', search_chunks, USER, 'WBST-500')
+
+    def test_off_by_default(self):
+        """설정에 search_hybrid가 없거나 꺼져 있으면 키워드 후보를 읽지 않는지 확인한다."""
+        with patch.object(search_module, 'get_settings', return_value=SETTINGS):
+            search_chunks(USER, 'WBST-500 점검 주기')
+        self.assertNotIn('scope_where', self.calls)
+
+
+class ScopeChunksTests(unittest.TestCase):
+    """embedding.vector_store.get_scope_chunks의 회사 조건 검사."""
+
+    def test_rejects_where_without_company(self):
+        """회사 조건이 없는 조건으로는 청크 글을 읽지 않고 NO_COMPANY_SCOPE인지 확인한다."""
+        from hyundap.embedding import vector_store
+        with patch.object(vector_store, 'get_vector_store') as store:
+            for where in ({'is_active': True}, {'company_id': {'$in': []}}, {}):
+                with self.subTest(where=where):
+                    with self.assertRaises(VectorStoreError) as caught:
+                        vector_store.get_scope_chunks(where)
+                    self.assertEqual(caught.exception.code, 'NO_COMPANY_SCOPE')
+            store.assert_not_called()
 
 
 class ErrorTests(SearchTestCase):

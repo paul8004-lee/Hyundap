@@ -20,8 +20,10 @@
     (명세 외) extract_doc_codes — 질문에서 문서 코드(HRI-SYN-MAN-001 등)를 찾는다.
     (명세 외) match_documents_by_code — 후보 중 파일명에 문서 코드가 든 문서를 고른다.
     (명세 외) search_named_documents — 질문에 적힌 문서로 범위를 좁혀 검색한다.
+    (명세 외) _query_hybrid_hits — 벡터·키워드(BM25) 후보를 RRF로 합친다 (SEARCH_HYBRID=1일 때).
 
 화면 검색과 챗봇 검색은 run_chunk_search를 함께 써서 권한·점수·공개 기준이 항상 같다.
+하이브리드를 켜도 같은 조건(where)으로 두 후보를 뽑고, 합친 뒤 같은 DB 공개 조건을 거친다.
 """
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ from hyundap.common.config import get_settings
 
 from .errors import build_error, is_db_error, to_search_error
 from .filters import build_search_filter, normalize_doc_types, resolve_company_scope
+from .keyword import rank_by_keyword, rrf_merge
 from .models import (
     ChunkHit,
     DocumentInfo,
@@ -48,6 +51,8 @@ DEFAULT_LIMIT = 10
 CHUNKS_PER_DOCUMENT = 4
 DEFAULT_TOP_K = 10
 EXCERPT_MAX_CHARS = 200
+# 하이브리드에서 벡터·키워드 목록을 각각 몇 개까지 뽑아 합칠지 (top_k가 더 크면 top_k)
+HYBRID_CANDIDATES = 30
 
 # 문서 코드: 영문으로 시작해 하이픈으로 이은 영문·숫자 (HRI-SYN-MAN-001, MAN-001). 앞뒤에 영문·숫자가 붙으면 아니다
 DOC_CODE_PATTERN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+(?![A-Za-z0-9])")
@@ -68,6 +73,13 @@ def _query_vectors(vector, where, top_k: int):
     from hyundap.embedding.vector_store import query_vectors
 
     return query_vectors(vector, where, top_k=top_k)  # top_k는 키워드 전용 인자
+
+
+def _load_scope_chunks(where):
+    """embedding.vector_store.get_scope_chunks → 조건 안의 청크 글 전체 (키워드 검색 후보, score=None)."""
+    from hyundap.embedding.vector_store import get_scope_chunks
+
+    return get_scope_chunks(where)
 
 
 def _load_document_rows(document_ids: list[str]) -> list[dict]:
@@ -107,9 +119,10 @@ def validate_range(value, name: str, low, high):
 
 
 def get_search_settings() -> dict:
-    """FUN-242: 검색 설정값을 읽는다. 없을 때의 기본값(0.3, 80)과 범위 검사는 common.config가 처리한다."""
+    """FUN-242: 검색 설정값을 읽는다. 없을 때의 기본값(0.3, 80, 하이브리드 끔)과 범위 검사는 common.config가 처리한다."""
     s = get_settings()
-    return {"min_score": s.search_min_score, "top_k_max": s.search_top_k_max}
+    return {"min_score": s.search_min_score, "top_k_max": s.search_top_k_max,
+            "hybrid": bool(getattr(s, "search_hybrid", False))}
 
 
 # ── 결과 거르기·가공 ───────────────────────────────────────────────────────
@@ -250,11 +263,13 @@ def run_chunk_search(
     document_ids: Optional[list[str]],
     top_k: int,
     min_score: float,
+    hybrid: bool = False,
 ) -> list[ChunkHit]:
     """FUN-245: 회사 범위가 정해진 뒤의 공통 검색 단계. search와 search_chunks가 함께 쓴다.
 
     질문에 문서 코드가 있고 파일명이 그 코드와 맞는 문서가 있으면 그 문서로 좁혀 검색한다 (P1).
-    좁힌 결과가 비면(공개 조건·최소 점수에 걸리면) 원래 범위의 결과를 쓴다."""
+    좁힌 결과가 비면(공개 조건·최소 점수에 걸리면) 원래 범위의 결과를 쓴다.
+    hybrid=True이면 벡터만이 아니라 키워드(BM25) 후보도 뽑아 순위를 합친다."""
     where = build_search_filter(company_ids, doc_types, document_ids)
     try:
         vector = _embed_query(query)
@@ -263,10 +278,11 @@ def run_chunk_search(
 
     codes = extract_doc_codes(query)
     if codes:
-        named = search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score)
+        named = search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score,
+                                       query=query, hybrid=hybrid)
         if named:
             return named
-    return _query_visible_hits(vector, where, company_ids, top_k, min_score)
+    return _retrieve(query, vector, where, company_ids, top_k, min_score, hybrid)
 
 
 # ── 질문 속 문서 코드 (P1: 문서명을 넣은 질문에서 정답 문서가 밀리는 문제) ──────────
@@ -291,11 +307,13 @@ def match_documents_by_code(hits: list, codes: list[str]) -> list[str]:
     return list(dict.fromkeys(document_id for document_id in matched if document_id))
 
 
-def search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score) -> list[ChunkHit]:
+def search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score,
+                           query: str = "", hybrid: bool = False) -> list[ChunkHit]:
     """질문에 적힌 문서로 좁힌 검색. 맞는 문서가 없으면 빈 목록.
 
     원래 범위(where, document_ids 포함)에서 조회 상한만큼 후보를 받아 파일명이 맞는 문서를 고른 뒤,
-    그 문서만으로 다시 조회한다. 후보가 원래 범위 안에서만 나오므로 검색 범위를 넓히지 않는다."""
+    그 문서만으로 다시 조회한다. 후보가 원래 범위 안에서만 나오므로 검색 범위를 넓히지 않는다.
+    다시 조회할 때도 hybrid 설정을 따른다."""
     try:
         candidates = _query_vectors(vector, where, get_search_settings()["top_k_max"])
     except Exception as exc:
@@ -304,7 +322,14 @@ def search_named_documents(vector, where, codes, company_ids, doc_types, top_k, 
     if not matched:
         return []
     narrowed = build_search_filter(company_ids, doc_types, matched)
-    return _query_visible_hits(vector, narrowed, company_ids, top_k, min_score)
+    return _retrieve(query, vector, narrowed, company_ids, top_k, min_score, hybrid)
+
+
+def _retrieve(query, vector, where, company_ids, top_k, min_score, hybrid) -> list[ChunkHit]:
+    """설정에 따라 벡터만(기본) 또는 하이브리드로 조회한다."""
+    if hybrid:
+        return _query_hybrid_hits(query, vector, where, company_ids, top_k, min_score)
+    return _query_visible_hits(vector, where, company_ids, top_k, min_score)
 
 
 def _query_visible_hits(vector, where, company_ids, top_k, min_score) -> list[ChunkHit]:
@@ -314,7 +339,32 @@ def _query_visible_hits(vector, where, company_ids, top_k, min_score) -> list[Ch
     except Exception as exc:
         raise to_search_error(exc) from exc
 
-    raw = filter_by_min_score(raw, min_score)
+    return _keep_visible(filter_by_min_score(raw, min_score), company_ids)
+
+
+# ── 하이브리드 (피드백 "검색이 벡터 단독" 보완) ─────────────────────────────────
+# 벡터 검색은 모델명·번호처럼 글자 그대로 맞춰야 하는 질문에 약하다. 같은 조건에서 키워드(BM25) 후보를 따로 뽑고,
+# 점수 기준이 서로 달라 순위만으로 합친다(RRF). score를 합친 점수로 바꾸므로 챗봇이 점수로 다시 정렬해도 순서가 유지된다.
+def _query_hybrid_hits(query, vector, where, company_ids, top_k, min_score) -> list[ChunkHit]:
+    """벡터 후보·키워드 후보 → RRF 합치기 → DB 공개 조건 → 상위 top_k.
+
+    최소 점수는 벡터 후보에만 적용하고, 키워드 후보는 질문과 겹치는 낱말이 있는 청크만 쓴다.
+    키워드 후보도 같은 where(회사·유형·문서·공개 청크)에서만 뽑는다."""
+    size = max(top_k, HYBRID_CANDIDATES)
+    try:
+        vector_hits = _query_vectors(vector, where, size)
+        chunks = _load_scope_chunks(where)
+    except Exception as exc:
+        raise to_search_error(exc) from exc
+
+    vector_hits = filter_by_min_score(vector_hits, min_score)
+    keyword_hits = rank_by_keyword(query, chunks, size)
+    merged = rrf_merge([vector_hits, keyword_hits])
+    return _keep_visible(merged, company_ids)[:top_k]
+
+
+def _keep_visible(raw: list, company_ids: list[str]) -> list[ChunkHit]:
+    """후보 중 DB 공개 조건을 통과한 것만 ChunkHit으로 바꾼다. 들어온 순서(점수순)를 유지한다."""
     if not raw:
         return []
 
@@ -362,6 +412,7 @@ def search(
         None,
         top_k,
         min_score if min_score is not None else settings["min_score"],
+        settings["hybrid"],
     )
     results = group_hits_by_document(hits, limit, chunks_per_document)
     return SearchResponse(
@@ -403,4 +454,4 @@ def search_chunks(
         document_ids = list(dict.fromkeys(str(d).strip() for d in document_ids if d is not None and str(d).strip()))
         if not document_ids:
             return []
-    return run_chunk_search(q, scope, types, document_ids, top_k, min_score)
+    return run_chunk_search(q, scope, types, document_ids, top_k, min_score, settings["hybrid"])
