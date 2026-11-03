@@ -171,8 +171,8 @@ class SummaryModelTests(unittest.TestCase):
         from types import SimpleNamespace
         from hyundap.chatbot import prompts
         prompts.get_summary_model.cache_clear()
-        settings = SimpleNamespace(openai_api_key='sk-test', openai_chat_model=name)
-        with patch.object(prompts, 'get_settings', return_value=settings):
+        settings = SimpleNamespace(openai_api_key='sk-test', openai_chat_model='gpt-5')
+        with patch.object(prompts, 'get_settings', return_value=settings), patch.object(prompts, 'SUMMARY_MODEL', name):
             model = prompts.get_summary_model(True)
         prompts.get_summary_model.cache_clear()
         return model
@@ -199,6 +199,28 @@ class SummaryModelTests(unittest.TestCase):
         with patch.object(prompts, 'get_settings', return_value=SimpleNamespace(openai_api_key='sk-test', openai_chat_model='gpt-5')):
             self.assertEqual(prompts.get_chat_model().request_timeout, 30)
         prompts.get_chat_model.cache_clear()
+
+    def test_answer_and_summary_use_luna_regardless_of_settings(self):
+        # 답변·요약 모델은 챗봇 상수(gpt-6-luna)로 정하고, 공통 설정 모델(gpt-5)은 따르지 않는다. luna는 추론 강도를 받지 않는다
+        from types import SimpleNamespace
+        from hyundap.chatbot import prompts
+        prompts.get_chat_model.cache_clear()
+        prompts.get_summary_model.cache_clear()
+        settings = SimpleNamespace(openai_api_key='sk-test', openai_chat_model='gpt-5')
+        with patch.object(prompts, 'get_settings', return_value=settings):
+            self.assertEqual(prompts.get_chat_model().model_name, 'gpt-6-luna')
+            model = prompts.get_summary_model(True)
+            self.assertEqual(model.model_name, 'gpt-6-luna')
+            self.assertIsNone(model.reasoning_effort)
+        prompts.get_chat_model.cache_clear()
+        prompts.get_summary_model.cache_clear()
+
+    def test_summary_prompt_asks_alias_per_sentence(self):
+        # 인용 검사는 문장마다 이름표를 요구하므로 프롬프트도 '항목'이 아니라 '문장' 기준이어야 한다 (10/30 실측: 항목 기준이면 luna 묶음 요약 12건 모두 탈락)
+        from hyundap.chatbot import prompts
+        for prompt in (prompts.SUMMARY_STEP_PROMPT, prompts.SUMMARY_FINAL_PROMPT):
+            self.assertIn('모든 문장 끝에', prompt)
+            self.assertNotIn('모든 항목 끝에', prompt)
 
 
 class PlanTokenTests(unittest.TestCase):

@@ -14,8 +14,9 @@ MAX_QUESTION_CHARS = 2000    # embedding.embed_query·search 검색어와 같은
 MAX_ANSWER_CHARS = 20000
 EXCERPT_MAX_CHARS = 300      # 출처 발췌 길이 (search 화면 발췌 200자와는 별개)
 
-# 요약: 구간별 직렬 요약 (gpt-5 입력 약 27.2만 토큰 중 23만까지 쓴다)
-SUMMARY_INPUT_TOKEN_BUDGET = 230_000   # 한 호출 입력 상한 (프롬프트 전체 기준)
+# 요약: 구간별 직렬 요약. gpt-6-luna는 입력 44.2만 토큰까지 받지만, 10/30 실측에서 38만 토큰을 한 번에 요약하면
+# 5회 중 2회가 세부 값을 범위로 뭉뚱그려(사실 40개 중 2개만 남김) 한 호출을 30만까지만 쓴다 (2회로 나누면 5회 모두 40개 유지)
+SUMMARY_INPUT_TOKEN_BUDGET = 300_000   # 한 호출 입력 상한 (프롬프트 전체 기준)
 SUMMARY_CARRY_TOKENS = 8_000           # 다음 구간에 넘기는 이전 요약 몫
 SUMMARY_PROMPT_TOKENS = 1_000          # 시스템 프롬프트·형식 고정분
 SUMMARY_MAX_CALLS = 3                  # 문서 1개 요약의 LLM 호출 상한 (= 최대 구간 수)
@@ -31,8 +32,13 @@ SUMMARY_REASONING_EFFORT = 'low'       # gpt-5·o 계열에만 넘긴다
 SUMMARY_STEP_OUTPUT_TOKENS = 8_000     # 중간 요약 출력 상한 (추론 토큰 포함)
 SUMMARY_FINAL_OUTPUT_TOKENS = 10_000   # 최종 요약 출력 상한 (추론 토큰 포함)
 
-# LLM: 모델명·API 키는 common.config.get_settings()가 정한다 (기본 gpt-5)
+# LLM: API 키는 common.config.get_settings()가 정하고, 모델은 아래 챗봇 상수로 정한다 (분류 CLASSIFY_MODEL과 같은 gpt-6-luna)
 LLM_TIMEOUT_SECONDS = 30
+# 질문 답변 모델. 10/30 실측(44문항×3회)에서 정답 132/132(gpt-4o 131, gpt-5 130), 지연 중앙값 1.5초,
+# 비용 1,000건 $0.15(gpt-4o $3.34, gpt-5 $5.78)
+ANSWER_MODEL = 'gpt-6-luna'
+# 요약 모델. 10/30 실측(6건×3회)에서 핵심 사실 98.6%(gpt-5 99.1%), 첫 글자 3.1초(gpt-5 10.7초), 비용 1,000건 $0.68(gpt-5 $16.80)
+SUMMARY_MODEL = 'gpt-6-luna'
 
 NO_EVIDENCE_MESSAGE = '제공된 문서에서 확인할 수 없습니다.'
 # LLM이 유보 문구를 조금 바꿔 말해도 근거 없음으로 알아보기 위한 표현 (명세 밖 추가 상수)

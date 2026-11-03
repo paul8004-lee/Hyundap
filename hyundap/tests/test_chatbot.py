@@ -7,7 +7,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from hyundap.chatbot.citations import validate_citations
+from hyundap.chatbot.citations import extract_fact_aliases, render_answer, validate_citations
 from hyundap.chatbot.models import ChatbotError, ChatFilters
 
 ask_module = sys.modules['hyundap.chatbot.ask']  # 패키지가 ask 함수를 다시 내보내므로 모듈은 여기서 꺼낸다
@@ -61,6 +61,59 @@ class ValidateCitationsTests(unittest.TestCase):
 
     def test_no_evidence_message(self):
         self.assert_rejected('제공된 문서에서 확인할 수 없습니다.', 'NO_EVIDENCE')
+
+    def test_no_evidence_message_with_alias(self):
+        """유보 문장에만 이름표를 붙여도 근거 없음이다 (10/30 실측에서 gpt-5가 낸 형태)."""
+        self.assert_rejected('제공된 문서에서 확인할 수 없습니다 [E1][E2].', 'NO_EVIDENCE')
+        self.assert_rejected('- 제공된 문서에서 확인할 수 없습니다 [E1].\n- 관련 내용이 없습니다 [E2].', 'NO_EVIDENCE')
+        self.assertIsNone(ask_module.ask_check_answer('제공된 문서에서 확인할 수 없습니다 [E1].', ALIASES))
+
+    def test_fact_with_partial_no_evidence_is_answer(self):
+        """사실과 '그 밖은 확인할 수 없음'이 섞이면 정상 답변이다."""
+        self.assert_used('기한은 6 업무시간입니다 [E1]. 비용은 확인할 수 없습니다.', ['E1'])
+
+
+class FactAliasTests(unittest.TestCase):
+    """제목·유보 문장에만 붙은 이름표를 출처에서 빼고 화면에서도 지우는지 확인한다 (10/30 실제 문서 실측에서 나온 형태)."""
+    ANSWER = ('현대엘리베이터: [E3]\n'
+              '점검 전 표지판을 설치합니다 [E1].\n'
+              '브레이크 라이닝이 3mm 미만이면 교체합니다. [E2]\n'
+              '현대경제연구원: [E5]\n'
+              '제공된 문서에서 확인할 수 없습니다. [E5]')
+
+    def test_fact_aliases_skip_heading_and_no_evidence(self):
+        self.assertEqual(extract_fact_aliases(self.ANSWER), ['E1', 'E2'])
+
+    def test_render_drops_unused_aliases(self):
+        display, numbers = render_answer(self.ANSWER, ['E1', 'E2'])
+        self.assertEqual(numbers, {'E1': 1, 'E2': 2})
+        self.assertNotIn('E', display)
+        self.assertIn('현대엘리베이터:\n', display)
+        self.assertIn('설치합니다 [1].', display)
+        self.assertTrue(display.endswith('확인할 수 없습니다.'))
+
+    def test_plain_answer_unchanged(self):
+        answer = '교육은 11월 3일에 시작합니다 [E2]. 장소는 본관입니다 [E1][E2].'
+        self.assertEqual(extract_fact_aliases(answer), ['E2', 'E1'])
+        self.assertEqual(render_answer(answer, ['E2', 'E1'])[0], '교육은 11월 3일에 시작합니다 [1]. 장소는 본관입니다 [2][1].')
+
+
+class SelectEvidenceTests(unittest.TestCase):
+    """문서당 상한 뒤에 남은 자리를 잘린 근거로 채우는지 확인한다."""
+    @staticmethod
+    def hits(spec):
+        return [types.SimpleNamespace(document_id=doc, chunk_id=f'{doc}{i}', score=None) for i, doc in enumerate(spec)]
+
+    def test_backfills_main_document_when_slots_remain(self):
+        # 주 문서 5개 + 점수 낮은 다른 문서 1개: 예전에는 주 문서 4개만 남아 5번째(점검 절차 4단계)가 빠졌다
+        picked = ask_module.select_evidence_limit(self.hits('AAAABA'))
+        self.assertEqual([h.chunk_id for h in picked], ['A0', 'A1', 'A2', 'A3', 'B4', 'A5'])
+
+    def test_cap_still_keeps_other_documents(self):
+        # 근거가 8개를 넘으면 상한이 다른 문서 자리를 지킨다: A 10개·B 2개 → A 6개·B 2개
+        picked = ask_module.select_evidence_limit(self.hits('AAAAAAAAAABB'))
+        self.assertEqual(len(picked), 8)
+        self.assertEqual(sum(h.document_id == 'B' for h in picked), 2)
 
 
 class AskFiltersTests(unittest.TestCase):
