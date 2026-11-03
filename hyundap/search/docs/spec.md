@@ -41,6 +41,7 @@ search(user, query, company_ids, doc_types, limit, chunks_per_document, min_scor
  │   ├ embedding.embed_query
  │   ├ (질문에 문서 코드가 있으면) search_named_documents → 좁힌 결과가 있으면 그것을 반환       명세 외
  │   ├ embedding.query_vectors(top_k=)
+ │   │   (SEARCH_HYBRID=1이면 _query_hybrid_hits: 벡터 후보 + get_scope_chunks→BM25 후보 → RRF  명세 외)
  │   ├ filter_by_min_score                                                                  FUN-246
  │   ├ fetch_document_info → db.get_documents_with_active_version (1회)                     FUN-247
  │   ├ is_visible (8조건)                                                                   FUN-248
@@ -61,13 +62,15 @@ search_chunks(user, query, company_ids, doc_types, document_ids, top_k, min_scor
 |---|---|---|---|
 | FUN-240 | `validate_query(query)` | str → 정리된 str | 앞뒤 공백 제거, 문자열 아님·빈 값 `EMPTY_QUERY`, 2000자 초과 `QUERY_TOO_LONG` |
 | FUN-241 | `validate_range(value, name, low, high)` | 숫자 → 그대로 | `min_score`는 int·float, 나머지(limit·chunks_per_document·top_k)는 **int만**. bool 거부. 범위 밖 `INVALID_MIN_SCORE` / `INVALID_LIMIT` |
-| FUN-242 | `get_search_settings()` | → `{min_score, top_k_max}` | `hyundap.common.config.get_settings()`의 `search_min_score`·`search_top_k_max`. 기본값·범위 처리는 config |
+| FUN-242 | `get_search_settings()` | → `{min_score, top_k_max, hybrid}` | `hyundap.common.config.get_settings()`의 `search_min_score`·`search_top_k_max`·`search_hybrid`(없으면 False). 기본값·범위 처리는 config |
 | FUN-243 | `search(user, query, company_ids=None, doc_types=None, limit=10, chunks_per_document=4, min_score=None)` | → `SearchResponse` | limit 1~20, chunks_per_document 1~20. 결과 없음은 빈 목록 |
 | FUN-244 | `search_chunks(user, query, company_ids=None, doc_types=None, document_ids=None, top_k=None, min_score=None)` | → `list[ChunkHit]` 점수 내림차순 | top_k 기본 10, 1~top_k_max. min_score 기본 설정값. `document_ids=None` 제한 없음, 정리 후 빈 목록이면 `[]` 반환(권한 확인 후) |
 | FUN-245 | `run_chunk_search(query, company_ids, doc_types, document_ids, top_k, min_score)` | → `list[ChunkHit]` | 임베딩·벡터 오류는 `to_search_error`. 최소 점수 후 비면 DB 조회 없이 `[]`. 질문에 문서 코드가 있으면 `search_named_documents` 결과를 먼저 쓰고, 비면 원래 범위 결과 |
 | (명세 외) | `extract_doc_codes(query)` | → `list[str]` | 영문으로 시작해 하이픈으로 이은 영문·숫자(`HRI-SYN-MAN-001`, `MAN-001`), 숫자 포함. 대문자·중복 제거·나온 순서 |
 | (명세 외) | `match_documents_by_code(hits, codes)` | → `list[str]` 문서 ID | 메타데이터 `file_name`에 코드 포함(대소문자 무시, 앞뒤에 영문·숫자가 이어지면 불일치) |
-| (명세 외) | `search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score)` | → `list[ChunkHit]` | 원래 범위에서 top_k_max개 후보 → 코드가 맞는 문서 → 그 문서만으로 재조회(최소 점수·공개 조건 동일). 맞는 문서 없으면 `[]`. 원래 범위 밖으로 넓히지 않음 |
+| (명세 외) | `search_named_documents(vector, where, codes, company_ids, doc_types, top_k, min_score)` | → `list[ChunkHit]` | 원래 범위에서 top_k_max개 후보 → 코드가 맞는 문서 → 그 문서만으로 재조회(최소 점수·공개 조건 동일). 맞는 문서 없으면 `[]`. 원래 범위 밖으로 넓히지 않음. 재조회도 hybrid 설정을 따름 |
+| (명세 외) | `_query_hybrid_hits(query, vector, where, company_ids, top_k, min_score)` | → `list[ChunkHit]` | `SEARCH_HYBRID=1`일 때. 같은 where로 벡터 후보 max(top_k, 30)개(최소 점수 적용) + `get_scope_chunks` 청크의 BM25 상위 max(top_k, 30)개(겹치는 낱말 0개는 제외) → `rrf_merge`(k=60, 0~1로 맞춤) → 공개 조건 8개 → 상위 top_k. **score는 합친 순위 점수** |
+| (명세 외) | `keyword.tokenize` · `bm25_scores` · `rank_by_keyword` · `rrf_merge` | 순수 함수 | 영문·숫자는 소문자 통째(하이픈 코드는 조각도), 한글은 두 글자씩. BM25 k1=1.5, b=0.75. 청크 낱말은 chunk_id로 기억 |
 | FUN-246 | `filter_by_min_score(hits, min_score)` | → list | 점수 None 또는 기준 미만 제거, 순서 유지 |
 | FUN-247 | `fetch_document_info(document_ids)` | → `dict[str, DocumentInfo]` | 빈 입력 `{}`. DB에 없는 ID는 누락(숨김). `DbError` → `SEARCH_UNAVAILABLE`, 그 외 예외는 그대로 올림 |
 | FUN-248 | `is_visible(info, hit, company_ids)` | → bool | 아래 7절의 8조건 모두 참일 때만 True |

@@ -68,9 +68,9 @@ def search_settings() -> dict:
         from hyundap.common.config import get_settings
         s = get_settings()
         return {"min_score": s.search_min_score, "top_k_max": s.search_top_k_max,
-                "embedding_model": s.openai_embedding_model}
+                "embedding_model": s.openai_embedding_model, "hybrid": s.search_hybrid}
     except Exception:
-        return {"min_score": None, "top_k_max": None, "embedding_model": None}
+        return {"min_score": None, "top_k_max": None, "embedding_model": None, "hybrid": None}
 
 
 async def run_real(cases: list[dict]) -> list[dict]:

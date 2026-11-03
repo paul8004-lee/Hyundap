@@ -13,6 +13,7 @@ Functions:
     FUN-313 upsert_chunks               FUN-314 build_where_filter  FUN-315 query_vectors
     FUN-316 activate_version            FUN-317 delete_vectors      FUN-318 get_version_chunk_ids
     FUN-319 get_document_chunks         FUN-320 check_vector_store_health
+    (명세 외) get_scope_chunks — 조건 안의 청크 글 전체 (search 키워드 검색용, 포크에서 이준영 추가)
 """
 import time
 from typing import Any, Optional
@@ -371,6 +372,22 @@ def get_document_chunks(document_id: str, version_id: Optional[str] = None, *, a
     rows = zip(found["ids"], found["documents"] or [], found["metadatas"] or [])
     ordered = sorted(rows, key=lambda r: _chunk_index(r[2]))
     return [VectorHit(chunk_id=cid, text=doc or "", metadata=dict(meta or {}), score=None) for cid, doc, meta in ordered]
+
+
+# (명세 외) 조건 안의 청크 글을 모두 돌려준다(score=None). search의 키워드(BM25) 검색이 후보로 쓴다
+def get_scope_chunks(where: dict) -> list[VectorHit]:
+    """(명세 외) filter 조건 안의 청크 글·메타데이터를 모두 돌려준다(score=None, 키워드 검색용).
+
+    query_vectors와 같이 filter에 회사 조건이 없으면 NO_COMPANY_SCOPE로 거부한다.
+    """
+    # 회사 조건 없는 조회는 거부(다른 회사 자료가 키워드 검색에 섞이는 사고 방지)
+    if not _has_company_condition(where):
+        raise VectorStoreError("NO_COMPANY_SCOPE", "회사 조건이 없는 조회는 허용되지 않습니다.")
+    store = get_vector_store()
+    found = _get_all(store, where, ["documents", "metadatas"])
+    rows = zip(found["ids"], found["documents"] or [], found["metadatas"] or [])
+    return [VectorHit(chunk_id=str((meta or {}).get("chunk_id") or cid), text=doc or "", metadata=dict(meta or {}),
+                      score=None) for cid, doc, meta in rows]
 
 
 # ---------------------------------------------------------------------------

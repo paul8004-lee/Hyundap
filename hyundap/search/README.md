@@ -57,6 +57,24 @@ search() / search_chunks()
  ⑪ 문서로 묶기·발췌 (화면만)   group_hits_by_document, to_citation, make_excerpt
 ```
 
+### 하이브리드 검색 (`.env`에 `SEARCH_HYBRID=1`, 기본은 꺼짐)
+
+벡터 검색은 모델명·번호(`WBST-500`, `HD2000`)처럼 글자 그대로 맞춰야 하는 질문에 약합니다. 켜면 ⑥~⑦이 이렇게 바뀝니다.
+
+```
+ ⑥-1 벡터 후보             query_vectors(max(top_k, 30)개) → 최소 점수 0.3 적용
+ ⑥-2 키워드 후보           vector_store.get_scope_chunks(같은 where) → BM25 상위 max(top_k, 30)개
+                           (겹치는 낱말이 하나도 없는 청크는 제외)
+ ⑦   순위 합치기 (RRF)     청크마다 목록별 1/(60+순위)를 더해 0~1로 맞춤 → ⑧ DB 확인 → 상위 top_k
+```
+
+- 키워드 후보도 **같은 검색 조건(회사·유형·문서·공개 청크)**에서만 뽑고, 회사 조건이 없으면 거부합니다. 합친 뒤에는 똑같이 DB 8가지 조건을 거칩니다.
+- 키워드 색인을 따로 두지 않고 검색할 때 벡터 저장소의 청크 글로 계산하므로, 업로드·삭제·버전 교체와 어긋나지 않습니다.
+- 낱말 나누기: 영문·숫자는 소문자 통째(하이픈 코드는 조각도 함께), 한글은 형태소 분석 없이 두 글자씩(`승강기를` → `승강`·`강기`·`기를`).
+- **켜면 `score`의 뜻이 바뀝니다**: 벡터 유사도가 아니라 합친 순위 점수(두 목록 모두 1위면 1.0)입니다. 챗봇이 점수로 다시 정렬해도 합친 순서가 유지됩니다.
+- 속도: 가짜 청크 1만 개 기준 첫 검색 약 1초(낱말 나누기), 이후 약 0.2초(chunk_id별로 기억). 벡터 저장소에서 청크 글을 읽는 시간은 별도입니다.
+- 효과는 평가 도구로 같은 정답셋을 끄고 켜서 비교합니다: `python -m hyundap.search.quality.run_eval --run` (기록의 `settings.hybrid`로 구분).
+
 ## 지켜지는 규칙
 
 - **다른 회사 문서는 나오지 않습니다.** 화면에서 고른 회사를 그대로 믿지 않고 auth가 준 허용 회사와 대조합니다(허용 밖이면 `COMPANY_FORBIDDEN`). 벡터 조회 조건에도 회사가 반드시 들어갑니다.
@@ -105,6 +123,7 @@ DB 조회 함수 안의 예상하지 못한 오류(코드 버그)는 숨기지 �
 | `search.py` | 검색 본체: 입력 검사, 설정, 벡터 조회, 점수·공개 거르기, 결과 가공, `search`·`search_chunks` |
 | `filters.py` | 회사 범위(권한 결과 적용), 문서 유형 정리, 벡터 검색 조건 |
 | `errors.py` | `SearchError`, 오류 변환(`to_search_error`), 화면 안내 변환(`to_feedback`), 오류 문구·상태 표 |
+| `keyword.py` | 하이브리드용 순수 함수: 낱말 나누기, BM25 점수, RRF 순위 합치기 |
 | `models.py` | 자료형 5개: `DocumentInfo`, `ChunkHit`, `SearchCitation`, `SearchResult`, `SearchResponse` |
 | `__init__.py` | 공개 함수 3개만 내보냄 |
 
@@ -114,10 +133,10 @@ DB 조회 함수 안의 예상하지 못한 오류(코드 버그)는 숨기지 �
 |---|---|
 | auth (전재경) | `hyundap.auth.permissions.get_allowed_company_ids(user)` → 허용 회사 set |
 | db (전재경) | `hyundap.db.documents_repo.get_documents_with_active_version(ids)` → 문서 11필드 dict 목록 |
-| embedding (박영준) | `embed_query`, `build_where_filter`, `query_vectors(vector, where, top_k=)` |
-| common (이성민) | `get_settings().search_min_score`·`search_top_k_max`, `DOC_TYPE_CODES` |
+| embedding (박영준) | `embed_query`, `build_where_filter`, `query_vectors(vector, where, top_k=)`, `get_scope_chunks(where)`(포크에서 추가) |
+| common (이성민) | `get_settings().search_min_score`·`search_top_k_max`·`search_hybrid`, `DOC_TYPE_CODES` |
 
-다른 폴더 함수는 `_embed_query`, `_query_vectors`, `_load_document_rows`, `_load_allowed_company_ids`, `_build_where_filter` 창구 함수 안에서 호출할 때 import합니다. 이름이 바뀌면 이 창구만 고치면 되고, 시험에서는 이 창구만 가짜로 바꿔 끼우면 됩니다.
+다른 폴더 함수는 `_embed_query`, `_query_vectors`, `_load_scope_chunks`, `_load_document_rows`, `_load_allowed_company_ids`, `_build_where_filter` 창구 함수 안에서 호출할 때 import합니다. 이름이 바뀌면 이 창구만 고치면 되고, 시험에서는 이 창구만 가짜로 바꿔 끼우면 됩니다.
 
 ## 시험할 때 주의 (모듈 이름 가림)
 
@@ -144,7 +163,7 @@ python -m unittest hyundap.tests.test_search -v
 ## 실행·설정
 
 - 모든 실행은 저장소 맨 위 폴더에서 합니다. 다른 폴더는 `from hyundap.<폴더>…`, search 안은 `from .models …`처럼 가져옵니다.
-- 저장소 맨 위 `.env`: `OPENAI_API_KEY`(질문 임베딩), `DATABASE_URL`(DB 조회), 선택으로 `SEARCH_MIN_SCORE`(기본 0.3)·`SEARCH_TOP_K_MAX`(기본 80).
+- 저장소 맨 위 `.env`: `OPENAI_API_KEY`(질문 임베딩), `DATABASE_URL`(DB 조회), 선택으로 `SEARCH_MIN_SCORE`(기본 0.3)·`SEARCH_TOP_K_MAX`(기본 80)·`SEARCH_HYBRID`(기본 꺼짐, `1`이면 하이브리드).
 - import 확인: `python -c "import hyundap.search.search"`
 
 ## 통합 명세에 없는 추가 항목
@@ -157,6 +176,7 @@ python -m unittest hyundap.tests.test_search -v
 | `is_access_error`, `is_db_error` (errors.py) | auth·db 오류 판별 |
 | `pick_company_scope` (filters.py) | 회사 범위 계산을 auth 없이 시험하려고 분리 |
 | 함수 인자 `actor` → `user` | 통합 명세 5장 결정 (UI·chatbot 호출 방식과 통일) |
+| 하이브리드 검색 (`keyword.py`, `SEARCH_HYBRID`) | 피드백 "검색이 벡터 단독" 보완. 모델명·번호처럼 글자 그대로 맞춰야 하는 질문 (포크에서 추가) |
 
 ## 알려진 한계
 
@@ -164,3 +184,4 @@ python -m unittest hyundap.tests.test_search -v
 - 한 문서의 청크가 상위를 독차지해도 결과 문서 수가 `limit`보다 적을 수 있습니다(조회 개수 = limit × 4, 상한 80).
 - 최소 점수 0.3은 임시값입니다(팀 미정 POL-13). 실제 문서로 확인 후 `.env`로 조정합니다.
 - OpenAI 일시 오류 시 embedding이 1·2·4초 간격으로 재시도하므로 검색이 몇 초 늦어질 수 있습니다.
+- 하이브리드는 아직 실제 데이터로 효과를 재지 않았습니다. 리랭커와 질문 속 문서 종류 반영은 없습니다.
